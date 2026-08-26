@@ -695,6 +695,34 @@ with tabs[11]:
             fig_loss.update_layout(height=340, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
             st.plotly_chart(fig_loss, use_container_width=True)
 
+    # ── Market Maker Net Gamma Exposure (GEX in ₹ Cr) ─────────────────────────
+    from core.gamma_exposure_gex import compute_net_gamma_exposure_profile
+    gex_strikes = [c["strike"] for c in opt_data["calls"]]
+    gex_call_oi = [c["oi"] for c in opt_data["calls"]]
+    gex_put_oi = [p["oi"] for p in opt_data["puts"]]
+
+    gex_res = compute_net_gamma_exposure_profile(fno_price, gex_strikes, gex_call_oi, gex_put_oi)
+
+    if gex_res:
+        with st.expander("🌊 **Market Maker Net Gamma Exposure (GEX in ₹ Cr) & Zero-Gamma Volatility Pivot**", expanded=False):
+            gx1, gx2, gx3, gx4 = st.columns(4)
+            gx1.metric("Zero-Gamma Flip Level", f"₹{gex_res['zero_gamma_level']:,.0f}", "Volatility Pivot")
+            gx2.metric("Total Net GEX", f"₹{gex_res['total_net_gex_cr']:+,.2f} Cr", gex_res['regime_badge'])
+            gx3.metric("Call Squeeze Trigger", f"₹{gex_res['call_squeeze_level']:,.0f}")
+            gx4.metric("Put Support Wall", f"₹{gex_res['put_liquidity_support']:,.0f}")
+
+            st.markdown(f"**Gamma Hedging Dynamics:** `{gex_res['vol_regime']}` — *{gex_res['regime_desc']}*")
+
+            # GEX Bar Chart
+            df_gex_chart = gex_res["gex_table"]
+            fig_gex = go.Figure()
+            colors = ["#00c875" if v > 0 else "#ff4b4b" for v in df_gex_chart["net_gex_cr"]]
+            fig_gex.add_trace(go.Bar(x=df_gex_chart["strike"], y=df_gex_chart["net_gex_cr"], marker_color=colors, name="Net GEX (₹ Cr)"))
+            fig_gex.add_vline(x=gex_res["zero_gamma_level"], line_dash="dash", line_color="#38bdf8", annotation_text=f"Zero-Gamma: ₹{gex_res['zero_gamma_level']:,.0f}")
+            fig_gex.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"), yaxis_title="Net GEX (₹ Crores per 1% move)")
+            st.plotly_chart(fig_gex, use_container_width=True)
+
+
     # Option Chain Table
     with st.expander("📋 Detailed Option Chain Matrix & Black-Scholes Greeks", expanded=False):
         c_list = opt_data["calls"]

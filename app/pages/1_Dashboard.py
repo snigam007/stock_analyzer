@@ -62,18 +62,32 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Pre-Market Audio Podcast Briefing ─────────────────────────────────────────
-from core.alert_dispatcher import generate_morning_briefing
-from core.audio_briefing import generate_audio_podcast_script, render_audio_player_html
-import streamlit.components.v1 as components
+# ── Terminal AI Quant Copilot Console ─────────────────────────────────────────
+with st.expander("🤖 **Terminal AI Quant Copilot & Market Diagnostician**", expanded=False):
+    st.caption("Ask natural language queries to scan the universe, diagnose market anomalies, and generate structured institutional trade ideas.")
+    
+    from core.quant_copilot import answer_quant_copilot_query
+    
+    copilot_c1, copilot_c2 = st.columns([3, 1])
+    with copilot_c1:
+        user_query = st.text_input(
+            "Enter market inquiry / screening directive:",
+            value="Show me top oversold quality stocks with strong buy signal",
+            placeholder="e.g. Find high Piotroski banking stocks or top oversold dip candidates"
+        )
+    with copilot_c2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_copilot = st.button("🔎 Run AI Query", type="primary", use_container_width=True)
 
-session_b = get_session(engine)
-briefing_obj = generate_morning_briefing(session_b)
-session_b.close()
+    if user_query:
+        session_copilot = get_session(engine)
+        ai_resp = answer_quant_copilot_query(user_query, session_copilot)
+        session_copilot.close()
 
-podcast_script = generate_audio_podcast_script(briefing_obj)
-audio_html = render_audio_player_html(podcast_script, "🎙️ 60-Second Pre-Market Audio Podcast")
-components.html(audio_html, height=125)
+        st.markdown(ai_resp["response"])
+        if ai_resp.get("has_data") and not ai_resp["table"].empty:
+            st.dataframe(ai_resp["table"], use_container_width=True, hide_index=True)
+
 
 
 @st.cache_data(ttl=30)
@@ -294,4 +308,65 @@ with cat_col2:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── Global Macro Transmission Matrix & Yield Curve Monitor ───────────────────
+st.subheader("🌐 Global Macro Transmission Matrix & Yield Curve Monitor")
+st.caption("Inter-market elasticity modeling linking US/India Yields, USD/INR, Brent Crude, and Gold to Sector Tailwinds")
+
+from core.macro_transmission import compute_macro_transmission_dashboard
+macro_tx = compute_macro_transmission_dashboard()
+
+mx1, mx2, mx3, mx4 = st.columns(4)
+mx1.metric("India 10Y Yield", f"{macro_tx['india_10y_yield']:.2f}%", f"US 10Y: {macro_tx['us_10y_yield']:.2f}%")
+mx2.metric("Yield Spread (IN - US)", f"{macro_tx['yield_spread']:+.2f}%", macro_tx['fii_badge'])
+mx3.metric("Yield Curve Slope", f"{macro_tx['yc_slope']:+.2f}%", macro_tx['yc_regime'])
+mx4.metric("USD / INR Rate", f"₹{macro_tx['usd_inr']:.2f}", f"Crude: ${macro_tx['brent_crude']:.1f}/bbl")
+
+with st.expander("📊 **Sector Macro Sensitivity & Elasticity Matrix**", expanded=False):
+    df_tx = pd.DataFrame(macro_tx["sector_matrix"])
+    st.dataframe(
+        df_tx[["sector", "net_macro_score", "macro_status", "usd_inr_beta", "crude_beta", "rate_beta", "catalyst"]].rename(columns={
+            "sector": "Sector",
+            "net_macro_score": "Macro Score",
+            "macro_status": "Regime Impact",
+            "usd_inr_beta": "USD/INR Beta",
+            "crude_beta": "Crude Beta",
+            "rate_beta": "Rate Beta",
+            "catalyst": "Primary Macro Transmission Driver"
+        }).style.format({
+            "Macro Score": "{:+.1f}",
+            "USD/INR Beta": "{:+.2f}",
+            "Crude Beta": "{:+.2f}",
+            "Rate Beta": "{:+.2f}",
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+st.markdown("---")
+
+# ── Financial News Sentiment Velocity & NLP Catalyst Radar ───────────────────
+st.subheader("📰 Live Financial News Sentiment Velocity & Catalyst Radar")
+st.caption("Real-time natural language sentiment scoring (NLP) and catalyst categorization across Indian corporate headlines")
+
+from core.news_sentiment_nlp import fetch_live_news_sentiment_radar
+news_radar = fetch_live_news_sentiment_radar()
+
+nr1, nr2, nr3 = st.columns([1, 1, 2])
+nr1.metric("Avg Sentiment Score", f"{news_radar['avg_sentiment_score']}/100", news_radar['regime_badge'])
+nr2.metric("Sentiment Velocity", news_radar['sentiment_velocity'], "Surging Momentum")
+nr3.markdown(f"**Market Sentiment Regime:** `{news_radar['overall_regime']}`")
+
+for item in news_radar["headlines"]:
+    s_col = "#00c875" if item["sentiment_score"] > 0 else "#ff4b4b"
+    st.markdown(f"""
+    <div style="background: #151d28; border-left: 4px solid {s_col}; padding: 10px 14px; border-radius: 6px; margin-bottom: 8px;">
+        <span style="font-size: 0.85em; color: #94a3b8;"><b>{item['symbol']}</b> • {item['sector']} • {item['time']}</span> &nbsp;&nbsp;
+        <span style="font-size: 0.8em; background: #1e293b; color: #38bdf8; padding: 2px 6px; border-radius: 4px;">{item['badge']}</span><br>
+        <span style="font-size: 0.95em; color: #f1f5f9; font-weight: 500;">{item['headline']}</span>
+    </div>
+    """, unsafe_allow_html=True)
+
 

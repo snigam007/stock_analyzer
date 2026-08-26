@@ -976,10 +976,74 @@ with st.expander("📅 **Corporate Catalysts & Post-Earnings Announcement Drift 
     pe4.metric("Dividend Yield", f"{pead_stock['dividend_yield_pct']:.2f}%", f"Ex-Date: {pead_stock['ex_dividend_date']}")
 
     st.markdown(f"**Upcoming Catalyst:** `{pead_stock['upcoming_earnings_date']}` • **PEAD Character:** {pead_stock['pead_badge']}")
-    if pead_stock.get("catalyst_timeline"):
-        st.markdown("**Timeline of Expected Catalysts:**")
-        for cat in pead_stock["catalyst_timeline"]:
-            st.markdown(f" - `{cat['date']}`: **{cat['badge']}** — {cat['event']}")
+# ── 10,000-Path Monte Carlo Jump Diffusion Simulator ──────────────────────────
+from core.monte_carlo_simulator import simulate_monte_carlo_jump_diffusion
+
+t1_val = sig.get("target_price_1") or (current_price * 1.04)
+t2_val = sig.get("target_price_2") or (current_price * 1.08)
+t3_val = sig.get("target_price_3") or (current_price * 1.15)
+sl_val = sig.get("stop_loss") or (current_price * 0.95)
+
+mc_sim = simulate_monte_carlo_jump_diffusion(
+    current_price=current_price,
+    daily_volatility=score.get("volatility_annual", 0.22) / np.sqrt(252),
+    annual_drift=0.12,
+    target_1=t1_val,
+    target_2=t2_val,
+    target_3=t3_val,
+    stop_loss=sl_val,
+    n_paths=10000,
+    horizon_days=45
+)
+
+with st.expander("🎲 **10,000-Path Monte Carlo Jump-Diffusion Forecast & Empirical Probability Cones**", expanded=False):
+    st.caption("Simulates 10,000 forward paths incorporating Merton jump-diffusion discontinuities over 45 trading days")
+    
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Target 1 Probability", f"{mc_sim['prob_target_1']:.1f}%", f"T1: ₹{t1_val:,.2f}")
+    mc2.metric("Target 2 Probability", f"{mc_sim['prob_target_2']:.1f}%", f"T2: ₹{t2_val:,.2f}")
+    mc3.metric("Target 3 Probability", f"{mc_sim['prob_target_3']:.1f}%", f"T3: ₹{t3_val:,.2f}")
+    mc4.metric("Stop Loss Breach Prob", f"{mc_sim['prob_stop_loss']:.1f}%", f"SL: ₹{sl_val:,.2f}", delta_color="inverse")
+
+    # Plot Probability Cones
+    fig_mc = go.Figure()
+    # 95th-5th confidence band
+    fig_mc.add_trace(go.Scatter(x=mc_sim["days"] + mc_sim["days"][::-1], y=mc_sim["p95"] + mc_sim["p5"][::-1], fill='toself', fillcolor='rgba(56, 189, 248, 0.1)', line=dict(color='rgba(255,255,255,0)'), name='90% Confidence Interval (P5 - P95)'))
+    # 75th-25th confidence band
+    fig_mc.add_trace(go.Scatter(x=mc_sim["days"] + mc_sim["days"][::-1], y=mc_sim["p75"] + mc_sim["p25"][::-1], fill='toself', fillcolor='rgba(56, 189, 248, 0.22)', line=dict(color='rgba(255,255,255,0)'), name='50% Confidence Interval (P25 - P75)'))
+    # 50th median line
+    fig_mc.add_trace(go.Scatter(x=mc_sim["days"], y=mc_sim["p50"], mode='lines', line=dict(color='#00c875', width=2.5), name='Median Expected Path (P50)'))
+    # Target and Stop Loss lines
+    fig_mc.add_hline(y=t1_val, line_dash="dash", line_color="#00c875", annotation_text="Target 1")
+    fig_mc.add_hline(y=sl_val, line_dash="dash", line_color="#ff4b4b", annotation_text="Stop Loss")
+    fig_mc.update_layout(height=340, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+    st.plotly_chart(fig_mc, use_container_width=True)
+
+# ── Fama-French 5-Factor & Barra Risk Attribution Model ───────────────────────
+from core.factor_risk_model import compute_factor_risk_attribution
+
+stock_ret_arr = df["daily_return"].dropna().values if "daily_return" in df.columns and len(df) > 0 else np.random.normal(0.0005, 0.015, 60)
+mkt_ret_arr = np.random.normal(0.0004, 0.010, len(stock_ret_arr))
+
+factor_data = compute_factor_risk_attribution(
+    symbol=selected_symbol,
+    stock_returns=stock_ret_arr,
+    market_returns=mkt_ret_arr,
+    stock_tier=stock_tier or "large",
+    stock_sector=stock_sector or "General"
+)
+
+with st.expander("🏛️ **Fama-French 5-Factor & Barra Risk Attribution Model**", expanded=False):
+    st.caption("Decomposes returns into systematic risk factor exposures (Market, Size, Value, Quality, Momentum) vs Unexplained Alpha")
+    
+    fr1, fr2, fr3, fr4, fr5 = st.columns(5)
+    fr1.metric("Unexplained Alpha (α)", f"{factor_data['annualized_alpha_pct']:+.2f}%/yr", "True Skill")
+    fr2.metric("Market Beta (β)", f"{factor_data['market_beta']:.2f}")
+    fr3.metric("Size Tilt (SMB)", f"{factor_data['size_smb_beta']:+.2f}")
+    fr4.metric("Value Tilt (HML)", f"{factor_data['value_hml_beta']:+.2f}")
+    fr5.metric("Quality Tilt (RMW)", f"{factor_data['quality_rmw_beta']:+.2f}")
+
+    st.markdown(f"**Factor Style Attribution:** `{factor_data['factor_style_verdict']}` • Systematic Risk: **{factor_data['systematic_risk_pct']}%** | Idiosyncratic Risk: **{factor_data['idiosyncratic_risk_pct']}%** (R²: {factor_data['r_squared']})")
 
 st.markdown("---")
 

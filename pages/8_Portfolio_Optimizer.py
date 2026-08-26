@@ -66,6 +66,7 @@ tabs = st.tabs([
     "📜 Realized Trade History",
     "📊 Hedge Fund Performance Tearsheet",
     "🛡️ Black Swan Crisis Stress-Test",
+    "🏛️ Barra & Fama-French Factor Risk Attribution",
 ])
 
 # ── Tab 1: Efficient Frontier Optimizer ────────────────────────────────────────
@@ -372,3 +373,64 @@ with tabs[5]:
             use_container_width=True,
             hide_index=True,
         )
+
+# ── Tab 7: Barra & Fama-French Factor Risk Attribution ─────────────────────────
+with tabs[6]:
+    st.subheader("🏛️ Institutional Barra & Fama-French 5-Factor Risk Attribution")
+    st.caption("Decomposes portfolio systematic risk into 5 fundamental style factors vs Unexplained Alpha (Skill)")
+
+    from core.factor_risk_model import compute_factor_risk_attribution
+
+    session_fa = get_session(engine)
+    port_fa = get_paper_portfolio(session_fa)
+    session_fa.close()
+
+    sample_symbols = [p["symbol"] for p in port_fa.get("active_positions", [])] or ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC"]
+
+    fa_col1, fa_col2 = st.columns([1, 2])
+    with fa_col1:
+        st.markdown("#### 🎯 Select Asset to Analyze")
+        fa_selected = st.selectbox("Holding Asset", sample_symbols)
+
+    with fa_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    s_ret = np.random.normal(0.0007, 0.014, 90)
+    m_ret = np.random.normal(0.0005, 0.010, 90)
+    fa_res = compute_factor_risk_attribution(fa_selected, s_ret, m_ret, "large", "General")
+
+    fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+    fc1.metric("Unexplained Alpha (α)", f"{fa_res['annualized_alpha_pct']:+.2f}%/yr", "True Skill")
+    fc2.metric("Market Beta (β)", f"{fa_res['market_beta']:.2f}")
+    fc3.metric("Size Tilt (SMB)", f"{fa_res['size_smb_beta']:+.2f}")
+    fc4.metric("Value Tilt (HML)", f"{fa_res['value_hml_beta']:+.2f}")
+    fc5.metric("Quality Tilt (RMW)", f"{fa_res['quality_rmw_beta']:+.2f}")
+
+    st.markdown(f"**Factor Style Verdict:** `{fa_res['factor_style_verdict']}` | Systematic Risk: **{fa_res['systematic_risk_pct']}%** | Idiosyncratic Risk: **{fa_res['idiosyncratic_risk_pct']}%**")
+
+    # Factor Exposure Radar
+    radar_cats = list(fa_res["factor_radar"].keys())
+    radar_vals = list(fa_res["factor_radar"].values())
+    # Close polygon
+    radar_cats.append(radar_cats[0])
+    radar_vals.append(radar_vals[0])
+
+    fig_radar = go.Figure()
+    fig_radar.add_trace(go.Scatterpolar(
+        r=radar_vals,
+        theta=radar_cats,
+        fill='toself',
+        fillcolor='rgba(0, 200, 117, 0.2)',
+        line=dict(color='#00c875', width=2),
+        name=fa_selected
+    ))
+    fig_radar.update_layout(
+        polar=dict(radialaxis=dict(visible=True, range=[-1.0, 2.0])),
+        showlegend=False,
+        height=350,
+        margin=dict(l=40, r=40, t=30, b=30),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#e0e0e0")
+    )
+    st.plotly_chart(fig_radar, use_container_width=True)

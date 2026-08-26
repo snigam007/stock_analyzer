@@ -1,0 +1,1126 @@
+indexes:
+- symbol: ^NSEI
+  name: NIFTY 50
+  type: index
+- symbol: ^BSESN
+  name: BSE SENSEX
+  type: index
+- symbol: ^NSEBANK
+  name: NIFTY Bank
+  type: index
+- symbol: ^CNXAUTO
+  name: NIFTY Auto
+  type: index
+- symbol: ^CNXPHARMA
+  name: NIFTY Pharma
+  type: index
+- symbol: ^CNXIT
+  name: NIFTY IT
+  type: index
+- symbol: ^CNXFMCG
+  name: NIFTY FMCG
+  type: index
+- symbol: ^CNXMETAL
+  name: NIFTY Metal
+  type: index
+- symbol: ^CNXREALTY
+  name: NIFTY Realty
+  type: index
+- symbol: ^CNXENERGY
+  name: NIFTY Energy
+  type: index
+- symbol: ^CNXINFRA
+  name: NIFTY Infra
+  type: index
+- symbol: ^CNXMIDCAP
+  name: NIFTY Midcap 100
+  type: index
+- symbol: ^CNXSMALLCAP
+  name: NIFTY Smallcap 100
+  type: index
+- symbol: NIFTYBEES.NS
+  name: NIFTY ETF
+  type: etf
+- symbol: JUNIORBEES.NS
+  name: NIFTY Junior BeES
+  type: etf
+- symbol: BANKBEES.NS
+  name: Bank BeES ETF
+  type: etf
+- symbol: GOLDBEES.NS
+  name: Gold BeES ETF
+  type: etf
+commodities:
+- symbol: GC=F
+  name: Gold Futures
+  type: commodity
+- symbol: SI=F
+  name: Silver Futures
+  type: commodity
+- symbol: CL=F
+  name: Crude Oil Futures
+  type: commodity
+- symbol: NG=F
+  name: Natural Gas Futures
+  type: commodity
+- symbol: HG=F
+  name: Copper Futures
+  type: commodity
+- symbol: ZW=F
+  name: Wheat Futures
+  type: commodity
+- symbol: INRUSD=X
+  name: USD/INR Exchange Rate
+  type: forex
+sectors:
+  Banking & Finance:
+    quota: 70
+    risk_weight: medium
+    stocks:
+    - symbol: HDFCBANK
+      name: HDFC Bank Ltd
+      market_cap_tier: large
+    - symbol: ICICIBANK
+      name: ICICI Bank Ltd
+      market_cap_tier: large
+    - symbol: SBIN
+      name: State Bank of India
+      market_cap_tier: large
+    - symbol: KOTAKBANK
+      name: Kotak Mahindra Bank
+      market_cap_tier: large
+    - symbol: AXISBANK
+      name: Axis Bank Ltd
+      market_cap_tier: large
+    - symbol: INDUSINDBK
+      name: IndusInd Bank Ltd
+      market_cap_tier: large
+    - symbol: BANKBARODA
+      name: Bank of Baroda
+      market_cap_tier: large
+    - symbol: PNB
+      name: Punjab National Bank
+      market_cap_tier: mid
+    - symbol: CANBK
+      name: Canara Bank
+      market_cap_tier: mid
+    - symbol: UNIONBANK
+      name: Union Bank of India
+      market_cap_tier: mid
+    - symbol: IDFCFIRSTB
+      name: IDFC First Bank
+      market_cap_tier: mid
+    - symbol: BANDHANBNK
+      name: Bandhan Bank
+      market_cap_tier: mid
+    - symbol: AUBANK
+      name: AU Small Finance Bank
+      market_cap_tier: mid
+    - symbol: FEDERALBNK
+      name: Federal Bank
+      market_cap_tier: mid
+    - symbol: INDIANB
+      name: Indian Bank
+      market_cap_tier: mid
+    - symbol: BANKINDIA
+      name: Bank of India
+      market_cap_tier: mid
+    - symbol: IOB
+      name: Indian Overseas Bank
+      market_cap_tier: mid
+    - symbol: CENTRALBK
+      name: Central Bank of India
+      market_cap_tier: mid
+    - symbol: RBLBANK
+      name: RBL Bank
+      market_cap_tier: small
+    - symbol: KARURVYSYA
+      name: Karur Vysya Bank
+      market_cap_tier: small
+    - symbol: DCBBANK
+      name: DCB Bank
+      market_cap_tier: small
+    - symbol: UJJIVANSFB
+      name: Ujjivan Small Finance Bank
+      market_cap_tier: small
+    - symbol: EQUITASBNK
+      name: Equitas Small Finance Bank
+      market_cap_tier: small
+    - symbol: CSBBANK
+      name: CSB Bank
+      market_cap_tier: small
+    - symbol: SOUTHBANK
+      name: South Indian Bank
+      market_cap_tier: small
+    - symbol: KARNATAKABK
+      name: Karnataka Bank
+      market_cap_tier: small
+    - symbol: JKBANK
+      name: J&K Bank
+      market_cap_tier: small
+    - symbol: BAJFINANCE
+      name: Bajaj Finance Ltd
+      market_cap_tier: large
+    - symbol: BAJAJFINSV
+      name: Bajaj Finserv Ltd
+      market_cap_tier: large
+    - symbol: CHOLAFIN
+      name: Cholamandalam Investment & Finance
+      market_cap_tier: large
+    - symbol: MUTHOOTFIN
+      name: Muthoot Finance Ltd
+      market_cap_tier: large
+    - symbol: SHRIRAMFIN
+      name: Shriram Finance Ltd
+      market_cap_tier: large
+    - symbol: MANAPPURAM
+      name: Manappuram Finance
+      market_cap_tier: mid
+    - symbol: M&MFIN
+      name: Mahindra & Mahindra Financial Services
+      market_cap_tier: mid
+    - symbol: SUNDARMFIN
+      name: Sundaram Finance
+      market_cap_tier: mid
+    - symbol: LTFH
+      name: L&T Finance Holdings
+      market_cap_tier: mid
+    - symbol: PNBHOUSING
+      name: PNB Housing Finance
+      market_cap_tier: mid
+    - symbol: LICHSGFIN
+      name: LIC Housing Finance
+      market_cap_tier: mid
+    - symbol: AAVAS
+      name: Aavas Financiers
+      market_cap_tier: mid
+    - symbol: HDFCAMC
+      name: HDFC AMC
+      market_cap_tier: large
+    - symbol: NIPPONLIFE
+      name: Nippon Life India AMC
+      market_cap_tier: mid
+    - symbol: HDFCLIFE
+      name: HDFC Life Insurance
+      market_cap_tier: large
+    - symbol: SBILIFE
+      name: SBI Life Insurance
+      market_cap_tier: large
+    - symbol: ICICIGI
+      name: ICICI Lombard General Insurance
+      market_cap_tier: large
+    - symbol: NIACL
+      name: New India Assurance
+      market_cap_tier: mid
+    - symbol: GICRE
+      name: GIC Re
+      market_cap_tier: mid
+    - symbol: BSE
+      name: BSE Ltd
+      market_cap_tier: mid
+    - symbol: CDSL
+      name: CDSL
+      market_cap_tier: mid
+    - symbol: ANGELONE
+      name: Angel One Ltd
+      market_cap_tier: mid
+  IT & Technology:
+    quota: 45
+    risk_weight: medium
+    stocks:
+    - symbol: TCS
+      name: Tata Consultancy Services
+      market_cap_tier: large
+    - symbol: INFY
+      name: Infosys Ltd
+      market_cap_tier: large
+    - symbol: WIPRO
+      name: Wipro Ltd
+      market_cap_tier: large
+    - symbol: HCLTECH
+      name: HCL Technologies
+      market_cap_tier: large
+    - symbol: TECHM
+      name: Tech Mahindra
+      market_cap_tier: large
+    - symbol: LTIM
+      name: LTIMindtree
+      market_cap_tier: large
+    - symbol: MPHASIS
+      name: Mphasis Ltd
+      market_cap_tier: mid
+    - symbol: PERSISTENT
+      name: Persistent Systems
+      market_cap_tier: mid
+    - symbol: COFORGE
+      name: Coforge Ltd
+      market_cap_tier: mid
+    - symbol: TATAELXSI
+      name: Tata Elxsi
+      market_cap_tier: mid
+    - symbol: KPITTECH
+      name: KPIT Technologies
+      market_cap_tier: mid
+    - symbol: ZENSARTECH
+      name: Zensar Technologies
+      market_cap_tier: mid
+    - symbol: MASTEK
+      name: Mastek Ltd
+      market_cap_tier: mid
+    - symbol: CYIENT
+      name: Cyient Ltd
+      market_cap_tier: mid
+    - symbol: LTTS
+      name: L&T Technology Services
+      market_cap_tier: mid
+    - symbol: HEXAWARE
+      name: Hexaware Technologies
+      market_cap_tier: mid
+    - symbol: BIRLASOFT
+      name: Birlasoft Ltd
+      market_cap_tier: mid
+    - symbol: NIIT
+      name: NIIT Ltd
+      market_cap_tier: small
+    - symbol: ROUTE
+      name: Route Mobile
+      market_cap_tier: small
+    - symbol: RATEGAIN
+      name: RateGain Travel Technologies
+      market_cap_tier: small
+    - symbol: INTELLECT
+      name: Intellect Design Arena
+      market_cap_tier: small
+    - symbol: OFSS
+      name: Oracle Financial Services Software
+      market_cap_tier: mid
+    - symbol: NEWGEN
+      name: Newgen Software
+      market_cap_tier: small
+    - symbol: TANLA
+      name: Tanla Platforms
+      market_cap_tier: small
+    - symbol: SONATSOFTW
+      name: Sonata Software
+      market_cap_tier: small
+  Automobiles & Auto Ancillaries:
+    quota: 40
+    risk_weight: medium
+    stocks:
+    - symbol: MARUTI
+      name: Maruti Suzuki India
+      market_cap_tier: large
+    - symbol: TATAMOTORS
+      name: Tata Motors Ltd
+      market_cap_tier: large
+    - symbol: M&M
+      name: Mahindra & Mahindra
+      market_cap_tier: large
+    - symbol: BAJAJ-AUTO
+      name: Bajaj Auto Ltd
+      market_cap_tier: large
+    - symbol: EICHERMOT
+      name: Eicher Motors
+      market_cap_tier: large
+    - symbol: HEROMOTOCO
+      name: Hero MotoCorp
+      market_cap_tier: large
+    - symbol: TVSMOTORS
+      name: TVS Motor Company
+      market_cap_tier: large
+    - symbol: ASHOKLEY
+      name: Ashok Leyland
+      market_cap_tier: mid
+    - symbol: FORCEMOT
+      name: Force Motors
+      market_cap_tier: mid
+    - symbol: ESCORTS
+      name: Escorts Kubota
+      market_cap_tier: mid
+    - symbol: BHARATFORG
+      name: Bharat Forge
+      market_cap_tier: large
+    - symbol: BALKRISIND
+      name: Balkrishna Industries
+      market_cap_tier: large
+    - symbol: MOTHERSON
+      name: Samvardhana Motherson
+      market_cap_tier: large
+    - symbol: BOSCHLTD
+      name: Bosch Ltd
+      market_cap_tier: large
+    - symbol: MRF
+      name: MRF Ltd
+      market_cap_tier: large
+    - symbol: APOLLOTYRE
+      name: Apollo Tyres
+      market_cap_tier: mid
+    - symbol: CEATLTD
+      name: CEAT Ltd
+      market_cap_tier: mid
+    - symbol: SUPRAJIT
+      name: Suprajit Engineering
+      market_cap_tier: small
+    - symbol: ENDURANCE
+      name: Endurance Technologies
+      market_cap_tier: mid
+    - symbol: EXIDEIND
+      name: Exide Industries
+      market_cap_tier: mid
+    - symbol: AMARARAJABAT
+      name: Amara Raja Energy
+      market_cap_tier: mid
+    - symbol: SUNDRMFAST
+      name: Sundram Fasteners
+      market_cap_tier: mid
+    - symbol: MAHINDCIE
+      name: Mahindra CIE Automotive
+      market_cap_tier: mid
+    - symbol: TIINDIA
+      name: Tube Investments of India
+      market_cap_tier: mid
+    - symbol: CRAFTSMAN
+      name: Craftsman Automation
+      market_cap_tier: small
+    - symbol: SUBROS
+      name: Subros Ltd
+      market_cap_tier: small
+    - symbol: GABRIEL
+      name: Gabriel India
+      market_cap_tier: small
+    - symbol: MINDA
+      name: Minda Corporation
+      market_cap_tier: small
+    - symbol: UNOMINDA
+      name: Uno Minda
+      market_cap_tier: mid
+    - symbol: SANSERA
+      name: Sansera Engineering
+      market_cap_tier: small
+  Pharmaceuticals & Healthcare:
+    quota: 50
+    risk_weight: low
+    stocks:
+    - symbol: SUNPHARMA
+      name: Sun Pharmaceutical Industries
+      market_cap_tier: large
+    - symbol: DRREDDY
+      name: Dr Reddy's Laboratories
+      market_cap_tier: large
+    - symbol: CIPLA
+      name: Cipla Ltd
+      market_cap_tier: large
+    - symbol: DIVISLAB
+      name: Divi's Laboratories
+      market_cap_tier: large
+    - symbol: LUPIN
+      name: Lupin Ltd
+      market_cap_tier: large
+    - symbol: TORNTPHARM
+      name: Torrent Pharmaceuticals
+      market_cap_tier: large
+    - symbol: ALKEM
+      name: Alkem Laboratories
+      market_cap_tier: large
+    - symbol: AUROPHARMA
+      name: Aurobindo Pharma
+      market_cap_tier: large
+    - symbol: ZYDUSLIFE
+      name: Zydus Lifesciences
+      market_cap_tier: large
+    - symbol: BIOCON
+      name: Biocon Ltd
+      market_cap_tier: large
+    - symbol: GLAND
+      name: Gland Pharma
+      market_cap_tier: mid
+    - symbol: NATCOPHARMA
+      name: Natco Pharma
+      market_cap_tier: mid
+    - symbol: GRANULES
+      name: Granules India
+      market_cap_tier: mid
+    - symbol: IPCALAB
+      name: IPCA Laboratories
+      market_cap_tier: mid
+    - symbol: LAURUSLABS
+      name: Laurus Labs
+      market_cap_tier: mid
+    - symbol: ERIS
+      name: Eris Lifesciences
+      market_cap_tier: mid
+    - symbol: SOLARA
+      name: Solara Active Pharma Sciences
+      market_cap_tier: small
+    - symbol: STRIDES
+      name: Strides Pharma Science
+      market_cap_tier: small
+    - symbol: JB
+      name: JB Chemicals & Pharmaceuticals
+      market_cap_tier: mid
+    - symbol: AJANTPHARM
+      name: Ajanta Pharma
+      market_cap_tier: mid
+    - symbol: ABBOTINDIA
+      name: Abbott India
+      market_cap_tier: large
+    - symbol: PFIZER
+      name: Pfizer Ltd
+      market_cap_tier: mid
+    - symbol: GLAXO
+      name: GlaxoSmithKline Pharmaceuticals
+      market_cap_tier: mid
+    - symbol: SANOFI
+      name: Sanofi India
+      market_cap_tier: mid
+    - symbol: APOLLOHOSP
+      name: Apollo Hospitals Enterprise
+      market_cap_tier: large
+    - symbol: FORTIS
+      name: Fortis Healthcare
+      market_cap_tier: large
+    - symbol: METROPOLIS
+      name: Metropolis Healthcare
+      market_cap_tier: mid
+    - symbol: KRSNAA
+      name: Krsnaa Diagnostics
+      market_cap_tier: small
+    - symbol: VIJAYA
+      name: Vijaya Diagnostic Centre
+      market_cap_tier: small
+    - symbol: MEDANTA
+      name: Global Health (Medanta)
+      market_cap_tier: mid
+  Energy & Power:
+    quota: 35
+    risk_weight: medium
+    stocks:
+    - symbol: RELIANCE
+      name: Reliance Industries
+      market_cap_tier: large
+    - symbol: ONGC
+      name: Oil & Natural Gas Corporation
+      market_cap_tier: large
+    - symbol: BPCL
+      name: Bharat Petroleum Corporation
+      market_cap_tier: large
+    - symbol: IOC
+      name: Indian Oil Corporation
+      market_cap_tier: large
+    - symbol: HINDPETRO
+      name: Hindustan Petroleum
+      market_cap_tier: large
+    - symbol: GAIL
+      name: GAIL (India) Ltd
+      market_cap_tier: large
+    - symbol: PETRONET
+      name: Petronet LNG
+      market_cap_tier: mid
+    - symbol: OIL
+      name: Oil India Ltd
+      market_cap_tier: mid
+    - symbol: MRPL
+      name: Mangalore Refinery & Petrochemicals
+      market_cap_tier: mid
+    - symbol: POWERGRID
+      name: Power Grid Corporation
+      market_cap_tier: large
+    - symbol: NTPC
+      name: NTPC Ltd
+      market_cap_tier: large
+    - symbol: TATAPOWER
+      name: Tata Power Company
+      market_cap_tier: large
+    - symbol: ADANIGREEN
+      name: Adani Green Energy
+      market_cap_tier: large
+    - symbol: ADANIPOWER
+      name: Adani Power
+      market_cap_tier: large
+    - symbol: TORNTPOWER
+      name: Torrent Power
+      market_cap_tier: mid
+    - symbol: NHPC
+      name: NHPC Ltd
+      market_cap_tier: mid
+    - symbol: SJVN
+      name: SJVN Ltd
+      market_cap_tier: mid
+    - symbol: CESC
+      name: CESC Ltd
+      market_cap_tier: mid
+    - symbol: JSWENERGY
+      name: JSW Energy
+      market_cap_tier: mid
+    - symbol: IEX
+      name: Indian Energy Exchange
+      market_cap_tier: mid
+    - symbol: THERMAX
+      name: Thermax Ltd
+      market_cap_tier: mid
+    - symbol: SUZLON
+      name: Suzlon Energy
+      market_cap_tier: mid
+    - symbol: GREENPANEL
+      name: Greenpanel Industries
+      market_cap_tier: small
+    - symbol: INOXWIND
+      name: Inox Wind
+      market_cap_tier: small
+  Construction & Infrastructure:
+    quota: 40
+    risk_weight: medium
+    stocks:
+    - symbol: ULTRACEMCO
+      name: UltraTech Cement
+      market_cap_tier: large
+    - symbol: SHREECEM
+      name: Shree Cement
+      market_cap_tier: large
+    - symbol: AMBUJACEMENT
+      name: Ambuja Cements
+      market_cap_tier: large
+    - symbol: ACC
+      name: ACC Ltd
+      market_cap_tier: large
+    - symbol: DALMIACEMEN
+      name: Dalmia Bharat
+      market_cap_tier: large
+    - symbol: JKCEMENT
+      name: JK Cement
+      market_cap_tier: mid
+    - symbol: RAMCOCEM
+      name: The Ramco Cements
+      market_cap_tier: mid
+    - symbol: HEIDELBERGCEMENT
+      name: HeidelbergCement India
+      market_cap_tier: mid
+    - symbol: NUVOCO
+      name: Nuvoco Vistas
+      market_cap_tier: mid
+    - symbol: JKIL
+      name: JK Infrastructure
+      market_cap_tier: small
+    - symbol: LT
+      name: Larsen & Toubro
+      market_cap_tier: large
+    - symbol: ADANIPORTS
+      name: Adani Ports & SEZ
+      market_cap_tier: large
+    - symbol: ADANIENT
+      name: Adani Enterprises
+      market_cap_tier: large
+    - symbol: GMRINFRA
+      name: GMR Airports Infrastructure
+      market_cap_tier: mid
+    - symbol: IRB
+      name: IRB Infrastructure Developers
+      market_cap_tier: mid
+    - symbol: KNRCON
+      name: KNR Constructions
+      market_cap_tier: small
+    - symbol: HGINFRA
+      name: H.G. Infra Engineering
+      market_cap_tier: small
+    - symbol: PNCINFRA
+      name: PNC Infratech
+      market_cap_tier: small
+    - symbol: AHLUCONT
+      name: Ahluwalia Contracts
+      market_cap_tier: small
+    - symbol: NCC
+      name: NCC Ltd
+      market_cap_tier: mid
+    - symbol: ASTRAL
+      name: Astral Ltd
+      market_cap_tier: large
+    - symbol: SUPREMEIND
+      name: Supreme Industries
+      market_cap_tier: large
+    - symbol: FINOLEX
+      name: Finolex Cables
+      market_cap_tier: mid
+    - symbol: KEI
+      name: KEI Industries
+      market_cap_tier: mid
+    - symbol: POLYCAB
+      name: Polycab India
+      market_cap_tier: large
+    - symbol: APAR
+      name: APAR Industries
+      market_cap_tier: mid
+  FMCG & Consumer Staples:
+    quota: 30
+    risk_weight: low
+    stocks:
+    - symbol: HINDUNILVR
+      name: Hindustan Unilever
+      market_cap_tier: large
+    - symbol: ITC
+      name: ITC Ltd
+      market_cap_tier: large
+    - symbol: NESTLEIND
+      name: Nestle India
+      market_cap_tier: large
+    - symbol: BRITANNIA
+      name: Britannia Industries
+      market_cap_tier: large
+    - symbol: DABUR
+      name: Dabur India
+      market_cap_tier: large
+    - symbol: MARICO
+      name: Marico Ltd
+      market_cap_tier: large
+    - symbol: GODREJCP
+      name: Godrej Consumer Products
+      market_cap_tier: large
+    - symbol: EMAMILTD
+      name: Emami Ltd
+      market_cap_tier: mid
+    - symbol: COLPAL
+      name: Colgate-Palmolive (India)
+      market_cap_tier: large
+    - symbol: PGHH
+      name: Procter & Gamble Hygiene & Health
+      market_cap_tier: large
+    - symbol: TATACONSUM
+      name: Tata Consumer Products
+      market_cap_tier: large
+    - symbol: VARUNBEV
+      name: Varun Beverages
+      market_cap_tier: large
+    - symbol: RADICO
+      name: Radico Khaitan
+      market_cap_tier: mid
+    - symbol: UBL
+      name: United Breweries
+      market_cap_tier: mid
+    - symbol: MCDOWELL-N
+      name: United Spirits
+      market_cap_tier: mid
+    - symbol: HATSUN
+      name: Hatsun Agro Product
+      market_cap_tier: mid
+    - symbol: DODLA
+      name: Dodla Dairy
+      market_cap_tier: small
+    - symbol: PARAS
+      name: Paras Defence and Space Technologies
+      market_cap_tier: small
+    - symbol: JYOTHYLAB
+      name: Jyothy Labs
+      market_cap_tier: mid
+    - symbol: BAJAJCON
+      name: Bajaj Consumer Care
+      market_cap_tier: small
+  Metals & Mining:
+    quota: 30
+    risk_weight: high
+    stocks:
+    - symbol: JSWSTEEL
+      name: JSW Steel
+      market_cap_tier: large
+    - symbol: TATASTEEL
+      name: Tata Steel
+      market_cap_tier: large
+    - symbol: SAIL
+      name: Steel Authority of India
+      market_cap_tier: large
+    - symbol: JINDALSTEL
+      name: Jindal Steel & Power
+      market_cap_tier: large
+    - symbol: JSWINFRA
+      name: JSW Infrastructure
+      market_cap_tier: large
+    - symbol: HINDALCO
+      name: Hindalco Industries
+      market_cap_tier: large
+    - symbol: NATIONALUM
+      name: National Aluminium Company
+      market_cap_tier: mid
+    - symbol: HINDZINC
+      name: Hindustan Zinc
+      market_cap_tier: large
+    - symbol: VEDL
+      name: Vedanta Ltd
+      market_cap_tier: large
+    - symbol: COALINDIA
+      name: Coal India
+      market_cap_tier: large
+    - symbol: NMDC
+      name: NMDC Ltd
+      market_cap_tier: large
+    - symbol: MOIL
+      name: MOIL Ltd
+      market_cap_tier: mid
+    - symbol: KIOCL
+      name: KIOCL Ltd
+      market_cap_tier: small
+    - symbol: APL
+      name: APL Apollo Tubes
+      market_cap_tier: mid
+    - symbol: RATNAMANI
+      name: Ratnamani Metals & Tubes
+      market_cap_tier: mid
+    - symbol: WELCORP
+      name: Welspun Corp
+      market_cap_tier: mid
+    - symbol: TINPLATE
+      name: Tinplate Company of India
+      market_cap_tier: small
+  Real Estate:
+    quota: 20
+    risk_weight: high
+    stocks:
+    - symbol: DLF
+      name: DLF Ltd
+      market_cap_tier: large
+    - symbol: GODREJPROP
+      name: Godrej Properties
+      market_cap_tier: large
+    - symbol: BRIGADE
+      name: Brigade Enterprises
+      market_cap_tier: mid
+    - symbol: PRESTIGE
+      name: Prestige Estates Projects
+      market_cap_tier: large
+    - symbol: OBEROIRLTY
+      name: Oberoi Realty
+      market_cap_tier: large
+    - symbol: PHOENIXLTD
+      name: The Phoenix Mills
+      market_cap_tier: large
+    - symbol: SOBHA
+      name: Sobha Ltd
+      market_cap_tier: mid
+    - symbol: MACROTECH
+      name: Macrotech Developers (Lodha)
+      market_cap_tier: large
+    - symbol: KOLTEPATIL
+      name: Kolte-Patil Developers
+      market_cap_tier: small
+    - symbol: NESCO
+      name: NESCO Ltd
+      market_cap_tier: small
+    - symbol: SUNTECK
+      name: Sunteck Realty
+      market_cap_tier: small
+    - symbol: MAHLIFE
+      name: Mahindra Lifespace Developers
+      market_cap_tier: small
+    - symbol: RAYMOND
+      name: Raymond Realty
+      market_cap_tier: mid
+    - symbol: EQUINOX
+      name: Equinox India Developments
+      market_cap_tier: small
+  Telecom & Media:
+    quota: 15
+    risk_weight: medium
+    stocks:
+    - symbol: BHARTIARTL
+      name: Bharti Airtel
+      market_cap_tier: large
+    - symbol: IDEA
+      name: Vodafone Idea
+      market_cap_tier: small
+    - symbol: TATACOMM
+      name: Tata Communications
+      market_cap_tier: mid
+    - symbol: INDUSTOWER
+      name: Indus Towers
+      market_cap_tier: large
+    - symbol: TEJASNET
+      name: Tejas Networks
+      market_cap_tier: mid
+    - symbol: HFCL
+      name: HFCL Ltd
+      market_cap_tier: small
+    - symbol: GTLINFRA
+      name: GTL Infrastructure
+      market_cap_tier: small
+    - symbol: NDTV
+      name: NDTV
+      market_cap_tier: small
+    - symbol: SUNTV
+      name: Sun TV Network
+      market_cap_tier: mid
+    - symbol: PVRINOX
+      name: PVR Inox
+      market_cap_tier: mid
+  Consumer Discretionary & Retail:
+    quota: 30
+    risk_weight: medium
+    stocks:
+    - symbol: TITAN
+      name: Titan Company
+      market_cap_tier: large
+    - symbol: TRENT
+      name: Trent Ltd
+      market_cap_tier: large
+    - symbol: DMART
+      name: Avenue Supermarts (D-Mart)
+      market_cap_tier: large
+    - symbol: NYKAA
+      name: FSN E-Commerce Ventures (Nykaa)
+      market_cap_tier: large
+    - symbol: ZOMATO
+      name: Zomato Ltd
+      market_cap_tier: large
+    - symbol: IRCTC
+      name: Indian Railway Catering & Tourism
+      market_cap_tier: large
+    - symbol: POLICYBZR
+      name: PB Fintech (PolicyBazaar)
+      market_cap_tier: large
+    - symbol: NAUKRI
+      name: Info Edge India
+      market_cap_tier: large
+    - symbol: SHOPPERSSTOP
+      name: Shoppers Stop
+      market_cap_tier: mid
+    - symbol: VMART
+      name: V-Mart Retail
+      market_cap_tier: small
+    - symbol: INDHOTEL
+      name: Indian Hotels Company
+      market_cap_tier: large
+    - symbol: EIHOTEL
+      name: EIH Ltd
+      market_cap_tier: mid
+    - symbol: MAHINDHOLIDAY
+      name: Mahindra Holidays & Resorts
+      market_cap_tier: mid
+    - symbol: LEMONTREE
+      name: Lemon Tree Hotels
+      market_cap_tier: mid
+    - symbol: PAGEIND
+      name: Page Industries
+      market_cap_tier: large
+    - symbol: MANYAVAR
+      name: Vedant Fashions (Manyavar)
+      market_cap_tier: large
+    - symbol: KPRMILL
+      name: K.P.R. Mill
+      market_cap_tier: mid
+    - symbol: RUPA
+      name: Rupa & Company
+      market_cap_tier: small
+    - symbol: CAREEREDGE
+      name: Career Point Ltd
+      market_cap_tier: small
+  Capital Goods & Engineering:
+    quota: 30
+    risk_weight: medium
+    stocks:
+    - symbol: BHEL
+      name: Bharat Heavy Electricals
+      market_cap_tier: large
+    - symbol: SIEMENS
+      name: Siemens Ltd
+      market_cap_tier: large
+    - symbol: ABB
+      name: ABB India
+      market_cap_tier: large
+    - symbol: CUMMINSIND
+      name: Cummins India
+      market_cap_tier: large
+    - symbol: VOLTAS
+      name: Voltas Ltd
+      market_cap_tier: large
+    - symbol: HAVELLS
+      name: Havells India
+      market_cap_tier: large
+    - symbol: CROMPTON
+      name: Crompton Greaves Consumer Electricals
+      market_cap_tier: large
+    - symbol: WHIRLPOOL
+      name: Whirlpool of India
+      market_cap_tier: mid
+    - symbol: BLUESTAR
+      name: Blue Star Ltd
+      market_cap_tier: mid
+    - symbol: DIXON
+      name: Dixon Technologies
+      market_cap_tier: large
+    - symbol: AMBER
+      name: Amber Enterprises India
+      market_cap_tier: mid
+    - symbol: KAYNES
+      name: Kaynes Technology India
+      market_cap_tier: mid
+    - symbol: SYRMA
+      name: Syrma SGS Technology
+      market_cap_tier: small
+    - symbol: TDPOWERSYS
+      name: TD Power Systems
+      market_cap_tier: small
+    - symbol: BHARAT
+      name: Bharat Electronics
+      market_cap_tier: large
+    - symbol: HAL
+      name: Hindustan Aeronautics
+      market_cap_tier: large
+    - symbol: BEL
+      name: Bharat Electronics Ltd
+      market_cap_tier: large
+    - symbol: COCHINSHIP
+      name: Cochin Shipyard
+      market_cap_tier: mid
+    - symbol: MAZAGON
+      name: Mazagon Dock Shipbuilders
+      market_cap_tier: mid
+  Chemicals & Specialty:
+    quota: 25
+    risk_weight: medium
+    stocks:
+    - symbol: PIDILITIND
+      name: Pidilite Industries
+      market_cap_tier: large
+    - symbol: AARTI
+      name: Aarti Industries
+      market_cap_tier: mid
+    - symbol: SRF
+      name: SRF Ltd
+      market_cap_tier: large
+    - symbol: DEEPAKNTR
+      name: Deepak Nitrite
+      market_cap_tier: large
+    - symbol: NAVIN
+      name: Navin Fluorine International
+      market_cap_tier: mid
+    - symbol: ATUL
+      name: Atul Ltd
+      market_cap_tier: mid
+    - symbol: GALAXYSURF
+      name: Galaxy Surfactants
+      market_cap_tier: mid
+    - symbol: ROSSARI
+      name: Rossari Biotech
+      market_cap_tier: small
+    - symbol: ALKYLAMINE
+      name: Alkyl Amines Chemicals
+      market_cap_tier: small
+    - symbol: CLEAN
+      name: Clean Science and Technology
+      market_cap_tier: mid
+    - symbol: TATACHEM
+      name: Tata Chemicals
+      market_cap_tier: large
+    - symbol: GUJALKALI
+      name: Gujarat Alkalies & Chemicals
+      market_cap_tier: mid
+    - symbol: PCBL
+      name: PCBL Ltd
+      market_cap_tier: mid
+    - symbol: VINATI
+      name: Vinati Organics
+      market_cap_tier: mid
+    - symbol: FINEORG
+      name: Fine Organic Industries
+      market_cap_tier: mid
+  Agriculture, Fertilizers & Agro:
+    quota: 20
+    risk_weight: medium
+    stocks:
+    - symbol: UPL
+      name: UPL Ltd
+      market_cap_tier: large
+    - symbol: PIIND
+      name: PI Industries
+      market_cap_tier: large
+    - symbol: BAYER
+      name: Bayer CropScience
+      market_cap_tier: mid
+    - symbol: RALLIS
+      name: Rallis India
+      market_cap_tier: mid
+    - symbol: COROMANDEL
+      name: Coromandel International
+      market_cap_tier: large
+    - symbol: FACT
+      name: Fertilisers & Chemicals Travancore
+      market_cap_tier: mid
+    - symbol: GNFC
+      name: Gujarat Narmada Valley Fertilizers
+      market_cap_tier: mid
+    - symbol: CHAMBALFERT
+      name: Chambal Fertilisers
+      market_cap_tier: mid
+    - symbol: DEEPAKFERT
+      name: Deepak Fertilisers & Petrochemicals
+      market_cap_tier: mid
+    - symbol: GSFC
+      name: Gujarat State Fertilizers & Chemicals
+      market_cap_tier: mid
+    - symbol: KAVERI
+      name: Kaveri Seed Company
+      market_cap_tier: mid
+    - symbol: MONSANTO
+      name: Monsanto India
+      market_cap_tier: mid
+    - symbol: GODREJAGRO
+      name: Godrej Agrovet
+      market_cap_tier: mid
+  Logistics & Transportation:
+    quota: 15
+    risk_weight: medium
+    stocks:
+    - symbol: CONCOR
+      name: Container Corporation of India
+      market_cap_tier: large
+    - symbol: BLUEDART
+      name: Blue Dart Express
+      market_cap_tier: mid
+    - symbol: VRL
+      name: VRL Logistics
+      market_cap_tier: mid
+    - symbol: MAHLOG
+      name: Mahindra Logistics
+      market_cap_tier: mid
+    - symbol: IRFC
+      name: Indian Railway Finance Corporation
+      market_cap_tier: large
+    - symbol: RVNL
+      name: Rail Vikas Nigam
+      market_cap_tier: large
+    - symbol: IRCON
+      name: Ircon International
+      market_cap_tier: mid
+    - symbol: SNOWMAN
+      name: Snowman Logistics
+      market_cap_tier: small
+    - symbol: GATI
+      name: Gati Ltd
+      market_cap_tier: small
+    - symbol: DELHIVERY
+      name: Delhivery Ltd
+      market_cap_tier: large
+  Textiles & Apparel:
+    quota: 10
+    risk_weight: high
+    stocks:
+    - symbol: TRIDENT
+      name: Trident Ltd
+      market_cap_tier: mid
+    - symbol: WELSPUN
+      name: Welspun India
+      market_cap_tier: mid
+    - symbol: VARDHMAN
+      name: Vardhman Textiles
+      market_cap_tier: mid
+    - symbol: DOLLAR
+      name: Dollar Industries
+      market_cap_tier: small
+    - symbol: KITEX
+      name: Kitex Garments
+      market_cap_tier: small
+    - symbol: NITIN
+      name: Nitin Spinners
+      market_cap_tier: small
+    - symbol: ALOK
+      name: Alok Industries
+      market_cap_tier: small
+    - symbol: INDO
+      name: Indo Count Industries
+      market_cap_tier: small

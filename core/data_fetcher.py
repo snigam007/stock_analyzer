@@ -1,0 +1,589 @@
+"""
+Data Fetcher — Downloads BSE/NSE stock data from Yahoo Finance (yfinance)
+with robust anti-bot protection: batching, random delays, retries,
+exponential backoff, and intelligent incremental updates.
+"""
+import time
+import random
+import logging
+import warnings
+from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import List, Optional, Dict, Tuple
+import sys
+
+import pandas as pd
+import numpy as np
+import yfinance as yf
+from tenacity import (
+    retry, stop_after_attempt, wait_exponential,
+    retry_if_exception_type, before_sleep_log
+)
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+
+warnings.filterwarnings("ignore")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config.settings import (
+    DOWNLOAD_START_DATE, BATCH_SIZE, MIN_DELAY_SECONDS, MAX_DELAY_SECONDS,
+    MAX_RETRIES, BACKOFF_FACTOR, REQUEST_TIMEOUT
+)
+from db.database import (
+    get_global_engine, get_session, Stock, DailyPrice,
+    IndexPrice, CommodityPrice, DownloadLog
+)
+
+logger = logging.getLogger(__name__)
+
+
+# ─── Human-like User Agents (rotate to avoid detection) ──────────────────────
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+]
+
+
+def _human_delay(min_s: float = None, max_s: float = None):
+    """Sleep for a random duration to mimic human browsing."""
+    min_s = min_s or MIN_DELAY_SECONDS
+    max_s = max_s or MAX_DELAY_SECONDS
+    # Add occasional longer pauses (1 in 10 batches)
+    if random.random() < 0.1:
+        extra = random.uniform(5, 15)
+        logger.debug(f"Long pause: {extra:.1f}s")
+        time.sleep(extra)
+    else:
+        delay = random.uniform(min_s, max_s)
+        time.sleep(delay)
+
+
+def _get_session_headers() -> Dict:
+    """Return randomized headers to avoid bot detection."""
+    return {
+        "User-Agent": random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+
+def _build_yf_symbol(symbol: str, exchange: str = "NSE") -> str:
+    """Convert bare symbol to yfinance format."""
+    s = symbol.upper().strip()
+    # Already has suffix
+    if "." in s:
+        return s
+    # Handle special symbols
+    if s.startswith("^") or s.endswith("=F") or s.endswith("=X"):
+        return s
+    suffix = ".NS" if exchange.upper() in ("NSE", "") else ".BO"
+    return f"{s}{suffix}"
+
+
+@retry(
+    stop=stop_after_attempt(MAX_RETRIES),
+    wait=wait_exponential(multiplier=BACKOFF_FACTOR, min=2, max=60),
+    retry=retry_if_exception_type((Exception,)),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
+    reraise=False,
+)
+def _download_batch_raw(
+    symbols: List[str],
+    start: str,
+    end: str,
+    threads: bool = False,
+) -> Optional[pd.DataFrame]:
+    """Download a batch of symbols with retry on failure."""
+    try:
+        data = yf.download(
+            tickers=symbols,
+            start=start,
+            end=end,
+            group_by="ticker",
+            auto_adjust=True,
+            progress=False,
+            threads=threads,
+            timeout=REQUEST_TIMEOUT,
+        )
+        return data
+    except Exception as e:
+        logger.warning(f"Batch download failed ({symbols[:3]}...): {e}")
+        raise
+
+
+def _flatten_multiindex_df(raw_df: pd.DataFrame, symbols: List[str]) -> Dict[str, pd.DataFrame]:
+    """Convert yfinance multi-index DataFrame to dict of single-symbol DataFrames."""
+    result = {}
+
+    if raw_df is None or raw_df.empty:
+        return result
+
+    # Single ticker case — no multi-index
+    if not isinstance(raw_df.columns, pd.MultiIndex):
+        if len(symbols) == 1:
+            df = raw_df.copy()
+            df.columns = [c.lower() for c in df.columns]
+            df.index = pd.to_datetime(df.index).date
+            result[symbols[0]] = df
+        return result
+
+    # Multi-ticker case
+    for sym in symbols:
+        try:
+            if sym in raw_df.columns.get_level_values(1):
+                df = raw_df.xs(sym, axis=1, level=1).copy()
+            elif sym in raw_df.columns.get_level_values(0):
+                df = raw_df[sym].copy()
+            else:
+                continue
+
+            df.columns = [c.lower() for c in df.columns]
+            df.index = pd.to_datetime(df.index).date
+            df = df.dropna(how="all")
+
+            if not df.empty:
+                result[sym] = df
+        except (KeyError, Exception) as e:
+            logger.debug(f"Could not extract {sym}: {e}")
+
+    return result
+
+
+def get_last_download_date(symbol: str, session: Session) -> Optional[date]:
+    """Get the last date we have data for a symbol."""
+    result = session.execute(
+        text("SELECT MAX(date) FROM daily_prices WHERE symbol = :s"),
+        {"s": symbol}
+    ).scalar()
+    return result
+
+
+def download_stocks_batch(
+    symbols_yf: List[str],
+    original_symbols: List[str],
+    start_date: str,
+    end_date: str,
+) -> Dict[str, pd.DataFrame]:
+    """
+    Download a batch of stocks from yfinance with anti-bot measures.
+    Returns dict: {original_symbol -> DataFrame}
+    """
+    raw = _download_batch_raw(symbols_yf, start_date, end_date)
+    if raw is None:
+        return {}
+
+    # Map yf symbols back to original symbols
+    yf_to_orig = dict(zip(symbols_yf, original_symbols))
+    raw_dict = _flatten_multiindex_df(raw, symbols_yf)
+
+    result = {}
+    for yf_sym, df in raw_dict.items():
+        orig = yf_to_orig.get(yf_sym, yf_sym)
+        if not df.empty:
+            # Calculate derived fields
+            if "close" in df.columns:
+                df["daily_return"] = df["close"].pct_change() * 100
+                df["log_return"] = np.log(df["close"] / df["close"].shift(1))
+            result[orig] = df
+
+    return result
+
+
+def save_prices_to_db(
+    data_dict: Dict[str, pd.DataFrame],
+    table: str,
+    session: Session,
+) -> int:
+    """Save downloaded price data to database. Returns rows saved."""
+    total_saved = 0
+
+    for symbol, df in data_dict.items():
+        if df.empty:
+            continue
+
+        if table == "daily_prices":
+            stock = session.query(Stock).filter(Stock.symbol == symbol).first()
+            if stock is None:
+                continue
+            
+            rows_data = []
+            for dt, row in df.iterrows():
+                rows_data.append({
+                    "stock_id": stock.id,
+                    "symbol": symbol,
+                    "date": str(dt),
+                    "open": _clean_num(row.get("open")),
+                    "high": _clean_num(row.get("high")),
+                    "low": _clean_num(row.get("low")),
+                    "close": _clean_num(row.get("close")),
+                    "adj_close": _clean_num(row.get("close")),
+                    "volume": _clean_num(row.get("volume")),
+                    "daily_return": _clean_num(row.get("daily_return")),
+                    "log_return": _clean_num(row.get("log_return")),
+                })
+            
+            if rows_data:
+                try:
+                    session.execute(text("""
+                        INSERT OR REPLACE INTO daily_prices 
+                        (stock_id, symbol, date, open, high, low, close, adj_close, volume, daily_return, log_return)
+                        VALUES (:stock_id, :symbol, :date, :open, :high, :low, :close, :adj_close, :volume, :daily_return, :log_return)
+                    """), rows_data)
+                    session.commit()
+                    total_saved += len(rows_data)
+                except Exception as e:
+                    session.rollback()
+                    logger.error(f"Error inserting daily_prices for {symbol}: {e}")
+
+        elif table == "index_prices":
+            rows_data = []
+            for dt, row in df.iterrows():
+                rows_data.append({
+                    "symbol": symbol,
+                    "date": str(dt),
+                    "open": _clean_num(row.get("open")),
+                    "high": _clean_num(row.get("high")),
+                    "low": _clean_num(row.get("low")),
+                    "close": _clean_num(row.get("close")),
+                    "volume": _clean_num(row.get("volume")),
+                    "daily_return": _clean_num(row.get("daily_return")),
+                })
+            if rows_data:
+                try:
+                    session.execute(text("""
+                        INSERT OR REPLACE INTO index_prices 
+                        (symbol, date, open, high, low, close, volume, daily_return)
+                        VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :daily_return)
+                    """), rows_data)
+                    session.commit()
+                    total_saved += len(rows_data)
+                except Exception as e:
+                    session.rollback()
+                    logger.error(f"Error inserting index_prices for {symbol}: {e}")
+
+        elif table == "commodity_prices":
+            rows_data = []
+            for dt, row in df.iterrows():
+                rows_data.append({
+                    "symbol": symbol,
+                    "date": str(dt),
+                    "open": _clean_num(row.get("open")),
+                    "high": _clean_num(row.get("high")),
+                    "low": _clean_num(row.get("low")),
+                    "close": _clean_num(row.get("close")),
+                    "volume": _clean_num(row.get("volume")),
+                    "daily_return": _clean_num(row.get("daily_return")),
+                })
+            if rows_data:
+                try:
+                    session.execute(text("""
+                        INSERT OR REPLACE INTO commodity_prices 
+                        (symbol, date, open, high, low, close, volume, daily_return)
+                        VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :daily_return)
+                    """), rows_data)
+                    session.commit()
+                    total_saved += len(rows_data)
+                except Exception as e:
+                    session.rollback()
+                    logger.error(f"Error inserting commodity_prices for {symbol}: {e}")
+
+    return total_saved
+
+
+def _clean_num(val):
+    if val is None or pd.isna(val) or np.isinf(val):
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
+def download_historical_data(
+    stocks: List[Dict],
+    session: Session,
+    start_date: str = DOWNLOAD_START_DATE,
+    end_date: str = None,
+    progress_callback=None,
+):
+    """
+    Download full historical data for all stocks with anti-bot protection.
+
+    Args:
+        stocks: List of dicts with 'symbol', 'yf_symbol', 'name' keys
+        session: Database session
+        start_date: Download from this date
+        end_date: Download until this date (default: today)
+        progress_callback: Optional callback(current, total, symbol) for progress UI
+    """
+    if end_date is None:
+        end_date = date.today().strftime("%Y-%m-%d")
+
+    total = len(stocks)
+    logger.info(f"Starting historical download for {total} stocks from {start_date}")
+
+    # Group into batches
+    batches = [stocks[i:i + BATCH_SIZE] for i in range(0, total, BATCH_SIZE)]
+
+    processed = 0
+    for batch_idx, batch in enumerate(batches):
+        yf_symbols = [s["yf_symbol"] for s in batch]
+        orig_symbols = [s["symbol"] for s in batch]
+
+        logger.info(f"Batch {batch_idx+1}/{len(batches)}: {orig_symbols[:3]}... ({len(batch)} stocks)")
+
+        # Check incremental — find latest date for each symbol
+        batch_start = start_date
+        incremental_starts = {}
+        for s in batch:
+            last = get_last_download_date(s["symbol"], session)
+            if last:
+                if isinstance(last, str):
+                    try:
+                        last_d = datetime.strptime(last[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        last_d = date.today() - timedelta(days=365)
+                elif isinstance(last, datetime):
+                    last_d = last.date()
+                elif isinstance(last, date):
+                    last_d = last
+                else:
+                    try:
+                        last_d = date.fromtimestamp(int(last))
+                    except Exception:
+                        last_d = date.today() - timedelta(days=365)
+                next_day = (last_d + timedelta(days=1)).strftime("%Y-%m-%d")
+                incremental_starts[s["symbol"]] = next_day
+            else:
+                incremental_starts[s["symbol"]] = start_date
+
+        # Filter to only stocks that actually need new data
+        stocks_needing_download = [
+            s for s in batch if incremental_starts.get(s["symbol"], start_date) < end_date
+        ]
+
+        if not stocks_needing_download:
+            logger.info(f"Batch {batch_idx+1}: All {len(batch)} symbols up to date, skipping")
+            processed += len(batch)
+            if progress_callback:
+                progress_callback(processed, total, "up-to-date")
+            continue
+
+        dl_yf_symbols = [s["yf_symbol"] for s in stocks_needing_download]
+        dl_orig_symbols = [s["symbol"] for s in stocks_needing_download]
+        actual_start = min(incremental_starts[s["symbol"]] for s in stocks_needing_download)
+
+        # Download batch
+        data_dict = download_stocks_batch(dl_yf_symbols, dl_orig_symbols, actual_start, end_date)
+
+        if data_dict:
+            saved = save_prices_to_db(data_dict, "daily_prices", session)
+            logger.info(f"Batch {batch_idx+1}: Saved {saved} rows ({len(stocks_needing_download)} stocks)")
+
+            # Log download
+            for s in stocks_needing_download:
+                log = DownloadLog(
+                    symbol=s["symbol"],
+                    download_type="historical",
+                    start_date=datetime.strptime(actual_start, "%Y-%m-%d").date(),
+                    end_date=datetime.strptime(end_date, "%Y-%m-%d").date(),
+                    rows_downloaded=data_dict.get(s["symbol"], pd.DataFrame()).shape[0],
+                    status="success" if s["symbol"] in data_dict else "no_data",
+                )
+                session.add(log)
+            session.commit()
+        else:
+            logger.warning(f"Batch {batch_idx+1}: No data returned")
+
+        processed += len(batch)
+        if progress_callback:
+            progress_callback(processed, total, batch[0]["name"])
+
+        # Human-like delay between batches
+        if batch_idx < len(batches) - 1:
+            _human_delay()
+
+    logger.info(f"✅ Historical download complete: {processed}/{total} stocks processed")
+
+
+def download_indexes_and_commodities(session: Session):
+    """Download index and commodity data."""
+    import yaml
+    config_path = Path(__file__).resolve().parent.parent / "config" / "stocks.yaml"
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    end_date = date.today().strftime("%Y-%m-%d")
+
+    # Indexes
+    indexes = config.get("indexes", [])
+    idx_symbols = [i["symbol"] for i in indexes]
+    logger.info(f"Downloading {len(idx_symbols)} indexes...")
+
+    for i in range(0, len(idx_symbols), 5):
+        batch = idx_symbols[i:i+5]
+        data = download_stocks_batch(batch, batch, DOWNLOAD_START_DATE, end_date)
+        if data:
+            save_prices_to_db(data, "index_prices", session)
+        _human_delay(1, 3)
+
+    # Commodities
+    commodities = config.get("commodities", [])
+    com_symbols = [c["symbol"] for c in commodities]
+    logger.info(f"Downloading {len(com_symbols)} commodities...")
+
+    for i in range(0, len(com_symbols), 5):
+        batch = com_symbols[i:i+5]
+        data = download_stocks_batch(batch, batch, DOWNLOAD_START_DATE, end_date)
+        if data:
+            save_prices_to_db(data, "commodity_prices", session)
+        _human_delay(1, 3)
+
+    logger.info("✅ Indexes and commodities downloaded")
+
+
+def daily_update(session: Session):
+    """
+    Incremental update — download only the latest data since last download date.
+    Run this daily after market close.
+    """
+    today = date.today().strftime("%Y-%m-%d")
+    yesterday = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
+    start = yesterday  # Download last 2 days to catch any gaps
+
+    stocks = session.query(Stock).filter(Stock.is_active == True).all()
+    stock_list = [{"symbol": s.symbol, "yf_symbol": s.yf_symbol, "name": s.name} for s in stocks]
+
+    logger.info(f"Daily update for {len(stock_list)} stocks")
+
+    # Use larger batch size for daily updates (less data)
+    batches = [stock_list[i:i+50] for i in range(0, len(stock_list), 50)]
+
+    for batch in batches:
+        yf_symbols = [s["yf_symbol"] for s in batch]
+        orig_symbols = [s["symbol"] for s in batch]
+
+        data = download_stocks_batch(yf_symbols, orig_symbols, start, today)
+        if data:
+            save_prices_to_db(data, "daily_prices", session)
+
+        _human_delay(1.5, 4.0)
+
+    # Update indexes and commodities too
+    download_indexes_and_commodities(session)
+
+    logger.info("✅ Daily update complete")
+
+
+def get_price_dataframe(symbol: str, session: Session, days: int = 365) -> pd.DataFrame:
+    """
+    Retrieve price data from DB as a pandas DataFrame.
+    Returns OHLCV data for the last N days.
+    """
+    start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    result = session.execute(
+        text("""
+            SELECT date, open, high, low, close, volume, daily_return, log_return
+            FROM daily_prices
+            WHERE symbol = :symbol AND date >= :start
+            ORDER BY date ASC
+        """),
+        {"symbol": symbol, "start": start}
+    ).fetchall()
+
+    if not result:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(result, columns=["date", "open", "high", "low", "close", "volume", "daily_return", "log_return"])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date")
+    df = df.sort_index()
+    return df
+
+
+def get_all_prices_dataframe(symbol: str, session: Session) -> pd.DataFrame:
+    """Get complete historical price data for a symbol."""
+    result = session.execute(
+        text("""
+            SELECT date, open, high, low, close, volume, daily_return, log_return
+            FROM daily_prices
+            WHERE symbol = :symbol
+            ORDER BY date ASC
+        """),
+        {"symbol": symbol}
+    ).fetchall()
+
+    if not result:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(result, columns=["date", "open", "high", "low", "close", "volume", "daily_return", "log_return"])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date")
+    return df
+
+
+def get_index_dataframe(symbol: str, session: Session, days: int = 365) -> pd.DataFrame:
+    """Get index price data."""
+    start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    result = session.execute(
+        text("""
+            SELECT date, open, high, low, close, volume, daily_return
+            FROM index_prices
+            WHERE symbol = :symbol AND date >= :start
+            ORDER BY date ASC
+        """),
+        {"symbol": symbol, "start": start}
+    ).fetchall()
+
+    if not result:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(result, columns=["date", "open", "high", "low", "close", "volume", "daily_return"])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date")
+    return df
+
+
+def get_commodity_dataframe(symbol: str, session: Session, days: int = 365) -> pd.DataFrame:
+    """Get commodity price data."""
+    start = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    result = session.execute(
+        text("""
+            SELECT date, open, high, low, close, volume, daily_return
+            FROM commodity_prices
+            WHERE symbol = :symbol AND date >= :start
+            ORDER BY date ASC
+        """),
+        {"symbol": symbol, "start": start}
+    ).fetchall()
+
+    if not result:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(result, columns=["date", "open", "high", "low", "close", "volume", "daily_return"])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date")
+    return df
+
+
+def get_data_summary(session: Session) -> pd.DataFrame:
+    """Summary of what data we have in the DB."""
+    result = session.execute(text("""
+        SELECT s.symbol, s.name, s.sector, s.market_cap_tier,
+               MIN(p.date) as first_date, MAX(p.date) as last_date,
+               COUNT(p.id) as row_count
+        FROM stocks s
+        LEFT JOIN daily_prices p ON s.id = p.stock_id
+        GROUP BY s.symbol, s.name, s.sector, s.market_cap_tier
+        ORDER BY s.sector, s.symbol
+    """)).fetchall()
+
+    return pd.DataFrame(
+        result,
+        columns=["symbol", "name", "sector", "tier", "first_date", "last_date", "rows"]
+    )

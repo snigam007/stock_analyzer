@@ -1,0 +1,30 @@
+﻿# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Logs
+logs/
+*.log
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# IDE configurations
+.vscode/
+.idea/
+
+# SQLite WAL and SHM temporary files (do not commit locks)
+data/*.db-wal
+data/*.db-shm
+data/*.db-journal
+
+# Keep the main SQLite database for Cloud deployment
+!data/stock_analyzer.db

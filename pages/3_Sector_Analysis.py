@@ -219,3 +219,87 @@ for i, impact in enumerate(impacts):
             st.error(f"**{impact['from_sector'][:25]}** {direction_icon} **{impact['to_sector'][:25]}** (INVERSE)\n\n{impact['description']}")
         else:
             st.info(f"**{impact['from_sector'][:25]}** {direction_icon} **{impact['to_sector'][:25]}** (WEAK)\n\n{impact['description']}")
+
+st.markdown("---")
+
+# ── Relative Rotation Graphs (RRG) ───────────────────────────────────────────
+st.subheader("🌀 JdK Relative Rotation Graph (RRG) & Institutional Money Flow")
+st.caption("Benchmark: NIFTY 50 (^NSEI) — Track sector capital rotation across Leading, Weakening, Lagging, and Improving quadrants")
+
+from core.rrg_matrix import compute_sector_rrg_matrix
+session_rrg = get_session(engine)
+rrg_data = compute_sector_rrg_matrix(session_rrg, lookback_weeks=14)
+session_rrg.close()
+
+if "error" not in rrg_data and rrg_data.get("sectors"):
+    fig_rrg = go.Figure()
+
+    # 4 Quadrant Background Rectangles
+    fig_rrg.add_shape(type="rect", x0=100, y0=100, x1=115, y1=115, fillcolor="rgba(0, 200, 117, 0.12)", line_width=0, layer="below")
+    fig_rrg.add_shape(type="rect", x0=100, y0=85, x1=115, y1=100, fillcolor="rgba(240, 165, 0, 0.12)", line_width=0, layer="below")
+    fig_rrg.add_shape(type="rect", x0=85, y0=85, x1=100, y1=100, fillcolor="rgba(255, 75, 75, 0.12)", line_width=0, layer="below")
+    fig_rrg.add_shape(type="rect", x0=85, y0=100, x1=100, y1=115, fillcolor="rgba(0, 168, 255, 0.12)", line_width=0, layer="below")
+
+    # Center Reference Lines
+    fig_rrg.add_hline(y=100, line=dict(color="#556677", width=1.5, dash="dash"))
+    fig_rrg.add_vline(x=100, line=dict(color="#556677", width=1.5, dash="dash"))
+
+    for s in rrg_data["sectors"]:
+        tail_x = [t["rs_ratio"] for t in s["tail"]]
+        tail_y = [t["rs_momentum"] for t in s["tail"]]
+        fig_rrg.add_trace(go.Scatter(
+            x=tail_x, y=tail_y,
+            mode="lines",
+            line=dict(color=s["quad_color"], width=1.5),
+            opacity=0.6,
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+
+        fig_rrg.add_trace(go.Scatter(
+            x=[s["rs_ratio"]],
+            y=[s["rs_momentum"]],
+            mode="markers+text",
+            marker=dict(size=14, color=s["quad_color"], line=dict(width=1.5, color="#ffffff")),
+            text=[s["sector"]],
+            textposition="top center",
+            name=s["sector"],
+            hovertemplate=f"<b>{s['sector']}</b><br>Quadrant: {s['quadrant']}<br>RS-Ratio: {s['rs_ratio']}<br>RS-Momentum: {s['rs_momentum']}<br>Action: {s['advice']}<extra></extra>",
+        ))
+
+    # Quadrant Labels
+    fig_rrg.add_annotation(x=112, y=112, text="🟢 LEADING<br>(Overweight)", showarrow=False, font=dict(color="#00c875", size=13))
+    fig_rrg.add_annotation(x=112, y=88, text="🟡 WEAKENING<br>(Take Profit)", showarrow=False, font=dict(color="#f0a500", size=13))
+    fig_rrg.add_annotation(x=88, y=88, text="🔴 LAGGING<br>(Underweight)", showarrow=False, font=dict(color="#ff4b4b", size=13))
+    fig_rrg.add_annotation(x=88, y=112, text="🔵 IMPROVING<br>(Accumulate)", showarrow=False, font=dict(color="#00a8ff", size=13))
+
+    fig_rrg.update_layout(
+        title="🌀 Sector Relative Rotation Graph (RRG) vs NIFTY 50 Benchmark",
+        xaxis=dict(title="JdK RS-Ratio (Relative Trend > 100 is Outperforming)", range=[85, 115], gridcolor="#2d3139"),
+        yaxis=dict(title="JdK RS-Momentum (Momentum Acceleration > 100 is Expanding)", range=[85, 115], gridcolor="#2d3139"),
+        height=580,
+        paper_bgcolor="#0e1117",
+        plot_bgcolor="#161b22",
+        font=dict(color="#e0e8f0"),
+        showlegend=False,
+    )
+    st.plotly_chart(fig_rrg, use_container_width=True)
+
+    # Sector Quadrant Summary Cards
+    q_col1, q_col2, q_col3, q_col4 = st.columns(4)
+    with q_col1:
+        st.markdown("### 🟢 Leading Sectors")
+        for s in [sec for sec in rrg_data["sectors"] if "Leading" in sec["quadrant"]]:
+            st.success(f"**{s['sector']}** (RS: {s['rs_ratio']:.1f})")
+    with q_col2:
+        st.markdown("### 🔵 Improving Sectors")
+        for s in [sec for sec in rrg_data["sectors"] if "Improving" in sec["quadrant"]]:
+            st.info(f"**{s['sector']}** (Mom: {s['rs_momentum']:.1f})")
+    with q_col3:
+        st.markdown("### 🟡 Weakening Sectors")
+        for s in [sec for sec in rrg_data["sectors"] if "Weakening" in sec["quadrant"]]:
+            st.warning(f"**{s['sector']}** (RS: {s['rs_ratio']:.1f})")
+    with q_col4:
+        st.markdown("### 🔴 Lagging Sectors")
+        for s in [sec for sec in rrg_data["sectors"] if "Lagging" in sec["quadrant"]]:
+            st.error(f"**{s['sector']}** (RS: {s['rs_ratio']:.1f})")

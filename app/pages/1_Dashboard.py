@@ -56,11 +56,24 @@ from core.news_sentiment import get_market_news_sentiment
 news_sent = get_market_news_sentiment()
 
 st.markdown(f"""
-<div style="background: #14212d; border-left: 4px solid #00c875; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px;">
+<div style="background: #14212d; border-left: 4px solid #00c875; padding: 10px 16px; border-radius: 6px; margin-bottom: 12px;">
     <span style="font-weight: bold; color: #00c875;">📰 Real-Time Financial News Sentiment: {news_sent['overall_sentiment_score']:+.1f}/100 ({news_sent['overall_sentiment_verdict']})</span><br>
     <span style="font-size: 0.88em; color: #d0d8e0;">Tracking headlines from Economic Times, Moneycontrol, Livemint & NSE/BSE announcements.</span>
 </div>
 """, unsafe_allow_html=True)
+
+# ── Pre-Market Audio Podcast Briefing ─────────────────────────────────────────
+from core.alert_dispatcher import generate_morning_briefing
+from core.audio_briefing import generate_audio_podcast_script, render_audio_player_html
+import streamlit.components.v1 as components
+
+session_b = get_session(engine)
+briefing_obj = generate_morning_briefing(session_b)
+session_b.close()
+
+podcast_script = generate_audio_podcast_script(briefing_obj)
+audio_html = render_audio_player_html(podcast_script, "🎙️ 60-Second Pre-Market Audio Podcast")
+components.html(audio_html, height=125)
 
 
 @st.cache_data(ttl=30)

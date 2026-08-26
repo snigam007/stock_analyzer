@@ -1,4 +1,4 @@
-﻿"""
+"""
 Page 9: Automated Alerts & Morning Intelligence Dispatcher
 - 8:45 AM Pre-Market Institutional Morning Intelligence Briefing
 - Instant Webhook Broadcasts to Telegram Bot API & Discord Channels
@@ -46,6 +46,14 @@ with tabs[0]:
     session_b = get_session(engine)
     briefing = generate_morning_briefing(session_b)
     session_b.close()
+
+    # Audio Podcast Player
+    from core.audio_briefing import generate_audio_podcast_script, render_audio_player_html
+    import streamlit.components.v1 as components
+
+    podcast_script = generate_audio_podcast_script(briefing)
+    audio_html = render_audio_player_html(podcast_script, "🎙️ 60-Second Spoken Morning Intelligence Podcast")
+    components.html(audio_html, height=125)
 
     m_col1, m_col2 = st.columns([2, 1])
 

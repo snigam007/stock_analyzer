@@ -428,72 +428,96 @@ st.markdown(
 )
 
 # ── Candlestick Chart ──────────────────────────────────────────────────────────
-fig = make_subplots(
-    rows=3, cols=1,
-    shared_xaxes=True,
-    vertical_spacing=0.04,
-    row_heights=[0.6, 0.2, 0.2],
-    subplot_titles=["Price + Moving Averages", "RSI (14)", "Volume"],
+chart_mode = st.radio(
+    "📊 Chart View Selection",
+    [
+        "🕯️ Visible Range Volume Profile (VPVR) + Execution Targets Overlay",
+        "📈 Standard Multi-Pane Indicator View (Price, EMAs, RSI, Volume)"
+    ],
+    horizontal=True,
+    help="Toggle between institutional Volume Profile (VPVR) with Point of Control (POC) vs standard indicator multi-pane view."
 )
 
-# Candlestick
-fig.add_trace(go.Candlestick(
-    x=df["date"], open=df["open"], high=df["high"],
-    low=df["low"], close=df["close"],
-    name="Price", increasing_line_color="#00c875", decreasing_line_color="#e04b4b",
-), row=1, col=1)
+if "VPVR" in chart_mode:
+    from core.volume_profile import create_vpvr_candlestick_chart
+    fig_vp = create_vpvr_candlestick_chart(
+        df=df,
+        symbol=selected_symbol,
+        stock_name=stock_name,
+        target_1=sig.get("target_price_1"),
+        target_2=sig.get("target_price_2"),
+        target_3=sig.get("target_price_3"),
+        stop_loss=sig.get("stop_loss"),
+        buy_price=sig.get("buy_price") or current_price,
+    )
+    st.plotly_chart(fig_vp, use_container_width=True)
+else:
+    fig = make_subplots(
+        rows=3, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.04,
+        row_heights=[0.6, 0.2, 0.2],
+        subplot_titles=["Price + Moving Averages", "RSI (14)", "Volume"],
+    )
 
-# EMAs
-ema_colors = {"ema_9": "#FFD700", "ema_21": "#FF8C00", "ema_50": "#00BFFF", "ema_200": "#FF69B4"}
-for ema_col, color in ema_colors.items():
-    period = ema_col.split("_")[1]
-    if ema_col in df.columns and df[ema_col].notna().any():
+    # Candlestick
+    fig.add_trace(go.Candlestick(
+        x=df["date"], open=df["open"], high=df["high"],
+        low=df["low"], close=df["close"],
+        name="Price", increasing_line_color="#00c875", decreasing_line_color="#e04b4b",
+    ), row=1, col=1)
+
+    # EMAs
+    ema_colors = {"ema_9": "#FFD700", "ema_21": "#FF8C00", "ema_50": "#00BFFF", "ema_200": "#FF69B4"}
+    for ema_col, color in ema_colors.items():
+        period = ema_col.split("_")[1]
+        if ema_col in df.columns and df[ema_col].notna().any():
+            fig.add_trace(go.Scatter(
+                x=df["date"], y=df[ema_col], name=f"EMA {period}",
+                line=dict(color=color, width=1.5, dash="dot"),
+            ), row=1, col=1)
+
+    # Bollinger Bands
+    for bb_col, color, label in [
+        ("bb_upper", "#aaaaff", "BB Upper"),
+        ("bb_middle", "#ffffff", "BB Mid"),
+        ("bb_lower", "#aaaaff", "BB Lower"),
+    ]:
+        if bb_col in df.columns and df[bb_col].notna().any():
+            fig.add_trace(go.Scatter(
+                x=df["date"], y=df[bb_col], name=label,
+                line=dict(color=color, width=1, dash="dash"), opacity=0.5,
+            ), row=1, col=1)
+
+    # RSI
+    if "rsi_14" in df.columns and df["rsi_14"].notna().any():
         fig.add_trace(go.Scatter(
-            x=df["date"], y=df[ema_col], name=f"EMA {period}",
-            line=dict(color=color, width=1.5, dash="dot"),
-        ), row=1, col=1)
+            x=df["date"], y=df["rsi_14"], name="RSI (14)",
+            line=dict(color="#9b59b6", width=2),
+        ), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=2, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=2, col=1)
+        fig.add_hrect(y0=30, y1=70, fillcolor="gray", opacity=0.05, row=2, col=1)
 
-# Bollinger Bands
-for bb_col, color, label in [
-    ("bb_upper", "#aaaaff", "BB Upper"),
-    ("bb_middle", "#ffffff", "BB Mid"),
-    ("bb_lower", "#aaaaff", "BB Lower"),
-]:
-    if bb_col in df.columns and df[bb_col].notna().any():
-        fig.add_trace(go.Scatter(
-            x=df["date"], y=df[bb_col], name=label,
-            line=dict(color=color, width=1, dash="dash"), opacity=0.5,
-        ), row=1, col=1)
+    # Volume
+    vol_colors = ["#00c875" if r >= 0 else "#e04b4b" for r in df["daily_return"].fillna(0)]
+    fig.add_trace(go.Bar(
+        x=df["date"], y=df["volume"], name="Volume", marker_color=vol_colors,
+    ), row=3, col=1)
 
-# RSI
-if "rsi_14" in df.columns and df["rsi_14"].notna().any():
-    fig.add_trace(go.Scatter(
-        x=df["date"], y=df["rsi_14"], name="RSI (14)",
-        line=dict(color="#9b59b6", width=2),
-    ), row=2, col=1)
-    fig.add_hline(y=70, line_dash="dash", line_color="red", opacity=0.5, row=2, col=1)
-    fig.add_hline(y=30, line_dash="dash", line_color="green", opacity=0.5, row=2, col=1)
-    fig.add_hrect(y0=30, y1=70, fillcolor="gray", opacity=0.05, row=2, col=1)
+    fig.update_layout(
+        height=700,
+        showlegend=True,
+        paper_bgcolor="#0e1117",
+        plot_bgcolor="#1a1d23",
+        font=dict(color="#e0e0e0"),
+        xaxis_rangeslider_visible=False,
+        legend=dict(orientation="h", y=1.02),
+    )
+    fig.update_yaxes(gridcolor="#2d3139")
+    fig.update_xaxes(gridcolor="#2d3139")
 
-# Volume
-vol_colors = ["#00c875" if r >= 0 else "#e04b4b" for r in df["daily_return"].fillna(0)]
-fig.add_trace(go.Bar(
-    x=df["date"], y=df["volume"], name="Volume", marker_color=vol_colors,
-), row=3, col=1)
-
-fig.update_layout(
-    height=700,
-    showlegend=True,
-    paper_bgcolor="#0e1117",
-    plot_bgcolor="#1a1d23",
-    font=dict(color="#e0e0e0"),
-    xaxis_rangeslider_visible=False,
-    legend=dict(orientation="h", y=1.02),
-)
-fig.update_yaxes(gridcolor="#2d3139")
-fig.update_xaxes(gridcolor="#2d3139")
-
-st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True)
 
 # ── Signal & Targets ──────────────────────────────────────────────────────────
 st.subheader("🚦 Signal Details & Price Targets")
@@ -873,6 +897,49 @@ if fno_profile:
     fo4.metric("Implied Volatility (IV)", f"{fno_profile['implied_volatility_pct']:.1f}%", f"IV Rank: {fno_profile['iv_rank_pct']:.0f}%")
 
     st.markdown(f"**Derivative Signal Concurrence:** `{fno_profile['oi_buildup']}` ({fno_profile.get('oi_archetype_label', '')}) — *{fno_profile['oi_description']}* | Major Call Resistance Wall: **{format_price(fno_profile['major_resistance_call_wall'])}** | Major Put Support Wall: **{format_price(fno_profile['major_support_put_wall'])}**")
+
+    from core.option_greeks import compute_gamma_exposure_profile
+    gex_data = compute_gamma_exposure_profile(
+        spot=current_price,
+        options_chain=fno_profile["options_chain"],
+        annual_volatility=score.get("volatility_annual", 0.22)
+    )
+
+    with st.expander("⚡ **Black-Scholes Option Greeks (Δ, Γ, Θ, ν) & Gamma Exposure (GEX in ₹ Cr)**", expanded=True):
+        gx1, gx2, gx3, gx4 = st.columns(4)
+        gx1.metric("Zero-Gamma Flip Strike", format_price(gex_data["zero_gamma_flip_strike"]), "Volatility Pivot")
+        gx2.metric("Total Net GEX", f"₹{gex_data['total_net_gex_cr']:+,.2f} Cr", gex_data["gamma_regime"].split(' ')[0])
+        gx3.metric("Call Gamma Exposure", f"₹{gex_data['total_call_gex_cr']:,.2f} Cr")
+        gx4.metric("Put Gamma Exposure", f"₹{gex_data['total_put_gex_cr']:,.2f} Cr")
+
+        st.markdown(f"**Institutional Gamma Regime:** `{gex_data['gamma_regime']}`")
+
+        df_greeks = pd.DataFrame(gex_data["gex_table"])
+        st.dataframe(
+            df_greeks[[
+                "strike", "call_delta", "put_delta", "gamma", "theta_call", "vega", "net_gex_cr", "implied_volatility_pct"
+            ]].rename(columns={
+                "strike": "Strike (₹)",
+                "call_delta": "Call Delta (Δ)",
+                "put_delta": "Put Delta (Δ)",
+                "gamma": "Gamma (Γ)",
+                "theta_call": "Theta (₹/day)",
+                "vega": "Vega (₹/1% IV)",
+                "net_gex_cr": "Net GEX (₹ Cr)",
+                "implied_volatility_pct": "IV Smile %",
+            }).style.format({
+                "Strike (₹)": "₹{:,.2f}",
+                "Call Delta (Δ)": "{:+.3f}",
+                "Put Delta (Δ)": "{:+.3f}",
+                "Gamma (Γ)": "{:.5f}",
+                "Theta (₹/day)": "{:+.2f}",
+                "Vega (₹/1% IV)": "{:.2f}",
+                "Net GEX (₹ Cr)": "{:+,.2f}",
+                "IV Smile %": "{:.1f}%",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
 
     with st.expander("📊 **View Near-Month Option Strike Chain & PCR Spread**", expanded=False):
         st.dataframe(

@@ -140,7 +140,8 @@ tabs = st.tabs([
     "🛡️ Safe Investments",
     "⚡ Risky Plays",
     "🟡 Watchlist",
-    "🎯 Signal Accuracy & Audit"
+    "🎯 Signal Accuracy & Audit",
+    "🎯 Custom Screener & Presets"
 ])
 
 
@@ -503,4 +504,88 @@ with tabs[8]:
             use_container_width=True,
             hide_index=True,
         )
+
+# Tab 10: Custom Quantitative Screener & Institutional Presets
+with tabs[9]:
+    st.subheader("🎯 Custom Quantitative Screener & Institutional Presets")
+    st.caption("Filter across the 285+ stock universe by technical factors, momentum, F&O, and institutional setup templates")
+
+    from core.screener_engine import execute_custom_stock_screen, run_preset_institutional_screen
+
+    sc_mode = st.radio(
+        "Screener Mode",
+        ["🏆 Legendary Institutional Presets", "🛠️ Custom Multi-Factor Query Builder"],
+        horizontal=True
+    )
+
+    if "Presets" in sc_mode:
+        preset_choice = st.selectbox(
+            "Select Institutional Setup Screen",
+            [
+                "🏆 Minervini Trend Template",
+                "🚀 High-Growth CANSLIM Momentum",
+                "💎 Institutional Absorption Squeeze",
+                "🛡️ Defensive Value Contrarian",
+            ]
+        )
+        session_scr = get_session(engine)
+        preset_data = run_preset_institutional_screen(preset_choice, session_scr)
+        session_scr.close()
+
+        st.info(f"**Screening Logic:** {preset_data['description']} (Matched: **{preset_data['total_matched']} stocks**)")
+        
+        if preset_data["stocks"]:
+            p_df = pd.DataFrame(preset_data["stocks"])
+            st.dataframe(
+                p_df[["symbol", "name", "sector", "tier", "price", "daily_return", "rsi", "composite_score", "signal", "volume_ratio"]].style.format({
+                    "price": "₹{:,.2f}",
+                    "daily_return": "{:+.2f}%",
+                    "rsi": "{:.1f}",
+                    "composite_score": "{:.1f}",
+                    "volume_ratio": "{:.2f}x",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+    else:
+        q1, q2, q3 = st.columns(3)
+        with q1:
+            rsi_range = st.slider("RSI Range", 0, 100, (40, 75))
+            score_range = st.slider("Composite Score Range", 0, 100, (55, 100))
+        with q2:
+            sig_choice = st.selectbox("Signal State", ["ALL", "BUY", "WATCH", "SELL"])
+            cap_choice = st.selectbox("Market Cap Tier", ["ALL", "large", "mid", "small"])
+        with q3:
+            p_200 = st.checkbox("Price > 200 EMA", value=True)
+            p_50 = st.checkbox("Price > 50 EMA", value=False)
+            vol_min = st.slider("Min Volume Ratio (vs 20D Avg)", 0.5, 5.0, 1.2, 0.1)
+
+        session_c_scr = get_session(engine)
+        custom_res = execute_custom_stock_screen(
+            session_c_scr,
+            min_rsi=rsi_range[0], max_rsi=rsi_range[1],
+            min_score=score_range[0], max_score=score_range[1],
+            signal_filter=sig_choice,
+            market_cap_tier=cap_choice,
+            price_above_200_ema=p_200,
+            price_above_50_ema=p_50,
+            min_volume_ratio=vol_min,
+            limit=40
+        )
+        session_c_scr.close()
+
+        st.markdown(f"**Matched {len(custom_res)} Stocks matching your query:**")
+        if custom_res:
+            c_df = pd.DataFrame(custom_res)
+            st.dataframe(
+                c_df[["symbol", "name", "sector", "tier", "price", "daily_return", "rsi", "composite_score", "signal", "volume_ratio"]].style.format({
+                    "price": "₹{:,.2f}",
+                    "daily_return": "{:+.2f}%",
+                    "rsi": "{:.1f}",
+                    "composite_score": "{:.1f}",
+                    "volume_ratio": "{:.2f}x",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
 

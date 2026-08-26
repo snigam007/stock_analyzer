@@ -240,3 +240,24 @@ with col2:
         l_df["Price"] = l_df["Price"].apply(lambda p: f"₹{p:,.2f}" if p else "—")
         l_df["Return %"] = l_df["Return %"].apply(lambda r: f"{r:.2f}%")
         st.dataframe(l_df[["Symbol", "Name", "Return %", "Price"]], use_container_width=True, hide_index=True)
+
+st.markdown("---")
+
+# ── Cross-Asset Systemic Correlation Network ─────────────────────────────────
+st.subheader("🧬 Cross-Asset Systemic Correlation Network & Diversification Havens")
+st.caption("Interactive multi-asset co-movement network across Indian Equities, Global Benchmarks, and Commodities")
+
+from core.correlation_network import compute_cross_asset_correlation_network
+session_net = get_session(engine)
+network_data = compute_cross_asset_correlation_network(session_net)
+session_net.close()
+
+if "error" not in network_data:
+    st.plotly_chart(network_data["network_figure"], use_container_width=True)
+
+    if network_data.get("uncorrelated_havens"):
+        st.markdown("### 🛡️ Top Macro Diversification Havens (< 0.25 Correlation to Equities)")
+        h_cols = st.columns(len(network_data["uncorrelated_havens"]))
+        for i, h in enumerate(network_data["uncorrelated_havens"]):
+            with h_cols[i]:
+                st.success(f"**{h['symbol']}** ({h['name']})\n\nAvg Corr: `{h['avg_equity_correlation']}`")

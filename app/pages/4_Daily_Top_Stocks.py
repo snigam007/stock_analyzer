@@ -141,7 +141,8 @@ tabs = st.tabs([
     "⚡ Risky Plays",
     "🟡 Watchlist",
     "🎯 Signal Accuracy & Audit",
-    "🎯 Custom Screener & Presets"
+    "🎯 Custom Screener & Presets",
+    "💎 MTF Triple-Screen Confluence"
 ])
 
 
@@ -588,4 +589,42 @@ with tabs[9]:
                 use_container_width=True,
                 hide_index=True,
             )
+
+# Tab 11: Multi-Timeframe (MTF) Triple-Screen Confluence
+with tabs[10]:
+    st.subheader("💎 Multi-Timeframe (MTF) Triple-Screen Confluence Scanner")
+    st.caption("Elder's Triple-Screen: Weekly Macro Tide (Trend) + Daily Wave (Pullback) + Short-Term Ripple (Volume Trigger)")
+
+    from core.mtf_scanner import scan_mtf_triple_screen_confluence
+    session_mtf = get_session(engine)
+    mtf_setups = scan_mtf_triple_screen_confluence(session_mtf, limit=30)
+    session_mtf.close()
+
+    st.markdown(f"**Found {len(mtf_setups)} High-Conviction Confluence Setups across the universe:**")
+
+    if mtf_setups:
+        df_mtf = pd.DataFrame(mtf_setups)
+        st.dataframe(
+            df_mtf[[
+                "symbol", "name", "sector", "current_price", "weekly_status", "daily_status", "ripple_status", "rsi", "volume_ratio", "mtf_tier", "action"
+            ]].rename(columns={
+                "symbol": "Symbol",
+                "name": "Company Name",
+                "sector": "Sector",
+                "current_price": "Price (₹)",
+                "weekly_status": "Weekly Tide",
+                "daily_status": "Daily Wave",
+                "ripple_status": "Ripple Trigger",
+                "rsi": "RSI (14)",
+                "volume_ratio": "Vol Ratio",
+                "mtf_tier": "MTF Tier",
+                "action": "Institutional Action",
+            }).style.format({
+                "Price (₹)": "₹{:,.2f}",
+                "RSI (14)": "{:.1f}",
+                "Vol Ratio": "{:.2f}x",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
 

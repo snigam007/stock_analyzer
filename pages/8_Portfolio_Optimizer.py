@@ -64,6 +64,8 @@ tabs = st.tabs([
     "📈 Live Paper Trading Ledger",
     "⚡ Execute Paper Trade",
     "📜 Realized Trade History",
+    "📊 Hedge Fund Performance Tearsheet",
+    "🛡️ Black Swan Crisis Stress-Test",
 ])
 
 # ── Tab 1: Efficient Frontier Optimizer ────────────────────────────────────────
@@ -304,6 +306,68 @@ with tabs[3]:
                 "price": "₹{:,.2f}",
                 "realized_pnl": "₹{:,.2f}",
                 "realized_pnl_pct": "{:+.2f}%",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+# ── Tab 5: Hedge Fund Performance Tearsheet ───────────────────────────────────
+with tabs[4]:
+    st.subheader("📊 Hedge Fund Performance Tearsheet & Equity Growth Curve")
+    st.caption("Mathematical expectancy, Sortino/Calmar ratios, and cumulative benchmark performance")
+
+    from core.performance_analytics import compute_trading_performance_tearsheet
+    session_pf = get_session(engine)
+    port_pf = get_paper_portfolio(session_pf)
+    session_pf.close()
+
+    tearsheet = compute_trading_performance_tearsheet(
+        trade_history=port_pf.get("trade_history", []),
+        starting_capital=1000000.0,
+        current_equity_value=port_pf.get("total_portfolio_value", 1000000.0)
+    )
+
+    t_c1, t_c2, t_c3, t_c4, t_c5 = st.columns(5)
+    t_c1.metric("Win Rate", f"{tearsheet['win_rate_pct']:.1f}%", "Paper Trading Edge")
+    t_c2.metric("Profit Factor", f"{tearsheet['profit_factor']:.2f}x", ">1.5 is Institutional Grade")
+    t_c3.metric("Trade Expectancy", f"₹{tearsheet['expectancy_per_trade']:+,.2f}", "Avg Profit / Trade")
+    t_c4.metric("Sortino Ratio", f"{tearsheet['sortino_ratio']:.2f}", "Downside Risk-Adjusted")
+    t_c5.metric("Calmar Ratio", f"{tearsheet['calmar_ratio']:.2f}", "Return / Max Drawdown")
+
+    st.plotly_chart(tearsheet["equity_curve_figure"], use_container_width=True)
+
+# ── Tab 6: Black Swan Crisis Stress-Test ──────────────────────────────────────
+with tabs[5]:
+    st.subheader("🛡️ Portfolio Black Swan Crisis & Macro Stress-Test")
+    st.caption("Simulates historical market crashes against your active paper portfolio holdings")
+
+    from core.stress_testing import simulate_portfolio_crisis_stress_test
+    session_st = get_session(engine)
+    port_st = get_paper_portfolio(session_st)
+    session_st.close()
+
+    if not port_st.get("active_positions"):
+        st.info("No active positions to stress test. Execute paper trades in Tab 3 to simulate portfolio shocks.")
+    else:
+        sim_port = simulate_portfolio_crisis_stress_test(
+            positions=port_st["active_positions"],
+            cash_balance=port_st["cash_balance"]
+        )
+
+        st.markdown(f"**Portfolio Capital at Risk:** ₹{sim_port['initial_portfolio_value']:,.2f} | **Cash Buffer Cushion:** `{sim_port['cash_buffer_pct']}%`")
+
+        df_sim = pd.DataFrame(sim_port["scenarios"])
+        st.dataframe(
+            df_sim[["scenario", "simulated_portfolio_drawdown_pct", "simulated_portfolio_value", "capital_loss", "description"]].rename(columns={
+                "scenario": "Historical Crisis Scenario",
+                "simulated_portfolio_drawdown_pct": "Simulated Portfolio Impact %",
+                "simulated_portfolio_value": "Projected Value (₹)",
+                "capital_loss": "Est. Capital Loss (₹)",
+                "description": "Crisis Context",
+            }).style.format({
+                "Simulated Portfolio Impact %": "{:+.1f}%",
+                "Projected Value (₹)": "₹{:,.2f}",
+                "Est. Capital Loss (₹)": "₹{:,.2f}",
             }),
             use_container_width=True,
             hide_index=True,

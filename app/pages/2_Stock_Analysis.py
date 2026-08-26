@@ -871,7 +871,7 @@ if "Multi-Horizon" in model_view or "Head-to-Head" in model_view:
             col.caption(f"Range: {format_price(lower)} – {format_price(upper)}")
 
 # ── Risk Metrics ───────────────────────────────────────────────────────────────
-st.subheader("⚠️ Risk Metrics")
+st.subheader("⚠️ Risk Metrics & Solvency Health")
 rc1, rc2, rc3, rc4 = st.columns(4)
 rc1.metric("Beta", f"{score.get('beta', 0):.2f}" if score.get('beta') else "—",
            help="Beta vs NIFTY 50. <1 = less volatile, >1 = more volatile")
@@ -880,6 +880,51 @@ rc3.metric("Sharpe Ratio", f"{score.get('sharpe_ratio', 0):.2f}" if score.get('s
            help="Higher is better. >1 is good, >2 is excellent")
 rc4.metric("Max Drawdown", f"{score.get('max_drawdown', 0):.1f}%" if score.get('max_drawdown') else "—",
            help="Largest peak-to-trough decline in the period")
+
+# Fundamental Health Card (Piotroski & Altman)
+from core.fundamental_health import compute_fundamental_health_scorecard
+fund_health = compute_fundamental_health_scorecard(selected_symbol, stock_name, sector, tier)
+
+with st.expander("📊 **Institutional Fundamental Health Scorecard (Piotroski F-Score & Altman Z-Score)**", expanded=False):
+    fh1, fh2, fh3, fh4 = st.columns(4)
+    fh1.metric("Piotroski F-Score", f"{fund_health['piotroski_f_score']}/9", fund_health['piotroski_verdict'].split(' ')[0])
+    fh2.metric("Altman Z-Score", f"{fund_health['altman_z_score']:.2f}", fund_health['altman_verdict'].split(' ')[0])
+    fh3.metric("Du-Pont ROE", f"{fund_health['dupont_roe_pct']:.1f}%", f"Margin: {fund_health['dupont_net_margin_pct']}%")
+    fh4.metric("Asset Turnover", f"{fund_health['dupont_asset_turnover']}x", f"Leverage: {fund_health['dupont_leverage_multiplier']}x")
+
+    st.markdown(f"**Solvency Assessment:** {fund_health['piotroski_verdict']} | {fund_health['altman_verdict']}")
+    st.markdown(" • ".join(fund_health["checklist"]))
+
+# Black Swan Crisis Simulator
+from core.stress_testing import simulate_stock_crisis_stress_test
+crisis_data = simulate_stock_crisis_stress_test(
+    selected_symbol, stock_name, sector, current_price,
+    beta=score.get("beta", 1.0),
+    annual_volatility=score.get("volatility_annual", 0.22)
+)
+
+with st.expander("🛡️ **Black Swan Crisis & Macro Stress-Testing Simulator**", expanded=False):
+    st.caption("Replays historical market crash vectors against this asset to simulate drawdown depth, 99% VaR, and projected recovery duration")
+    
+    st.markdown(f"**99% 1-Month Value at Risk (VaR):** `-₹{crisis_data['var_99_amount']:,.2f}` (`-{crisis_data['var_99_pct']:.1f}%` tail-risk potential)")
+
+    c_df = pd.DataFrame(crisis_data["scenarios"])
+    st.dataframe(
+        c_df[["scenario", "simulated_drawdown_pct", "simulated_price", "recovery_days", "risk_tag", "hedge_advice"]].rename(columns={
+            "scenario": "Historical Crisis Scenario",
+            "simulated_drawdown_pct": "Simulated Drawdown %",
+            "simulated_price": "Simulated Price (₹)",
+            "recovery_days": "Est. Recovery (Days)",
+            "risk_tag": "Risk Profile",
+            "hedge_advice": "Recommended Hedging Protocol",
+        }).style.format({
+            "Simulated Drawdown %": "{:+.1f}%",
+            "Simulated Price (₹)": "₹{:,.2f}",
+            "Est. Recovery (Days)": "{} days",
+        }),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 st.markdown("---")
 

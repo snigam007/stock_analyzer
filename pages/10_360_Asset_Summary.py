@@ -53,11 +53,18 @@ session_sel.close()
 
 asset_options = []
 for s in stocks:
-    asset_options.append({"symbol": s[0], "name": s[1], "type": "Stock", "sector": s[2], "tier": s[3]})
+    s_name = str(s[1]) if s[1] else str(s[0])
+    s_sector = str(s[2]) if len(s) > 2 and s[2] else "General"
+    s_tier = str(s[3]) if len(s) > 3 and s[3] else "large"
+    asset_options.append({"symbol": str(s[0]), "name": s_name, "type": "Stock", "sector": s_sector, "tier": s_tier})
+
 for i in indexes:
-    asset_options.append({"symbol": i[0], "name": i[1], "type": "Index", "sector": "Benchmark Index", "tier": "macro"})
+    i_name = str(i[1]) if i[1] else str(i[0])
+    asset_options.append({"symbol": str(i[0]), "name": i_name, "type": "Index", "sector": "Benchmark Index", "tier": "macro"})
+
 for c in commodities:
-    asset_options.append({"symbol": c[0], "name": c[1], "type": "Commodity", "sector": "Commodity", "tier": "macro"})
+    c_name = str(c[1]) if c[1] else str(c[0])
+    asset_options.append({"symbol": str(c[0]), "name": c_name, "type": "Commodity", "sector": "Commodity", "tier": "macro"})
 
 asset_labels = [f"[{a['type'].upper()}] {a['symbol']} — {a['name'][:30]}" for a in asset_options]
 

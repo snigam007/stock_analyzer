@@ -17,11 +17,11 @@ import numpy as np
 _curr = Path(__file__).resolve()
 while _curr != _curr.parent:
     if (_curr / "core").exists() and (_curr / "db").exists():
-        if str(_curr) not in sys.path:
-            sys.path.insert(0, str(_curr))
         break
     _curr = _curr.parent
-sys.path.insert(0, str(BASE_DIR))
+BASE_DIR = _curr
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
 st.set_page_config(page_title="Daily Top Stocks", page_icon="🏆", layout="wide")
 

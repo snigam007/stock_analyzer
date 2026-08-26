@@ -322,7 +322,8 @@ def download_historical_data(
         progress_callback: Optional callback(current, total, symbol) for progress UI
     """
     if end_date is None:
-        end_date = date.today().strftime("%Y-%m-%d")
+        # Yahoo Finance end date is exclusive (< end), so we use tomorrow to always capture today's open/live session
+        end_date = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     total = len(stocks)
     logger.info(f"Starting historical download for {total} stocks from {start_date}")
@@ -418,7 +419,7 @@ def download_indexes_and_commodities(session: Session):
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    end_date = date.today().strftime("%Y-%m-%d")
+    end_date = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     # Indexes
     indexes = config.get("indexes", [])
@@ -452,9 +453,8 @@ def daily_update(session: Session):
     Incremental update — download only the latest data since last download date.
     Run this daily after market close.
     """
-    today = date.today().strftime("%Y-%m-%d")
-    yesterday = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
-    start = yesterday  # Download last 2 days to catch any gaps
+    today = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")  # Go back 5 days to catch weekends, holidays, and today
 
     stocks = session.query(Stock).filter(Stock.is_active == True).all()
     stock_list = [{"symbol": s.symbol, "yf_symbol": s.yf_symbol, "name": s.name} for s in stocks]

@@ -32,10 +32,10 @@ indexes:
 - symbol: ^CNXINFRA
   name: NIFTY Infra
   type: index
-- symbol: ^CNXMIDCAP
+- symbol: NIFTY_MIDCAP_100.NS
   name: NIFTY Midcap 100
   type: index
-- symbol: ^CNXSMALLCAP
+- symbol: ^CNXSC
   name: NIFTY Smallcap 100
   type: index
 - symbol: NIFTYBEES.NS
@@ -50,6 +50,15 @@ indexes:
 - symbol: GOLDBEES.NS
   name: Gold BeES ETF
   type: etf
+- symbol: ^CRSLDX
+  name: NIFTY 500
+  type: index
+- symbol: ^CNX100
+  name: NIFTY 100
+  type: index
+- symbol: ^CNX200
+  name: NIFTY 200
+  type: index
 commodities:
 - symbol: GC=F
   name: Gold Futures
@@ -152,10 +161,10 @@ sectors:
     - symbol: SOUTHBANK
       name: South Indian Bank
       market_cap_tier: small
-    - symbol: KARNATAKABK
+    - symbol: KTKBANK
       name: Karnataka Bank
       market_cap_tier: small
-    - symbol: JKBANK
+    - symbol: J&KBANK
       name: J&K Bank
       market_cap_tier: small
     - symbol: BAJFINANCE
@@ -182,7 +191,7 @@ sectors:
     - symbol: SUNDARMFIN
       name: Sundaram Finance
       market_cap_tier: mid
-    - symbol: LTFH
+    - symbol: LTF
       name: L&T Finance Holdings
       market_cap_tier: mid
     - symbol: PNBHOUSING
@@ -197,7 +206,7 @@ sectors:
     - symbol: HDFCAMC
       name: HDFC AMC
       market_cap_tier: large
-    - symbol: NIPPONLIFE
+    - symbol: NAM-INDIA
       name: Nippon Life India AMC
       market_cap_tier: mid
     - symbol: HDFCLIFE
@@ -243,14 +252,11 @@ sectors:
     - symbol: TECHM
       name: Tech Mahindra
       market_cap_tier: large
-    - symbol: LTIM
+    - symbol: PERSISTENT
       name: LTIMindtree
       market_cap_tier: large
     - symbol: MPHASIS
       name: Mphasis Ltd
-      market_cap_tier: mid
-    - symbol: PERSISTENT
-      name: Persistent Systems
       market_cap_tier: mid
     - symbol: COFORGE
       name: Coforge Ltd
@@ -273,13 +279,10 @@ sectors:
     - symbol: LTTS
       name: L&T Technology Services
       market_cap_tier: mid
-    - symbol: HEXAWARE
-      name: Hexaware Technologies
-      market_cap_tier: mid
-    - symbol: BIRLASOFT
+    - symbol: BSOFT
       name: Birlasoft Ltd
       market_cap_tier: mid
-    - symbol: NIIT
+    - symbol: NIITLTD
       name: NIIT Ltd
       market_cap_tier: small
     - symbol: ROUTE
@@ -310,7 +313,7 @@ sectors:
     - symbol: MARUTI
       name: Maruti Suzuki India
       market_cap_tier: large
-    - symbol: TATAMOTORS
+    - symbol: TATAPOWER
       name: Tata Motors Ltd
       market_cap_tier: large
     - symbol: M&M
@@ -325,7 +328,7 @@ sectors:
     - symbol: HEROMOTOCO
       name: Hero MotoCorp
       market_cap_tier: large
-    - symbol: TVSMOTORS
+    - symbol: TVSMOTOR
       name: TVS Motor Company
       market_cap_tier: large
     - symbol: ASHOKLEY
@@ -367,13 +370,13 @@ sectors:
     - symbol: EXIDEIND
       name: Exide Industries
       market_cap_tier: mid
-    - symbol: AMARARAJABAT
+    - symbol: ARE&M
       name: Amara Raja Energy
       market_cap_tier: mid
     - symbol: SUNDRMFAST
       name: Sundram Fasteners
       market_cap_tier: mid
-    - symbol: MAHINDCIE
+    - symbol: CIEINDIA
       name: Mahindra CIE Automotive
       market_cap_tier: mid
     - symbol: TIINDIA
@@ -388,12 +391,9 @@ sectors:
     - symbol: GABRIEL
       name: Gabriel India
       market_cap_tier: small
-    - symbol: MINDA
+    - symbol: UNOMINDA
       name: Minda Corporation
       market_cap_tier: small
-    - symbol: UNOMINDA
-      name: Uno Minda
-      market_cap_tier: mid
     - symbol: SANSERA
       name: Sansera Engineering
       market_cap_tier: small
@@ -434,7 +434,7 @@ sectors:
     - symbol: GLAND
       name: Gland Pharma
       market_cap_tier: mid
-    - symbol: NATCOPHARMA
+    - symbol: NATCOPHARM
       name: Natco Pharma
       market_cap_tier: mid
     - symbol: GRANULES
@@ -452,14 +452,11 @@ sectors:
     - symbol: SOLARA
       name: Solara Active Pharma Sciences
       market_cap_tier: small
-    - symbol: STRIDES
+    - symbol: STAR
       name: Strides Pharma Science
       market_cap_tier: small
-    - symbol: JB
-      name: JB Chemicals & Pharmaceuticals
-      market_cap_tier: mid
     - symbol: AJANTPHARM
-      name: Ajanta Pharma
+      name: JB Chemicals & Pharmaceuticals
       market_cap_tier: mid
     - symbol: ABBOTINDIA
       name: Abbott India
@@ -577,13 +574,13 @@ sectors:
     - symbol: SHREECEM
       name: Shree Cement
       market_cap_tier: large
-    - symbol: AMBUJACEMENT
+    - symbol: AMBUJACEM
       name: Ambuja Cements
       market_cap_tier: large
     - symbol: ACC
       name: ACC Ltd
       market_cap_tier: large
-    - symbol: DALMIACEMEN
+    - symbol: DALBHARAT
       name: Dalmia Bharat
       market_cap_tier: large
     - symbol: JKCEMENT
@@ -592,7 +589,7 @@ sectors:
     - symbol: RAMCOCEM
       name: The Ramco Cements
       market_cap_tier: mid
-    - symbol: HEIDELBERGCEMENT
+    - symbol: HEIDELBERG
       name: HeidelbergCement India
       market_cap_tier: mid
     - symbol: NUVOCO
@@ -610,7 +607,7 @@ sectors:
     - symbol: ADANIENT
       name: Adani Enterprises
       market_cap_tier: large
-    - symbol: GMRINFRA
+    - symbol: GMRAIRPORT
       name: GMR Airports Infrastructure
       market_cap_tier: mid
     - symbol: IRB
@@ -637,7 +634,7 @@ sectors:
     - symbol: SUPREMEIND
       name: Supreme Industries
       market_cap_tier: large
-    - symbol: FINOLEX
+    - symbol: FINPIPE
       name: Finolex Cables
       market_cap_tier: mid
     - symbol: KEI
@@ -646,7 +643,7 @@ sectors:
     - symbol: POLYCAB
       name: Polycab India
       market_cap_tier: large
-    - symbol: APAR
+    - symbol: APARINDS
       name: APAR Industries
       market_cap_tier: mid
   FMCG & Consumer Staples:
@@ -686,7 +683,7 @@ sectors:
     - symbol: TATACONSUM
       name: Tata Consumer Products
       market_cap_tier: large
-    - symbol: VARUNBEV
+    - symbol: VBL
       name: Varun Beverages
       market_cap_tier: large
     - symbol: RADICO
@@ -695,7 +692,7 @@ sectors:
     - symbol: UBL
       name: United Breweries
       market_cap_tier: mid
-    - symbol: MCDOWELL-N
+    - symbol: UNITDSPR
       name: United Spirits
       market_cap_tier: mid
     - symbol: HATSUN
@@ -756,7 +753,7 @@ sectors:
     - symbol: KIOCL
       name: KIOCL Ltd
       market_cap_tier: small
-    - symbol: APL
+    - symbol: APLAPOLLO
       name: APL Apollo Tubes
       market_cap_tier: mid
     - symbol: RATNAMANI
@@ -765,9 +762,6 @@ sectors:
     - symbol: WELCORP
       name: Welspun Corp
       market_cap_tier: mid
-    - symbol: TINPLATE
-      name: Tinplate Company of India
-      market_cap_tier: small
   Real Estate:
     quota: 20
     risk_weight: high
@@ -793,7 +787,7 @@ sectors:
     - symbol: SOBHA
       name: Sobha Ltd
       market_cap_tier: mid
-    - symbol: MACROTECH
+    - symbol: LODHA
       name: Macrotech Developers (Lodha)
       market_cap_tier: large
     - symbol: KOLTEPATIL
@@ -811,7 +805,7 @@ sectors:
     - symbol: RAYMOND
       name: Raymond Realty
       market_cap_tier: mid
-    - symbol: EQUINOX
+    - symbol: IBREALEST
       name: Equinox India Developments
       market_cap_tier: small
   Telecom & Media:
@@ -864,7 +858,7 @@ sectors:
     - symbol: NYKAA
       name: FSN E-Commerce Ventures (Nykaa)
       market_cap_tier: large
-    - symbol: ZOMATO
+    - symbol: JUBLFOOD
       name: Zomato Ltd
       market_cap_tier: large
     - symbol: IRCTC
@@ -876,7 +870,7 @@ sectors:
     - symbol: NAUKRI
       name: Info Edge India
       market_cap_tier: large
-    - symbol: SHOPPERSSTOP
+    - symbol: SHOPERSTOP
       name: Shoppers Stop
       market_cap_tier: mid
     - symbol: VMART
@@ -888,7 +882,7 @@ sectors:
     - symbol: EIHOTEL
       name: EIH Ltd
       market_cap_tier: mid
-    - symbol: MAHINDHOLIDAY
+    - symbol: MHRIL
       name: Mahindra Holidays & Resorts
       market_cap_tier: mid
     - symbol: LEMONTREE
@@ -905,9 +899,6 @@ sectors:
       market_cap_tier: mid
     - symbol: RUPA
       name: Rupa & Company
-      market_cap_tier: small
-    - symbol: CAREEREDGE
-      name: Career Point Ltd
       market_cap_tier: small
   Capital Goods & Engineering:
     quota: 30
@@ -937,7 +928,7 @@ sectors:
     - symbol: WHIRLPOOL
       name: Whirlpool of India
       market_cap_tier: mid
-    - symbol: BLUESTAR
+    - symbol: BLUESTARCO
       name: Blue Star Ltd
       market_cap_tier: mid
     - symbol: DIXON
@@ -955,7 +946,7 @@ sectors:
     - symbol: TDPOWERSYS
       name: TD Power Systems
       market_cap_tier: small
-    - symbol: BHARAT
+    - symbol: BHARATFORG
       name: Bharat Electronics
       market_cap_tier: large
     - symbol: HAL
@@ -967,7 +958,7 @@ sectors:
     - symbol: COCHINSHIP
       name: Cochin Shipyard
       market_cap_tier: mid
-    - symbol: MAZAGON
+    - symbol: MAZDOCK
       name: Mazagon Dock Shipbuilders
       market_cap_tier: mid
   Chemicals & Specialty:
@@ -977,7 +968,7 @@ sectors:
     - symbol: PIDILITIND
       name: Pidilite Industries
       market_cap_tier: large
-    - symbol: AARTI
+    - symbol: AARTIIND
       name: Aarti Industries
       market_cap_tier: mid
     - symbol: SRF
@@ -986,7 +977,7 @@ sectors:
     - symbol: DEEPAKNTR
       name: Deepak Nitrite
       market_cap_tier: large
-    - symbol: NAVIN
+    - symbol: NAVINFLUOR
       name: Navin Fluorine International
       market_cap_tier: mid
     - symbol: ATUL
@@ -1013,7 +1004,7 @@ sectors:
     - symbol: PCBL
       name: PCBL Ltd
       market_cap_tier: mid
-    - symbol: VINATI
+    - symbol: VINATIORGA
       name: Vinati Organics
       market_cap_tier: mid
     - symbol: FINEORG
@@ -1029,7 +1020,7 @@ sectors:
     - symbol: PIIND
       name: PI Industries
       market_cap_tier: large
-    - symbol: BAYER
+    - symbol: BAYERCROP
       name: Bayer CropScience
       market_cap_tier: mid
     - symbol: RALLIS
@@ -1044,7 +1035,7 @@ sectors:
     - symbol: GNFC
       name: Gujarat Narmada Valley Fertilizers
       market_cap_tier: mid
-    - symbol: CHAMBALFERT
+    - symbol: CHAMBLFERT
       name: Chambal Fertilisers
       market_cap_tier: mid
     - symbol: DEEPAKFERT
@@ -1053,11 +1044,8 @@ sectors:
     - symbol: GSFC
       name: Gujarat State Fertilizers & Chemicals
       market_cap_tier: mid
-    - symbol: KAVERI
+    - symbol: KSCL
       name: Kaveri Seed Company
-      market_cap_tier: mid
-    - symbol: MONSANTO
-      name: Monsanto India
       market_cap_tier: mid
     - symbol: GODREJAGRO
       name: Godrej Agrovet
@@ -1072,7 +1060,7 @@ sectors:
     - symbol: BLUEDART
       name: Blue Dart Express
       market_cap_tier: mid
-    - symbol: VRL
+    - symbol: VRLLOG
       name: VRL Logistics
       market_cap_tier: mid
     - symbol: MAHLOG
@@ -1090,9 +1078,6 @@ sectors:
     - symbol: SNOWMAN
       name: Snowman Logistics
       market_cap_tier: small
-    - symbol: GATI
-      name: Gati Ltd
-      market_cap_tier: small
     - symbol: DELHIVERY
       name: Delhivery Ltd
       market_cap_tier: large
@@ -1103,10 +1088,10 @@ sectors:
     - symbol: TRIDENT
       name: Trident Ltd
       market_cap_tier: mid
-    - symbol: WELSPUN
+    - symbol: WELSPUNLIV
       name: Welspun India
       market_cap_tier: mid
-    - symbol: VARDHMAN
+    - symbol: VTL
       name: Vardhman Textiles
       market_cap_tier: mid
     - symbol: DOLLAR
@@ -1115,12 +1100,9 @@ sectors:
     - symbol: KITEX
       name: Kitex Garments
       market_cap_tier: small
-    - symbol: NITIN
-      name: Nitin Spinners
-      market_cap_tier: small
-    - symbol: ALOK
+    - symbol: ALOKINDS
       name: Alok Industries
       market_cap_tier: small
-    - symbol: INDO
+    - symbol: RAYMOND
       name: Indo Count Industries
       market_cap_tier: small

@@ -70,10 +70,9 @@ def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
                cs.beta, cs.volatility_annual, cs.sharpe_ratio
         FROM signals sig
         JOIN stocks s ON sig.symbol = s.symbol
-        JOIN composite_scores cs ON sig.symbol = cs.symbol
-        LEFT JOIN technical_indicators ind ON sig.symbol = ind.symbol
-        WHERE sig.date = (SELECT date FROM signals GROUP BY date ORDER BY COUNT(*) DESC, date DESC LIMIT 1)
-        AND cs.date = (SELECT date FROM composite_scores GROUP BY date ORDER BY COUNT(*) DESC, date DESC LIMIT 1)
+        JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
+        LEFT JOIN technical_indicators ind ON sig.symbol = ind.symbol AND ind.date = sig.date
+        WHERE sig.date = (SELECT MAX(date) FROM signals)
     """
     params = {}
     conditions = []

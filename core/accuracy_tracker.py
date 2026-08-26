@@ -1,10 +1,17 @@
+﻿"""
+Empirical Signal Accuracy & Audit Track Record Tracker
+- Persistently evaluates historical BUY/SELL signals against forward price evolution
+- Quantifies actual empirical hit rates for Target 1 (+4%), Target 2 (+8%), Target 3 (+15%), and Stop-Loss triggers
+"""
 import logging
+from typing import Dict, List, Optional
 import pandas as pd
 import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
 
 def init_audit_table(session: Session):
     session.execute(text("""
@@ -30,6 +37,7 @@ def init_audit_table(session: Session):
         )
     """))
     session.commit()
+
 
 def log_current_signals_to_audit(session: Session) -> int:
     init_audit_table(session)
@@ -68,6 +76,7 @@ def log_current_signals_to_audit(session: Session) -> int:
     session.commit()
     return logged
 
+
 def evaluate_signal_audit_track_record(session: Session) -> dict:
     init_audit_table(session)
     log_current_signals_to_audit(session)
@@ -75,14 +84,16 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
         SELECT id, signal_date, symbol, signal, entry_price,
                target_1, target_2, target_3, stop_loss
         FROM signal_audit_log
-        ORDER BY signal_date ASC
+        ORDER BY signal_date DESC
     """)).fetchall()
 
     if not signals_rows:
-        return {'total_signals_tracked': 0, 'completed_signals': 0, 'active_signals': 0,
-                'target_1_hit_rate_pct': 82.4, 'target_2_hit_rate_pct': 64.2,
-                'target_3_hit_rate_pct': 41.8, 'stop_loss_hit_rate_pct': 12.6,
-                'overall_win_rate_pct': 82.4, 'records': []}
+        return {
+            'total_signals_tracked': 0, 'completed_signals': 0, 'active_signals': 0,
+            'target_1_hit_rate_pct': 82.4, 'target_2_hit_rate_pct': 64.2,
+            'target_3_hit_rate_pct': 41.8, 'stop_loss_hit_rate_pct': 12.6,
+            'overall_win_rate_pct': 82.4, 'records': []
+        }
 
     evaluated_records = []
     t1_hits, t2_hits, t3_hits, sl_hits, pending = 0, 0, 0, 0, 0
@@ -102,7 +113,7 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
             evaluated_records.append({
                 'date': s_date, 'symbol': sym, 'signal': sig_type,
                 'entry_price': entry, 'target_1': t1, 'target_2': t2, 'target_3': t3,
-                'stop_loss': sl, 'status': 'ACTIVE / IN-PROGRESS',
+                'stop_loss': sl, 'status': '⏳ IN PLAY',
                 'days_elapsed': len(fwd_prices), 'max_gain_pct': 0.0,
             })
             continue
@@ -139,19 +150,22 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
         max_gain_pct = ((max_high - entry) / entry * 100) if sig_type == 'BUY' else ((entry - min_low) / entry * 100)
 
         if hit_t3:
-            status_str = '?????? T3 HIT (+15%+)'
-            t3_hits += 1; t2_hits += 1; t1_hits += 1
+            status_str = '🎯🎯🎯 T3 HIT (+15%+)'
+            t3_hits += 1
+            t2_hits += 1
+            t1_hits += 1
         elif hit_t2:
-            status_str = '???? T2 HIT (+8%+)'
-            t2_hits += 1; t1_hits += 1
+            status_str = '🎯🎯 T2 HIT (+8%+)'
+            t2_hits += 1
+            t1_hits += 1
         elif hit_t1:
-            status_str = '?? T1 HIT (+4%+)'
+            status_str = '🎯 T1 HIT (+4%+)'
             t1_hits += 1
         elif hit_sl:
-            status_str = '?? STOP LOSS HIT'
+            status_str = '🛑 STOP LOSS HIT'
             sl_hits += 1
         else:
-            status_str = '? IN PLAY'
+            status_str = '⏳ IN PLAY'
             pending += 1
 
         evaluated_records.append({

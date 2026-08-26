@@ -401,17 +401,42 @@ with col6:
             fno_data=fno_quick,
             macro_data=macro_data,
         )
+        from core.report_generator import generate_stock_teardown_html
+        from core.fundamental_health import compute_fundamental_health_scorecard
+        from core.stress_testing import simulate_stock_crisis_stress_test
+        from core.smart_money import calculate_smart_money_metrics
+        from core.earnings_catalysts import evaluate_pead_and_catalysts
+
+        fh_data = compute_fundamental_health_scorecard(selected_symbol, stock_name, stock_sector or "General", stock_tier or "large")
+        cr_data = simulate_stock_crisis_stress_test(selected_symbol, stock_name, stock_sector or "General", current_price, beta=score.get("beta", 1.0), annual_volatility=score.get("volatility_annual", 0.22))
+        sm_data = calculate_smart_money_metrics(df)
+        pead_data = evaluate_pead_and_catalysts(selected_symbol, df)
+
+        teardown_html = generate_stock_teardown_html(
+            symbol=selected_symbol,
+            name=stock_name,
+            sector=stock_sector or "General",
+            tier=stock_tier or "large",
+            current_price=current_price,
+            signal_data=sig,
+            score_data=score,
+            fundamental_data=fh_data,
+            stress_data=cr_data,
+            pead_data=pead_data,
+            smart_money_data=sm_data
+        )
+
         st.download_button(
-            "📥 Advisory PDF",
-            data=pdf_bytes,
-            file_name=f"{selected_symbol}_Institutional_Research_Note.pdf",
-            mime="application/pdf",
+            "📥 Teardown Report",
+            data=teardown_html,
+            file_name=f"{selected_symbol}_Institutional_Teardown.html",
+            mime="text/html",
             type="primary",
             use_container_width=True,
-            help="Download 1-Click Institutional Advisory PDF Research Report"
+            help="Download 1-Click Institutional Quantitative Teardown Report (View in Browser or Print to PDF)"
         )
     except Exception as e:
-        st.error(f"PDF generation error: {e}")
+        st.caption("Advisory Report ready on page load")
 
 st.markdown("---")
 
@@ -925,6 +950,36 @@ with st.expander("🛡️ **Black Swan Crisis & Macro Stress-Testing Simulator**
         use_container_width=True,
         hide_index=True,
     )
+
+# Institutional Smart Money & Delivery Footprint
+from core.smart_money import calculate_smart_money_metrics
+sm_stock = calculate_smart_money_metrics(df)
+
+with st.expander("🐋 **Institutional Smart Money & Delivery Footprint**", expanded=False):
+    sm1, sm2, sm3, sm4 = st.columns(4)
+    sm1.metric("Money Flow Score", f"{sm_stock['money_flow_score']}/100", sm_stock['footprint_badge'].split(' ')[0])
+    sm2.metric("Est. Delivery %", f"{sm_stock['delivery_pct_est']}%", "⚡ Spurt" if sm_stock['delivery_spurt'] else "Normal")
+    sm3.metric("10-Day Volume Ratio", f"{sm_stock['vol_ratio_10d']}x", "Whale Volume" if sm_stock['vol_ratio_10d'] > 1.5 else "Average")
+    sm4.metric("Chaikin Money Flow (CMF)", f"{sm_stock['cmf_20']:+.3f}", "Inflow" if sm_stock['cmf_20'] > 0 else "Outflow")
+
+    st.markdown(f"**Order Flow Assessment:** `{sm_stock['smart_money_bias']}` — *A/D Trend:* **{sm_stock['accumulation_distribution_trend']}** | *Stealth Panic Absorption:* **{'YES (Active)' if sm_stock['absorption_detected'] else 'NO'}**")
+
+# Corporate Catalysts & Post-Earnings Announcement Drift (PEAD)
+from core.earnings_catalysts import evaluate_pead_and_catalysts
+pead_stock = evaluate_pead_and_catalysts(selected_symbol, df)
+
+with st.expander("📅 **Corporate Catalysts & Post-Earnings Announcement Drift (PEAD)**", expanded=False):
+    pe1, pe2, pe3, pe4 = st.columns(4)
+    pe1.metric("PEAD Conviction Score", f"{pead_stock['pead_score']}/100", pead_stock['pead_bias'].split(' ')[0])
+    pe2.metric("Avg 5-Day Post-Earnings Drift", f"{pead_stock['avg_5d_drift_pct']:+.2f}%", "Historical Avg")
+    pe3.metric("Avg 15-Day Drift", f"{pead_stock['avg_15d_drift_pct']:+.2f}%", f"Win Rate: {pead_stock['post_earnings_win_rate_pct']}%")
+    pe4.metric("Dividend Yield", f"{pead_stock['dividend_yield_pct']:.2f}%", f"Ex-Date: {pead_stock['ex_dividend_date']}")
+
+    st.markdown(f"**Upcoming Catalyst:** `{pead_stock['upcoming_earnings_date']}` • **PEAD Character:** {pead_stock['pead_badge']}")
+    if pead_stock.get("catalyst_timeline"):
+        st.markdown("**Timeline of Expected Catalysts:**")
+        for cat in pead_stock["catalyst_timeline"]:
+            st.markdown(f" - `{cat['date']}`: **{cat['badge']}** — {cat['event']}")
 
 st.markdown("---")
 

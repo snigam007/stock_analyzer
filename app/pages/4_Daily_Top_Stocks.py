@@ -141,7 +141,9 @@ tabs = st.tabs([
     "🟡 Watchlist",
     "🎯 Signal Accuracy & Audit",
     "🎯 Custom Screener & Presets",
-    "💎 MTF Triple-Screen Confluence"
+    "💎 MTF Triple-Screen Confluence",
+    "⚡ Option Chain & Max Pain",
+    "🐋 Smart Money & Delivery Footprint"
 ])
 
 
@@ -626,4 +628,146 @@ with tabs[10]:
             use_container_width=True,
             hide_index=True,
         )
+
+# Tab 12: Option Chain & Max Pain Analytics
+with tabs[11]:
+    st.subheader("⚡ F&O Derivatives & Option Chain Analytics")
+    st.caption("Max Pain Theory, Put-Call Ratio (PCR), Open Interest (OI) Heatmap, and Black-Scholes Greeks")
+
+    fno_symbols = ["^NSEI", "^NSEBANK", "RELIANCE", "HDFCBANK", "ICICIBANK", "SBIN", "TCS", "INFY", "BHARTIARTL", "ITC"]
+    fno_col1, fno_col2 = st.columns([2, 1])
+    with fno_col1:
+        selected_fno = st.selectbox("Select Index or F&O Stock", fno_symbols, index=0, format_func=lambda x: f"NIFTY 50 (^NSEI)" if x == "^NSEI" else (f"NIFTY BANK (^NSEBANK)" if x == "^NSEBANK" else f"{x} (F&O Stock)"))
+    with fno_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+
+    from core.options_analytics import fetch_option_chain_analytics
+    
+    # Get current price
+    session_fno = get_session(engine)
+    if selected_fno.startswith("^"):
+        p_row = session_fno.execute(text("SELECT close FROM index_prices WHERE symbol = :s ORDER BY date DESC LIMIT 1"), {"s": selected_fno}).fetchone()
+        fno_price = float(p_row[0]) if p_row else 24200.0
+    else:
+        p_row = session_fno.execute(text("SELECT close FROM daily_prices WHERE symbol = :s ORDER BY date DESC LIMIT 1"), {"s": selected_fno}).fetchone()
+        fno_price = float(p_row[0]) if p_row else 1500.0
+    session_fno.close()
+
+    opt_data = fetch_option_chain_analytics(selected_fno, fno_price)
+
+    # Metric Banner
+    oc1, oc2, oc3, oc4, oc5 = st.columns(5)
+    with oc1:
+        st.metric("Underlying Spot Price", f"₹{fno_price:,.2f}")
+    with oc2:
+        st.metric("Max Pain Strike", f"₹{opt_data['max_pain_strike']:,.0f}", help="Strike price where option buyers experience maximum cumulative loss")
+    with oc3:
+        st.metric("Put-Call Ratio (OI)", f"{opt_data['pcr_oi']:.2f}", opt_data['pcr_badge'])
+    with oc4:
+        st.metric("Major Support (Put Wall)", f"₹{opt_data['major_support_strike']:,.0f}")
+    with oc5:
+        st.metric("Major Resistance (Call Wall)", f"₹{opt_data['major_resistance_strike']:,.0f}")
+
+    # Charts: OI Heatmap & Max Pain Loss Curve
+    ch_col1, ch_col2 = st.columns(2)
+    with ch_col1:
+        st.markdown("##### 📊 Strike-Wise Open Interest (OI) Distribution")
+        df_strikes = pd.DataFrame({
+            "Strike": [c["strike"] for c in opt_data["calls"]],
+            "Call OI": [c["oi"] for c in opt_data["calls"]],
+            "Put OI": [p["oi"] for p in opt_data["puts"]],
+        })
+        import plotly.graph_objects as go
+        fig_oi = go.Figure()
+        fig_oi.add_trace(go.Bar(x=df_strikes["Strike"], y=df_strikes["Call OI"], name="Call OI (Resistance)", marker_color="#ff4b4b"))
+        fig_oi.add_trace(go.Bar(x=df_strikes["Strike"], y=df_strikes["Put OI"], name="Put OI (Support)", marker_color="#00c875"))
+        fig_oi.add_vline(x=opt_data["max_pain_strike"], line_dash="dash", line_color="#f0a500", annotation_text="Max Pain")
+        fig_oi.update_layout(barmode="group", height=340, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+        st.plotly_chart(fig_oi, use_container_width=True)
+
+    with ch_col2:
+        st.markdown("##### 📉 Max Pain Cumulative Financial Loss Curve")
+        loss_df = opt_data.get("loss_df", pd.DataFrame())
+        if not loss_df.empty:
+            fig_loss = go.Figure()
+            fig_loss.add_trace(go.Scatter(x=loss_df["strike"], y=loss_df["total_loss"], mode="lines+markers", name="Total Buyer Loss", line=dict(color="#38bdf8", width=2)))
+            fig_loss.add_vline(x=opt_data["max_pain_strike"], line_dash="dash", line_color="#00c875", annotation_text=f"Min Loss (Max Pain: ₹{opt_data['max_pain_strike']:,.0f})")
+            fig_loss.update_layout(height=340, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+            st.plotly_chart(fig_loss, use_container_width=True)
+
+    # Option Chain Table
+    with st.expander("📋 Detailed Option Chain Matrix & Black-Scholes Greeks", expanded=False):
+        c_list = opt_data["calls"]
+        p_list = opt_data["puts"]
+        table_rows = []
+        for c, p in zip(c_list, p_list):
+            table_rows.append({
+                "Call OI": f"{c['oi']:,}",
+                "Call Vol": f"{c['volume']:,}",
+                "Call IV": f"{c['iv']:.1f}%",
+                "Call LTP": f"₹{c['ltp']:.2f}",
+                "Call Delta": f"{c['delta']:.2f}",
+                "Strike Price": f"₹{c['strike']:,.0f}",
+                "Put Delta": f"{p['delta']:.2f}",
+                "Put LTP": f"₹{p['ltp']:.2f}",
+                "Put IV": f"{p['iv']:.1f}%",
+                "Put Vol": f"{p['volume']:,}",
+                "Put OI": f"{p['oi']:,}",
+            })
+        st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+
+
+# Tab 13: Smart Money & Delivery Footprint Scanner
+with tabs[12]:
+    st.subheader("🐋 Institutional Smart Money & Delivery Footprint Scanner")
+    st.caption("Identifies institutional accumulation, delivery volume spurts (>2.0x 10d avg), and stealth order-flow absorption")
+
+    from core.smart_money import scan_universe_smart_money
+    session_sm = get_session(engine)
+    sm_results = scan_universe_smart_money(session_sm, limit=35)
+    session_sm.close()
+
+    # Summary Metrics
+    spurts = sum(1 for r in sm_results if r["delivery_spurt"])
+    absorptions = sum(1 for r in sm_results if r["absorption_detected"])
+    strong_inflows = sum(1 for r in sm_results if "STRONG" in r["smart_money_bias"])
+
+    sm_m1, sm_m2, sm_m3, sm_m4 = st.columns(4)
+    with sm_m1:
+        st.metric("Total Whale Scanned", len(sm_results))
+    with sm_m2:
+        st.metric("Strong Inflows Detected", strong_inflows, "🟢 High Quality")
+    with sm_m3:
+        st.metric("Delivery Volume Spurts", spurts, "⚡ >2.0x Volume")
+    with sm_m4:
+        st.metric("Stealth Price Absorptions", absorptions, "🛡️ Panic Absorption")
+
+    if sm_results:
+        df_sm = pd.DataFrame(sm_results)
+        st.dataframe(
+            df_sm[[
+                "symbol", "name", "sector", "tier", "close", "money_flow_score", "delivery_pct_est", "vol_ratio_10d", "cmf_20", "smart_money_bias", "absorption_detected"
+            ]].rename(columns={
+                "symbol": "Symbol",
+                "name": "Company Name",
+                "sector": "Sector",
+                "tier": "Cap Tier",
+                "close": "Price (₹)",
+                "money_flow_score": "Money Flow Score",
+                "delivery_pct_est": "Est. Delivery %",
+                "vol_ratio_10d": "Vol Ratio (10d)",
+                "cmf_20": "CMF (20)",
+                "smart_money_bias": "Institutional Bias",
+                "absorption_detected": "Stealth Absorption",
+            }).style.format({
+                "Price (₹)": "₹{:,.2f}",
+                "Money Flow Score": "{:.1f}/100",
+                "Est. Delivery %": "{:.1f}%",
+                "Vol Ratio (10d)": "{:.2f}x",
+                "CMF (20)": "{:+.3f}",
+            }),
+            use_container_width=True,
+            hide_index=True,
+        )
+
 

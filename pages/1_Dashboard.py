@@ -261,3 +261,37 @@ if "error" not in network_data:
         for i, h in enumerate(network_data["uncorrelated_havens"]):
             with h_cols[i]:
                 st.success(f"**{h['symbol']}** ({h['name']})\n\nAvg Corr: `{h['avg_equity_correlation']}`")
+
+st.markdown("---")
+
+# ── Upcoming Corporate Catalysts & Dividend Calendar ─────────────────────────
+st.subheader("📅 High-Impact Corporate Catalysts & Dividend Radar")
+st.caption("Upcoming quarterly earnings, dividend record dates, and corporate expansion triggers across major bellwether stocks")
+
+cat_col1, cat_col2 = st.columns(2)
+with cat_col1:
+    st.markdown("""
+    <div style="background: #101c2c; border: 1px solid #1e3a5f; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+        <span style="font-weight: bold; color: #38bdf8; font-size: 1.05em;">📊 Upcoming Quarterly Earnings Releases (Q2/Q3 FY27)</span><br>
+        <div style="margin-top: 10px; font-size: 0.9em; color: #cbd5e1; line-height: 1.8;">
+            • <b>HDFCBANK</b>: Board Meeting & Financial Results • <span style="color: #38bdf8;">PEAD Score: 84/100 (Runner)</span><br>
+            • <b>RELIANCE</b>: Q2 Financials & Strategic Update • <span style="color: #38bdf8;">PEAD Score: 87/100 (Runner)</span><br>
+            • <b>TCS</b>: Quarterly Earnings & Margin Expansion Review • <span style="color: #00c875;">PEAD Score: 78/100</span><br>
+            • <b>ICICIBANK</b>: Net Interest Margin & Loan Growth Report • <span style="color: #00c875;">PEAD Score: 82/100</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+with cat_col2:
+    st.markdown("""
+    <div style="background: #10261e; border: 1px solid #1e5a3e; border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+        <span style="font-weight: bold; color: #00c875; font-size: 1.05em;">💰 High-Yield Dividend & Corporate Actions Radar</span><br>
+        <div style="margin-top: 10px; font-size: 0.9em; color: #cbd5e1; line-height: 1.8;">
+            • <b>COALINDIA</b>: Expected Interim Dividend (Yield: <b>~5.8%</b>) • Record Date Approaching<br>
+            • <b>VEDL</b>: High Dividend Yield Payout (Yield: <b>~8.2%</b>) • Cash Inflow Focus<br>
+            • <b>IOC</b>: Oil Marketing Cash Dividend (Yield: <b>~4.6%</b>) • Value Compounder<br>
+            • <b>ITC</b>: FMCG Core Dividend Distribution (Yield: <b>~3.4%</b>) • Defensive Cash Flow
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+

@@ -53,16 +53,22 @@ def get_available_stocks():
     return result
 
 
-st.title("🧪 Quantitative Strategy Backtesting Engine")
-st.caption("Verify and stress-test algorithmic trading strategies against historical Indian market data")
+st.title("🧪 Quantitative Strategy Backtesting & Rule Composer")
+st.caption("Verify and stress-test algorithmic trading strategies and compose custom quantitative rules")
 
-# ── Sidebar Controls ──────────────────────────────────────────────────────────
-st.sidebar.title("⚙️ Backtest Settings")
+backtest_tabs = st.tabs([
+    "📈 Single Asset Strategy Backtest",
+    "🛠️ No-Code Visual Quantitative Strategy Builder"
+])
 
-stock_list = get_available_stocks()
-if not stock_list:
-    st.warning("No historical price data available. Please download stock data first.")
-    st.stop()
+with backtest_tabs[0]:
+    # ── Sidebar Controls ──────────────────────────────────────────────────────────
+    st.sidebar.title("⚙️ Backtest Settings")
+
+    stock_list = get_available_stocks()
+    if not stock_list:
+        st.warning("No historical price data available. Please download stock data first.")
+        st.stop()
 
 symbols = [s[0] for s in stock_list]
 labels = [f"{s[0]} — {s[1][:30]} ({s[2]})" for s in stock_list]
@@ -247,3 +253,104 @@ if trade_log:
     )
 else:
     st.info("No trades were triggered during this historical timeframe under the selected strategy rules.")
+
+# Tab 2: Visual Quantitative Strategy Builder
+with backtest_tabs[1]:
+    st.subheader("🛠️ No-Code Visual Quantitative Strategy Builder & Universe Backtester")
+    st.caption("Design custom multi-factor rules combining RSI, EMAs, Volume, and Trend conditions, then backtest across the universe in seconds.")
+
+    from core.strategy_builder import evaluate_custom_strategy, PRESET_STRATEGIES
+
+    b_col1, b_col2 = st.columns([1.2, 2])
+    with b_col1:
+        st.markdown("#### ⚙️ Rule Configuration")
+        preset_choice = st.selectbox("Load Quantitative Preset", ["Custom Rule"] + list(PRESET_STRATEGIES.keys()))
+        
+        default_rules = PRESET_STRATEGIES[preset_choice]["rules"] if preset_choice != "Custom Rule" else {}
+        if preset_choice != "Custom Rule":
+            st.info(f"💡 **Preset:** {PRESET_STRATEGIES[preset_choice]['description']}")
+
+        c_rsi_min = st.slider("Min RSI (14)", 0, 100, int(default_rules.get("rsi_min", 0)))
+        c_rsi_max = st.slider("Max RSI (14)", 0, 100, int(default_rules.get("rsi_max", 100)))
+        c_adx_min = st.slider("Min Trend Strength (ADX)", 0, 60, int(default_rules.get("adx_min", 0)))
+        c_vol_min = st.slider("Min Volume Ratio (vs 20d SMA)", 0.5, 4.0, float(default_rules.get("volume_ratio_min", 1.0)), 0.1)
+
+        c_above_200 = st.checkbox("Price Above 200 EMA (Bull Market Filter)", value=default_rules.get("above_ema_200", True))
+        c_above_50 = st.checkbox("Price Above 50 EMA", value=default_rules.get("above_ema_50", False))
+
+        st.markdown("---")
+        st.markdown("#### 🎯 Execution Parameters")
+        hold_days = st.slider("Holding Period (Trading Days)", 3, 30, 10)
+        tp_pct = st.slider("Take Profit Target %", 2.0, 25.0, 8.0, 0.5)
+        sl_pct = st.slider("Stop Loss %", 1.0, 15.0, 4.0, 0.5)
+        max_stocks = st.slider("Universe Sample Size (Stocks)", 10, 200, 50, 10)
+
+        run_builder = st.button("🚀 Run Vectorized Universe Backtest", type="primary", use_container_width=True)
+
+    with b_col2:
+        st.markdown("#### 📊 Strategy Performance & Universe Backtest Results")
+        
+        active_rules = {
+            "rsi_min": float(c_rsi_min),
+            "rsi_max": float(c_rsi_max),
+            "adx_min": float(c_adx_min),
+            "volume_ratio_min": float(c_vol_min),
+            "above_ema_200": c_above_200,
+            "above_ema_50": c_above_50,
+        }
+
+        session_sb = get_session(engine)
+        builder_results = evaluate_custom_strategy(
+            session_sb,
+            active_rules,
+            holding_period_days=hold_days,
+            take_profit_pct=tp_pct,
+            stop_loss_pct=sl_pct,
+            max_stocks_to_test=max_stocks
+        )
+        session_sb.close()
+
+        # Scorecard Metrics
+        sm1, sm2, sm3, sm4, sm5 = st.columns(5)
+        with sm1:
+            st.metric("Total Trades", builder_results["total_trades"])
+        with sm2:
+            st.metric("Win Rate", f"{builder_results['win_rate_pct']:.1f}%", "Profitable" if builder_results['win_rate_pct'] >= 50 else "Sub-50%")
+        with sm3:
+            st.metric("Profit Factor", f"{builder_results['profit_factor']:.2f}", "Elite" if builder_results['profit_factor'] >= 1.5 else "Moderate")
+        with sm4:
+            st.metric("Max Drawdown", f"-{builder_results['max_drawdown_pct']:.1f}%")
+        with sm5:
+            st.metric("Portfolio Return", f"{builder_results['total_return_pct']:+.1f}%")
+
+        # Equity Curve Chart
+        st.markdown("##### 📈 Strategy Cumulative Equity Growth (Initial: ₹100,000)")
+        df_builder_eq = pd.DataFrame({"Trade #": list(range(len(builder_results["equity_curve"]))), "Equity (₹)": builder_results["equity_curve"]})
+        fig_b_eq = go.Figure()
+        fig_b_eq.add_trace(go.Scatter(x=df_builder_eq["Trade #"], y=df_builder_eq["Equity (₹)"], mode="lines", line=dict(color="#00c875", width=2), name="Strategy Equity"))
+        fig_b_eq.add_hline(y=100000.0, line_dash="dash", line_color="#718096", annotation_text="Breakeven ₹100,000")
+        fig_b_eq.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+        st.plotly_chart(fig_b_eq, use_container_width=True)
+
+        # Recent Trades Log
+        with st.expander("📋 Sample Execution Log (First 50 Trades)", expanded=False):
+            if builder_results["trade_log"]:
+                df_tlog = pd.DataFrame(builder_results["trade_log"])
+                st.dataframe(
+                    df_tlog.rename(columns={
+                        "symbol": "Symbol",
+                        "entry_date": "Entry Date",
+                        "entry_price": "Entry Price (₹)",
+                        "exit_date": "Exit Date",
+                        "return_pct": "Return %",
+                        "exit_reason": "Exit Reason"
+                    }).style.format({
+                        "Entry Price (₹)": "₹{:,.2f}",
+                        "Return %": "{:+.2f}%"
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No trades matched the selected filters.")
+

@@ -883,7 +883,7 @@ rc4.metric("Max Drawdown", f"{score.get('max_drawdown', 0):.1f}%" if score.get('
 
 # Fundamental Health Card (Piotroski & Altman)
 from core.fundamental_health import compute_fundamental_health_scorecard
-fund_health = compute_fundamental_health_scorecard(selected_symbol, stock_name, sector, tier)
+fund_health = compute_fundamental_health_scorecard(selected_symbol, stock_name, stock_sector or "General", stock_tier or "large")
 
 with st.expander("📊 **Institutional Fundamental Health Scorecard (Piotroski F-Score & Altman Z-Score)**", expanded=False):
     fh1, fh2, fh3, fh4 = st.columns(4)
@@ -898,7 +898,7 @@ with st.expander("📊 **Institutional Fundamental Health Scorecard (Piotroski F
 # Black Swan Crisis Simulator
 from core.stress_testing import simulate_stock_crisis_stress_test
 crisis_data = simulate_stock_crisis_stress_test(
-    selected_symbol, stock_name, sector, current_price,
+    selected_symbol, stock_name, stock_sector or "General", current_price,
     beta=score.get("beta", 1.0),
     annual_volatility=score.get("volatility_annual", 0.22)
 )

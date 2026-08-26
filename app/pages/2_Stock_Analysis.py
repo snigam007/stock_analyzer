@@ -1171,10 +1171,15 @@ if len(df) >= 2:
         cp3.metric("Camarilla H4 Breakout", format_price(cpr_data["camarilla_h4_breakout"]), "Long Trigger")
         cp4.metric("Camarilla L3 Support", format_price(cpr_data["camarilla_l3_support"]), "Bounce Level")
 
+        vsa_arch = vsa_data.get("vsa_archetype", "Neutral")
+        vsa_vr = vsa_data.get("volume_ratio", 1.0)
+        vsa_sr = vsa_data.get("spread_ratio", 1.0)
+        vsa_desc = vsa_data.get("vsa_description", "Standard volume spread equilibrium.")
+
         st.markdown(f"""
         <div style="background: #18222d; border-left: 4px solid #a3d900; padding: 10px 16px; border-radius: 6px; margin-top: 6px;">
-            <span style="font-weight: bold; color: #a3d900;">Wyckoff VSA Archetype: {vsa_data['vsa_archetype']} (Volume: {vsa_data['volume_ratio']}x avg | Spread: {vsa_data['spread_ratio']}x avg)</span><br>
-            <span style="font-size: 0.88em; color: #d0d8e0;">{vsa_data['vsa_description']}</span>
+            <span style="font-weight: bold; color: #a3d900;">Wyckoff VSA Archetype: {vsa_arch} (Volume: {vsa_vr:.2f}x avg | Spread: {vsa_sr:.2f}x avg)</span><br>
+            <span style="font-size: 0.88em; color: #d0d8e0;">{vsa_desc}</span>
         </div>
         """, unsafe_allow_html=True)
 

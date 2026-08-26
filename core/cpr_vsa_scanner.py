@@ -1,4 +1,4 @@
-﻿"""
+"""
 Central Pivot Range (CPR), Camarilla Levels & Wyckoff VSA Scanner
 - Daily & Weekly Central Pivot Range (Pivot, Top Central, Bottom Central)
 - Narrow CPR (High probability momentum trending days) vs Wide CPR (Rangebound)
@@ -95,7 +95,13 @@ def analyze_wyckoff_vsa(df: pd.DataFrame) -> Dict:
     Computes Wyckoff Volume Spread Analysis (VSA) on historical daily candles.
     """
     if df.empty or len(df) < 20:
-        return {"vsa_archetype": "Neutral", "vsa_signal": "NONE", "vsa_description": "Insufficient history."}
+        return {
+            "vsa_archetype": "Neutral",
+            "vsa_signal": "NONE",
+            "vsa_description": "Insufficient history.",
+            "volume_ratio": 1.0,
+            "spread_ratio": 1.0,
+        }
 
     recent = df.tail(10).copy()
     last = recent.iloc[-1]

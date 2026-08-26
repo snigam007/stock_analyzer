@@ -1,4 +1,4 @@
-﻿"""
+"""
 Page 10: Master 360° Asset Intelligence Cockpit
 - Unified Institutional Command Center for ANY selected Stock, Commodity, or Index
 - Synthesizes Technicals, Fundamentals, Smart Money, F&O Derivatives, GEX, Monte Carlo,
@@ -47,8 +47,8 @@ def format_price(p): return f"₹{p:,.2f}" if p else "—"
 # ── Asset Selector (Stocks, Indexes, Commodities) ────────────────────────────
 session_sel = get_session(engine)
 stocks = session_sel.execute(text("SELECT symbol, name, sector, market_cap_tier FROM stocks WHERE is_active=1 ORDER BY symbol")).fetchall()
-indexes = session_sel.execute(text("SELECT symbol, name FROM indexes ORDER BY symbol")).fetchall()
-commodities = session_sel.execute(text("SELECT symbol, name FROM commodities ORDER BY symbol")).fetchall()
+indexes = session_sel.execute(text("SELECT DISTINCT symbol, name FROM index_prices ORDER BY symbol")).fetchall()
+commodities = session_sel.execute(text("SELECT DISTINCT symbol, name FROM commodity_prices ORDER BY symbol")).fetchall()
 session_sel.close()
 
 asset_options = []

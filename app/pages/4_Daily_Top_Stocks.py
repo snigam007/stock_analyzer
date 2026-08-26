@@ -143,7 +143,8 @@ tabs = st.tabs([
     "🎯 Custom Screener & Presets",
     "💎 MTF Triple-Screen Confluence",
     "⚡ Option Chain & Max Pain",
-    "🐋 Smart Money & Delivery Footprint"
+    "🐋 Smart Money & Delivery Footprint",
+    "⚡ Pairs Trading & Stat Arb"
 ])
 
 
@@ -797,5 +798,45 @@ with tabs[12]:
             use_container_width=True,
             hide_index=True,
         )
+
+# Tab 14: Pairs Trading & Statistical Arbitrage
+with tabs[13]:
+    st.subheader("⚡ Pairs Trading & Statistical Arbitrage Cointegration Scanner")
+    st.caption("Market-neutral relative value trading: Engle-Granger Cointegration & Spread Z-Score mean-reversion signals")
+
+    from core.stat_arb import scan_all_pairs_arbitrage
+    session_pa = get_session(engine)
+    pairs_results = scan_all_pairs_arbitrage(session_pa)
+    session_pa.close()
+
+    # Metric summary
+    diverged = sum(1 for p in pairs_results if abs(p["z_score"]) >= 1.8)
+    converged = sum(1 for p in pairs_results if abs(p["z_score"]) < 1.0)
+
+    pm1, pm2, pm3 = st.columns(3)
+    pm1.metric("Total Institutional Pairs", len(pairs_results))
+    pm2.metric("Active Stat-Arb Setups (|Z| ≥ 1.8σ)", diverged, "⚡ Divergence Signal")
+    pm3.metric("Equilibrium Pairs", converged, "⚪ Mean Reverted")
+
+    if pairs_results:
+        df_pairs = pd.DataFrame(pairs_results)
+        st.dataframe(
+            df_pairs[["pair", "sector", "signal_badge", "z_score", "hedge_ratio", "half_life_days", "rationale"]].rename(columns={
+                "pair": "Pair (Asset A / Asset B)",
+                "sector": "Sector",
+                "signal_badge": "Arbitrage Signal",
+                "z_score": "Spread Z-Score (σ)",
+                "hedge_ratio": "Hedge Ratio (β)",
+                "half_life_days": "Mean Reversion Half-Life (Days)",
+                "rationale": "Statistical Arbitrage Setup"
+            }).style.format({
+                "Spread Z-Score (σ)": "{:+.2f}σ",
+                "Hedge Ratio (β)": "{:.3f}",
+                "Mean Reversion Half-Life (Days)": "{:.1f} days"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
 
 

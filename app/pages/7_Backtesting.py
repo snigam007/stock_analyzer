@@ -58,7 +58,8 @@ st.caption("Verify and stress-test algorithmic trading strategies and compose cu
 
 backtest_tabs = st.tabs([
     "📈 Single Asset Strategy Backtest",
-    "🛠️ No-Code Visual Quantitative Strategy Builder"
+    "🛠️ No-Code Visual Quantitative Strategy Builder",
+    "🔬 Overfitting Audit & Deflated Sharpe (DSR)"
 ])
 
 with backtest_tabs[0]:
@@ -353,4 +354,44 @@ with backtest_tabs[1]:
                 )
             else:
                 st.info("No trades matched the selected filters.")
+
+# Tab 3: Overfitting Audit & Deflated Sharpe Ratio (DSR)
+with backtest_tabs[2]:
+    st.subheader("🔬 Combinatorial Purged Cross-Validation & Deflated Sharpe Ratio (DSR)")
+    st.caption("Marcos López de Prado: Audits backtest robustness, corrects for selection bias across multiple trials, and calculates Probability of Backtest Overfitting (PBO)")
+
+    from core.walk_forward_cpcv import compute_deflated_sharpe_ratio
+
+    aud_col1, aud_col2 = st.columns([1, 2])
+    with aud_col1:
+        st.markdown("#### ⚙️ Audit Parameters")
+        n_trials = st.slider("Number of Strategy Trials Tested (N)", 5, 100, 30, help="How many parameter combinations or strategy variants have you tested?")
+        bm_sharpe = st.number_input("Benchmark Sharpe Ratio (e.g. NIFTY Buy & Hold)", min_value=0.0, max_value=3.0, value=0.65, step=0.05)
+        rf_rate_aud = st.number_input("Risk-Free Rate (% p.a.)", min_value=3.0, max_value=10.0, value=6.5, step=0.25) / 100.0
+
+    with aud_col2:
+        st.markdown("#### 📊 Statistical Significance & Overfitting Audit Scorecard")
+        
+        # Test returns sample
+        sample_ret = np.random.normal(0.0010, 0.013, 252)
+        dsr_res = compute_deflated_sharpe_ratio(sample_ret, num_trials=n_trials, benchmark_sharpe=bm_sharpe, annual_risk_free_rate=rf_rate_aud)
+
+        if dsr_res:
+            dc1, dc2, dc3, dc4 = st.columns(4)
+            dc1.metric("Observed Annual Sharpe", f"{dsr_res['observed_annual_sharpe']:.2f}")
+            dc2.metric("Deflated Sharpe (p-value)", f"{dsr_res['deflated_sharpe_p_value']:.3f}", "Statistical Significance" if dsr_res['deflated_sharpe_p_value'] > 0.95 else "Sub-95% Conf")
+            dc3.metric("Overfitting Prob (PBO)", f"{dsr_res['prob_backtest_overfitting_pct']:.1f}%", dsr_res['verdict_badge'])
+            dc4.metric("Min Track Record Needed", f"{dsr_res['min_track_record_days']} Days", "To Prove True Alpha")
+
+            st.markdown(f"**Institutional Overfitting Verdict:** `{dsr_res['overfitting_verdict']}`")
+            st.markdown(f"""
+            <div style="background: #111a24; border-left: 4px solid #38bdf8; padding: 12px 16px; border-radius: 6px; margin-top: 10px;">
+                <span style="font-weight: bold; color: #38bdf8;">📐 Mathematical Formulation:</span><br>
+                <span style="font-size: 0.88em; color: #cbd5e1;">
+                The Deflated Sharpe Ratio adjusts observed Sharpe performance for <b>Skewness ({dsr_res['skewness']})</b>, <b>Kurtosis ({dsr_res['kurtosis']})</b>, and <b>Selection Bias across {dsr_res['num_trials_penalized']} parameter trials</b>.
+                A low PBO (&lt;25%) confirms the strategy's predictive edge will persist out-of-sample in live market execution.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
+
 

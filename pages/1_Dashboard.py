@@ -369,4 +369,37 @@ for item in news_radar["headlines"]:
     </div>
     """, unsafe_allow_html=True)
 
+st.markdown("---")
+
+# ── Indian Macro Alternative Data Real-Economy Pulse ─────────────────────────
+st.subheader("🛰️ Indian Macro Alternative Data Real-Economy Pulse")
+st.caption("High-frequency ground-level proxies: GST E-Way Bills, UPI Payments, Vahan Auto Dispatches, and National Power Grid Load")
+
+from core.alternative_data import fetch_alternative_data_pulse
+alt_pulse = fetch_alternative_data_pulse()
+
+ap1, ap2, ap3 = st.columns([1, 1, 2])
+ap1.metric("Real-Economy Pulse", f"{alt_pulse['pulse_score']}/100", alt_pulse['regime_badge'])
+ap2.metric("Avg Proxy Velocity", f"{alt_pulse['avg_growth_pct']:+.1f}% YoY", "Ground Acceleration")
+ap3.markdown(f"**Alternative Data Health Verdict:** `{alt_pulse['regime']}`<br><span style='font-size: 0.88em; color: #94a3b8;'>{alt_pulse['description']}</span>", unsafe_allow_html=True)
+
+with st.expander("📊 **High-Frequency Alternative Data Vertical Breakdown**", expanded=False):
+    df_alt = pd.DataFrame(alt_pulse["pillars"])
+    st.dataframe(
+        df_alt[["indicator", "category", "latest_value", "growth_pct", "impact_sector", "health_badge", "lead_time_days"]].rename(columns={
+            "indicator": "Real-Economy Indicator",
+            "category": "Vertical",
+            "latest_value": "Latest Run-Rate",
+            "growth_pct": "Growth % YoY",
+            "impact_sector": "Primary Impact Sectors",
+            "health_badge": "Status",
+            "lead_time_days": "Lead Horizon vs GDP"
+        }).style.format({
+            "Growth % YoY": "{:+.1f}%"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+
+
 

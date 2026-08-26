@@ -67,6 +67,8 @@ tabs = st.tabs([
     "📊 Hedge Fund Performance Tearsheet",
     "🛡️ Black Swan Crisis Stress-Test",
     "🏛️ Barra & Fama-French Factor Risk Attribution",
+    "🏰 Bridgewater Risk Parity & HRP",
+    "🎯 MAE / MFE Trade Analytics"
 ])
 
 # ── Tab 1: Efficient Frontier Optimizer ────────────────────────────────────────
@@ -433,4 +435,89 @@ with tabs[6]:
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color="#e0e0e0")
     )
-    st.plotly_chart(fig_radar, use_container_width=True)
+    st.plotly_chart(fig_radar, use_container_width=True)
+
+# ── Tab 8: Bridgewater All-Weather Risk Parity & HRP ─────────────────────────
+with tabs[7]:
+    st.subheader("🏰 Bridgewater All-Weather Risk Parity & Hierarchical Risk Parity (HRP)")
+    st.caption("Equal Risk Contribution (ERC) & Machine Learning Graph-Clustering Portfolio Allocation (Marcos López de Prado)")
+
+    from core.risk_parity import compute_hierarchical_risk_parity
+
+    rp_symbols = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC", "LT"]
+    
+    # Generate synthetic price returns for basket
+    dates = pd.date_range("2026-01-01", periods=120)
+    df_rp_ret = pd.DataFrame({
+        s: np.random.normal(0.0008, 0.012 + (i * 0.002), 120)
+        for i, s in enumerate(rp_symbols)
+    }, index=dates)
+
+    rp_res = compute_hierarchical_risk_parity(df_rp_ret, rp_symbols)
+
+    if rp_res:
+        rc1, rc2, rc3 = st.columns(3)
+        rc1.metric("HRP Expected Return", f"{rp_res['expected_return_pct']:+.1f}%/yr")
+        rc2.metric("HRP Portfolio Volatility", f"{rp_res['annual_volatility_pct']:.1f}%/yr", "Balanced Risk")
+        rc3.metric("HRP Sharpe Ratio", f"{rp_res['sharpe_ratio']:.2f}")
+
+        rp_col1, rp_col2 = st.columns(2)
+        with rp_col1:
+            st.markdown("##### 🥧 Hierarchical Risk Parity (HRP) Allocation")
+            df_hrp = pd.DataFrame(list(rp_res["hrp_weights"].items()), columns=["Asset", "Weight %"])
+            fig_hrp = px.pie(df_hrp, names="Asset", values="Weight %", hole=0.45, color_discrete_sequence=px.colors.sequential.Teal)
+            fig_hrp.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+            st.plotly_chart(fig_hrp, use_container_width=True)
+
+        with rp_col2:
+            st.markdown("##### ⚖️ Equal Risk Contribution (ERC) Allocation")
+            df_erc = pd.DataFrame(list(rp_res["erc_weights"].items()), columns=["Asset", "Weight %"])
+            fig_erc = px.pie(df_erc, names="Asset", values="Weight %", hole=0.45, color_discrete_sequence=px.colors.sequential.Aggrnyl)
+            fig_erc.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+            st.plotly_chart(fig_erc, use_container_width=True)
+
+# ── Tab 9: Trade Performance Analytics & MAE / MFE Journal ───────────────────
+with tabs[8]:
+    st.subheader("🎯 Trade Execution Efficiency, MAE / MFE & Setup Journal")
+    st.caption("Maximum Adverse Excursion (MAE) vs Maximum Favorable Excursion (MFE) and Setup Archetype Win Rates")
+
+    from core.trading_journal import analyze_trade_execution_efficiency
+
+    sample_trades = [
+        {"symbol": "RELIANCE", "return_pct": 5.2, "archetype": "CPR & VSA Breakout"},
+        {"symbol": "TCS", "return_pct": 8.4, "archetype": "Triple-Screen Confluence"},
+        {"symbol": "HDFCBANK", "return_pct": -3.1, "archetype": "Oversold Mean Reversion"},
+        {"symbol": "INFY", "return_pct": 4.8, "archetype": "Smart Money Absorption"},
+        {"symbol": "ICICIBANK", "return_pct": 7.1, "archetype": "CPR & VSA Breakout"},
+        {"symbol": "SBIN", "return_pct": -2.8, "archetype": "Momentum Breakout"},
+        {"symbol": "BHARTIARTL", "return_pct": 6.5, "archetype": "Triple-Screen Confluence"},
+    ]
+
+    tj_res = analyze_trade_execution_efficiency(sample_trades)
+
+    jc1, jc2, jc3, jc4 = st.columns(4)
+    jc1.metric("Total Trades Audited", tj_res["total_trades"])
+    jc2.metric("Profit Capture Efficiency", f"{tj_res['avg_profit_capture_efficiency_pct']:.1f}%", "High Efficiency")
+    jc3.metric("Optimal Stop-Loss Placement", f"{tj_res['optimal_stop_loss_pct']:.1f}%", "Avoids Premature Stopouts")
+    jc4.metric("Optimal Take-Profit Target", f"{tj_res['optimal_target_pct']:.1f}%", "Max Peak Capture")
+
+    st.markdown("##### 🏆 Setup Archetype Performance Breakdown")
+    df_arch = pd.DataFrame(tj_res["archetype_breakdown"])
+    st.dataframe(
+        df_arch.rename(columns={
+            "setup_archetype": "Quantitative Strategy Setup",
+            "total_trades": "Trades",
+            "win_rate_pct": "Win Rate %",
+            "avg_return_pct": "Avg Return %",
+            "avg_mfe_pct": "Avg Peak Gain (MFE %)",
+            "avg_mae_pct": "Avg Max Drawdown (MAE %)"
+        }).style.format({
+            "Win Rate %": "{:.1f}%",
+            "Avg Return %": "{:+.2f}%",
+            "Avg Peak Gain (MFE %)": "{:+.2f}%",
+            "Avg Max Drawdown (MAE %)": "{:+.2f}%"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )
+

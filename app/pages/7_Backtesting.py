@@ -59,7 +59,8 @@ st.caption("Verify and stress-test algorithmic trading strategies and compose cu
 backtest_tabs = st.tabs([
     "📈 Single Asset Strategy Backtest",
     "🛠️ No-Code Visual Quantitative Strategy Builder",
-    "🔬 Overfitting Audit & Deflated Sharpe (DSR)"
+    "🔬 Overfitting Audit & Deflated Sharpe (DSR)",
+    "🧬 Genetic Algorithm Evolutionary Optimizer"
 ])
 
 with backtest_tabs[0]:
@@ -393,5 +394,58 @@ with backtest_tabs[2]:
                 </span>
             </div>
             """, unsafe_allow_html=True)
+
+# Tab 4: Genetic Algorithm Evolutionary Strategy Optimizer
+with backtest_tabs[3]:
+    st.subheader("🧬 Genetic Algorithm (GA) Evolutionary Strategy Optimizer")
+    st.caption("Darwinian natural selection across 30 generations to evolve the mathematically optimal indicator parameters under non-linear drawdown constraints (Max DD ≤ 8%)")
+
+    from core.genetic_portfolio import run_genetic_algorithm_optimization
+
+    ga_col1, ga_col2 = st.columns([1, 2])
+    with ga_col1:
+        st.markdown("#### ⚙️ Evolution Settings")
+        ga_gens = st.slider("Generations to Evolve", 10, 50, 25)
+        ga_pop = st.slider("Population Chromosomes", 10, 40, 20)
+        ga_mut = st.slider("Mutation Rate (%)", 5, 30, 15) / 100.0
+
+        run_ga_btn = st.button("🚀 Evolve Champion Strategy", type="primary", use_container_width=True)
+
+    with ga_col2:
+        st.markdown("#### 🏆 Best Evolved Champion Strategy Chromosome")
+        ga_res = run_genetic_algorithm_optimization(generations=ga_gens, population_size=ga_pop, mutation_rate=ga_mut)
+
+        gac1, gac2, gac3, gac4 = st.columns(4)
+        gac1.metric("Champion Fitness Score", f"{ga_res['best_fitness_score']:.3f}", "Optimal Genome")
+        gac2.metric("Evolved Win Rate", f"{ga_res['optimized_win_rate_pct']:.1f}%")
+        gac3.metric("Evolved Sharpe", f"{ga_res['optimized_sharpe_ratio']:.2f}")
+        gac4.metric("Evolved Max DD", f"-{ga_res['optimized_max_drawdown_pct']:.1f}%", delta_color="inverse")
+
+        # Optimal Parameters Table
+        st.markdown("##### 🧬 Evolved Indicator Parameters")
+        df_chrom = pd.DataFrame([ga_res["best_chromosome"]])
+        st.dataframe(
+            df_chrom.rename(columns={
+                "rsi_oversold_entry": "RSI Oversold Entry Level",
+                "rsi_overbought_exit": "RSI Overbought Exit Level",
+                "min_adx_trend_strength": "Min ADX Trend Filter",
+                "volume_multiplier_surge": "Volume Surge Multiplier",
+                "optimal_holding_period_days": "Optimal Holding Period (Days)"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Fitness Evolution Chart
+        st.markdown("##### 📈 Darwinian Fitness Progression Across Generations")
+        df_fit = pd.DataFrame({
+            "Generation": ga_res["fitness_progress"]["generation"],
+            "Best Genome Fitness": ga_res["fitness_progress"]["best_fitness"],
+            "Population Avg Fitness": ga_res["fitness_progress"]["avg_fitness"]
+        })
+        fig_fit = px.line(df_fit, x="Generation", y=["Best Genome Fitness", "Population Avg Fitness"], markers=True, color_discrete_sequence=["#00c875", "#38bdf8"])
+        fig_fit.update_layout(height=280, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+        st.plotly_chart(fig_fit, use_container_width=True)
+
 
 

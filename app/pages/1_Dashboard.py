@@ -401,5 +401,23 @@ with st.expander("📊 **High-Frequency Alternative Data Vertical Breakdown**", 
         hide_index=True
     )
 
+st.markdown("---")
+
+# ── FII / DII Institutional Flow & F&O Positioning Tracker ──────────────────
+st.subheader("🛰️ FII / DII Institutional Flow Regime & Derivatives Positioning")
+st.caption("Foreign & Domestic institutional cash market buying/selling and Index Futures smart-money long/short exposure")
+
+from core.institutional_flows import fetch_institutional_flows_dashboard
+fii_dash = fetch_institutional_flows_dashboard()
+
+fc1, fc2, fc3, fc4 = st.columns(4)
+fc1.metric("FII Cash Market (Today)", f"₹{fii_dash['fii_cash_today_cr']:+,.1f} Cr", "Net Inflow" if fii_dash['fii_cash_today_cr'] > 0 else "Net Outflow")
+fc2.metric("DII Cash Market (Today)", f"₹{fii_dash['dii_cash_today_cr']:+,.1f} Cr", "Domestic Support")
+fc3.metric("FII Index Futures Long %", f"{fii_dash['fii_futures_long_pct']:.1f}%", fii_dash['regime_badge'])
+fc4.metric("FII Call/Put OI Ratio", f"{fii_dash['fii_call_put_ratio']:.2f}", f"Score: {fii_dash['sentiment_score']}/100")
+
+st.markdown(f"**Smart Money Flow Verdict:** `{fii_dash['regime']}` • 5-Day Cumulative Inflow: FII **₹{fii_dash['fii_5d_cum_cr']:+,.1f} Cr** | DII **₹{fii_dash['dii_5d_cum_cr']:+,.1f} Cr**")
+
+
 
 

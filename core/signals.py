@@ -123,11 +123,24 @@ def generate_signal_for_stock(
     trend = ind.get("trend_direction", "SIDEWAYS")
     trend_strength = ind.get("trend_strength", 50.0) or 50.0
 
-    # 1. Primary Signal Determination from 5-Pillar Score
+    # 1. Primary Signal Determination from 5-Pillar Score & Multi-Factor Triggers
     final_score = composite_score
-    if final_score >= 58.0: primary_signal = "BUY"
-    elif final_score <= 42.0: primary_signal = "SELL"
-    else: primary_signal = "WATCH"
+
+    # Multi-factor confirmations
+    rsi_s, _, rsi_r = rsi_signal(ind.get("rsi_14"))
+    macd_s, _, macd_r = macd_signal_fn(ind.get("macd"), ind.get("macd_signal"), ind.get("macd_hist"))
+    ema_s, _, ema_r = ema_signal_fn(close, ind.get("ema_9"), ind.get("ema_21"), ind.get("ema_50"), ind.get("ema_200"))
+
+    tech_signals = [rsi_s, macd_s, ema_s]
+    bullish_count = sum(1 for s in tech_signals if s == "BUY")
+    bearish_count = sum(1 for s in tech_signals if s == "SELL")
+
+    if final_score >= 58.0 or (final_score >= 55.0 and bullish_count >= 2) or (bullish_count >= 3):
+        primary_signal = "BUY"
+    elif final_score <= 53.5 or (final_score <= 55.0 and bearish_count >= 2) or (bearish_count >= 2 and ema_s == "SELL"):
+        primary_signal = "SELL"
+    else:
+        primary_signal = "WATCH"
 
     strength = "STRONG" if (final_score >= 75 or final_score <= 25) else ("MODERATE" if (final_score >= 62 or final_score <= 38) else "WEAK")
     confidence = round(abs(final_score - 50) / 50.0, 2)
@@ -146,11 +159,6 @@ def generate_signal_for_stock(
 
     # 3. Multi-Pillar Reason Generation
     all_reasons = []
-
-    # Technical Pillar
-    rsi_s, _, rsi_r = rsi_signal(ind.get("rsi_14"))
-    macd_s, _, macd_r = macd_signal_fn(ind.get("macd"), ind.get("macd_signal"), ind.get("macd_hist"))
-    ema_s, _, ema_r = ema_signal_fn(close, ind.get("ema_9"), ind.get("ema_21"), ind.get("ema_50"), ind.get("ema_200"))
     if rsi_s == primary_signal: all_reasons.append(f"📊 RSI: {rsi_r}")
     if macd_s == primary_signal: all_reasons.append(f"📈 MACD: {macd_r}")
     if ema_s == primary_signal: all_reasons.append(f"〰️ Trend: {ema_r}")

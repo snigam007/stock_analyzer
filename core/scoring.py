@@ -1,4 +1,4 @@
-﻿"""
+"""
 Composite Scoring Engine — 5-Pillar Apex Multi-Factor Quant Model
 - Pillar 1: Technical & MTF Momentum (30%) [10 Indicators + CPR & Camarilla Pivots]
 - Pillar 2: Smart Money & Wyckoff VSA (25%) [Delivery Surge, CMF, Wyckoff Absorption]
@@ -321,4 +321,28 @@ def compute_and_save_scores(session: Session, progress_callback=None):
             progress_callback(i + 1, total, stock.symbol)
 
     session.commit()
+
+    # Compute universe and sector percentile ranks
+    if all_scores:
+        try:
+            df_all = pd.DataFrame([{"symbol": sym, "score": d["composite"], "sector": d["sector"]} for sym, d in all_scores.items()])
+            df_all["univ_rank"] = (df_all["score"].rank(pct=True, ascending=True) * 100.0).round(1)
+            df_all["sec_rank"] = df_all.groupby("sector")["score"].rank(pct=True, ascending=True) * 100.0
+            df_all["sec_rank"] = df_all["sec_rank"].round(1)
+
+            for _, row in df_all.iterrows():
+                session.execute(text("""
+                    UPDATE composite_scores 
+                    SET universe_percentile = :u, sector_percentile = :s
+                    WHERE symbol = :sym AND date = :d
+                """), {
+                    "u": float(row["univ_rank"]),
+                    "s": float(row["sec_rank"]),
+                    "sym": str(row["symbol"]),
+                    "d": str(today)
+                })
+            session.commit()
+        except Exception as pe:
+            logger.warning(f"Percentile computation warning: {pe}")
+
     logger.info("✅ 5-Pillar Apex Scoring batch computation complete!")

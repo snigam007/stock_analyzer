@@ -271,8 +271,8 @@ def render_stock_table(rows, show_signal: bool = True):
             with col1:
                 st.markdown(f"**📂 Sector:** {sector}")
                 st.markdown(f"**📊 Cap Tier:** {tier.upper() if tier else 'Mid'}")
-                st.markdown(f"**🎯 Inv Type:** {inv_icon} {inv_type or 'Growth'}")
-                st.markdown(f"**💯 Score:** `{composite_score:.1f}/100` (Top {100-univ_pct:.0f}%)")
+                top_pct_str = f" (Top {100-univ_pct:.0f}%)" if (univ_pct is not None and not pd.isna(univ_pct)) else ""
+                st.markdown(f"**💯 Score:** `{composite_score:.1f}/100`{top_pct_str}")
                 if rsi:
                     adx_str = f"{adx:.1f}" if adx else "—"
                     st.markdown(f"**RSI:** {rsi:.1f} | **ADX:** {adx_str}")

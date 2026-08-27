@@ -72,10 +72,33 @@ def run_daily_delta_update(top_forecasts: int = 50):
     save_all_strategies(session)
 
     # 7. ML & Time-series forecasts
-    logger.info(f"\n🤖 Step 6/6: Running ML Forecasts for Top {top_forecasts} Stocks...")
-    run_forecasts_for_top_stocks(session, top_n=top_forecasts)
+    logger.info(f"\n🤖 Step 6/7: Running ML Forecasts for Top {top_forecasts} Stocks...")
+    try:
+        run_forecasts_for_top_stocks(session, top_n=top_forecasts)
+    except Exception as e:
+        logger.warning(f"ML forecasting notice: {e}")
+
+    from core.accuracy_tracker import log_current_signals_to_audit, evaluate_signal_audit_track_record
+    from sqlalchemy import text
+
+    logger.info("\n🎯 Step 7/7: Logging Daily Prediction Audit Snapshot...")
+    try:
+        logged = log_current_signals_to_audit(session)
+        evaluate_signal_audit_track_record(session)
+        logger.info(f"✅ Audit logged: {logged} daily signals snapshotted for future performance verification.")
+    except Exception as e:
+        logger.warning(f"Audit log notice: {e}")
 
     session.close()
+
+    # Flush SQLite WAL to database file
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA wal_checkpoint(TRUNCATE)"))
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"WAL checkpoint notice: {e}")
+
     elapsed = time.time() - start_time
     logger.info("=" * 65)
     logger.info(f"✅ DAILY UPDATE COMPLETE in {elapsed:.1f} seconds ({elapsed/60:.1f} mins)")

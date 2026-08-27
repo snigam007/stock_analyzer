@@ -1,0 +1,56 @@
+name: Daily Market Data Refresh & Quant Pipeline
+
+on:
+  schedule:
+    # 02:30 UTC = 08:00 AM IST (every day)
+    - cron: '30 2 * * *'
+  workflow_dispatch: # Allows manual one-click trigger from GitHub Actions UI
+
+concurrency:
+  group: market-data-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-market-data:
+    name: ⚡ 8:00 AM IST Daily Delta Refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 📦 Checkout Repository with Git LFS
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 1
+
+      - name: 🐍 Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📥 Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 🚀 Run Daily Delta Market Refresh
+        run: |
+          python update_daily.py
+
+      - name: 💾 Commit & Push Updated Database via Git LFS
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git status
+          if [ -n "$(git status --porcelain data/stock_analyzer.db)" ]; then
+            git add data/stock_analyzer.db
+            git commit -m "chore(auto): 8:00 AM IST daily market delta refresh [skip ci]"
+            git push
+            echo "✅ Successfully refreshed and pushed updated market database to GitHub."
+          else
+            echo "ℹ️ Database is already up-to-date. No new delta to commit."
+          fi

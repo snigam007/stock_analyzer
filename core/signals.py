@@ -65,27 +65,29 @@ def ema_signal_fn(close: float, ema_9: float, ema_21: float, ema_50: float, ema_
 
 def calculate_targets(current_price: float, atr: float, signal: str, trend_strength: float = 50.0) -> dict:
     if not atr or atr <= 0 or pd.isna(atr):
-        atr = current_price * 0.02
-    mult = 1.0 + (trend_strength / 100.0) * 0.4
+        atr = current_price * 0.022
+    mult = 1.0 + (trend_strength / 100.0) * 0.35
 
     if signal == "BUY":
-        buy_price = round(current_price * 0.995, 2)
-        target_1 = round(current_price + atr * 1.5 * mult, 2)
-        target_2 = round(current_price + atr * 3.0 * mult, 2)
-        target_3 = round(current_price + atr * 5.0 * mult, 2)
-        stop_loss = round(current_price - atr * 1.8, 2)
+        buy_price = round(current_price * 0.998, 2)
+        # Volatility-scaled dynamic targets with minimal floor thresholds
+        target_1 = round(current_price + max(current_price * 0.035, atr * 1.8 * mult), 2)
+        target_2 = round(current_price + max(current_price * 0.075, atr * 3.5 * mult), 2)
+        target_3 = round(current_price + max(current_price * 0.140, atr * 6.0 * mult), 2)
+        # Dynamic ATR-based Stop Loss (1.5x ATR cushion prevents noise stop-outs)
+        stop_loss = round(current_price - max(current_price * 0.025, atr * 1.5), 2)
     elif signal == "SELL":
         buy_price = None
-        target_1 = round(current_price - atr * 1.5 * mult, 2)
-        target_2 = round(current_price - atr * 3.0 * mult, 2)
-        target_3 = round(current_price - atr * 5.0 * mult, 2)
-        stop_loss = round(current_price + atr * 1.8, 2)
+        target_1 = round(current_price - max(current_price * 0.035, atr * 1.8 * mult), 2)
+        target_2 = round(current_price - max(current_price * 0.075, atr * 3.5 * mult), 2)
+        target_3 = round(current_price - max(current_price * 0.140, atr * 6.0 * mult), 2)
+        stop_loss = round(current_price + max(current_price * 0.025, atr * 1.5), 2)
     else:
         buy_price = round(current_price - atr, 2)
         target_1 = round(current_price + atr * 2.0, 2)
-        target_2 = round(current_price + atr * 3.5, 2)
-        target_3 = round(current_price + atr * 5.5, 2)
-        stop_loss = round(current_price - atr * 1.2, 2)
+        target_2 = round(current_price + atr * 3.8, 2)
+        target_3 = round(current_price + atr * 6.0, 2)
+        stop_loss = round(current_price - atr * 1.5, 2)
 
     def pct(t, b): return round((t - b) / b * 100.0, 2) if b else 0.0
     rr = abs(pct(target_2, current_price)) / max(0.01, abs(pct(stop_loss, current_price)))
@@ -114,7 +116,7 @@ def generate_signal_for_stock(
     ml_confidence: float = 0.5,
     price_df: Optional[pd.DataFrame] = None
 ) -> Optional[Dict]:
-    """Generates full 5-Pillar institutional signal dictionary."""
+    """Generates full 5-Pillar institutional signal dictionary with quantitative guardrails."""
     today = ind.get("date") if ind.get("date") else date.today()
     close = ind.get("close") or 0.0
     if close <= 0: return None
@@ -122,26 +124,51 @@ def generate_signal_for_stock(
     atr = ind.get("atr_14")
     trend = ind.get("trend_direction", "SIDEWAYS")
     trend_strength = ind.get("trend_strength", 50.0) or 50.0
+    adx_val = float(ind.get("adx") or 0.0)
+    rsi_val = float(ind.get("rsi_14") or 50.0)
+    vol_ratio = float(ind.get("volume_ratio") or 1.0)
+    ema_50 = ind.get("ema_50")
+    ema_200 = ind.get("ema_200")
 
     # 1. Primary Signal Determination from 5-Pillar Score & Multi-Factor Triggers
     final_score = composite_score
 
     # Multi-factor confirmations
-    rsi_s, _, rsi_r = rsi_signal(ind.get("rsi_14"))
+    rsi_s, _, rsi_r = rsi_signal(rsi_val)
     macd_s, _, macd_r = macd_signal_fn(ind.get("macd"), ind.get("macd_signal"), ind.get("macd_hist"))
-    ema_s, _, ema_r = ema_signal_fn(close, ind.get("ema_9"), ind.get("ema_21"), ind.get("ema_50"), ind.get("ema_200"))
+    ema_s, _, ema_r = ema_signal_fn(close, ind.get("ema_9"), ind.get("ema_21"), ema_50, ema_200)
 
     tech_signals = [rsi_s, macd_s, ema_s]
     bullish_count = sum(1 for s in tech_signals if s == "BUY")
     bearish_count = sum(1 for s in tech_signals if s == "SELL")
 
-    if final_score >= 58.0 or (final_score >= 55.0 and bullish_count >= 2) or (bullish_count >= 3):
-        primary_signal = "BUY"
-    elif final_score <= 53.5 or (final_score <= 55.0 and bearish_count >= 2) or (bearish_count >= 2 and ema_s == "SELL"):
-        primary_signal = "SELL"
-    else:
-        primary_signal = "WATCH"
+    # Structural Trend Alignment Edge
+    is_above_50_ema = bool(ema_50 and close > ema_50)
+    is_above_200_ema = bool(ema_200 and close > ema_200)
 
+    # Initial Signal Logic
+    if final_score >= 60.0 or (final_score >= 56.0 and bullish_count >= 2 and is_above_50_ema) or (bullish_count >= 3):
+        candidate_signal = "BUY"
+    elif final_score <= 45.0 or (final_score <= 50.0 and bearish_count >= 2 and not is_above_50_ema) or (bearish_count >= 2 and ema_s == "SELL"):
+        candidate_signal = "SELL"
+    else:
+        candidate_signal = "WATCH"
+
+    # ── Quantitative Quality & Safety Guardrails ──────────────────────────────
+    # Guardrail 1: ADX Chop Filter (Suppress breakout triggers in flat consolidation)
+    if adx_val < 18.0 and candidate_signal in ["BUY", "SELL"]:
+        if final_score < 72.0 and final_score > 32.0:
+            candidate_signal = "WATCH"  # Re-route to range-bound mean reversion setup
+
+    # Guardrail 2: RSI Overbought Exhaustion Cap (Never buy into parabolic climax)
+    if candidate_signal == "BUY" and rsi_val > 68.0:
+        candidate_signal = "WATCH"
+
+    # Guardrail 3: RSI Oversold Exhaustion Cap (Never short into oversold climax)
+    if candidate_signal == "SELL" and rsi_val < 32.0:
+        candidate_signal = "WATCH"
+
+    primary_signal = candidate_signal
     strength = "STRONG" if (final_score >= 75 or final_score <= 25) else ("MODERATE" if (final_score >= 62 or final_score <= 38) else "WEAK")
     confidence = round(abs(final_score - 50) / 50.0, 2)
 

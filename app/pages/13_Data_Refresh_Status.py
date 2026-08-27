@@ -307,7 +307,44 @@ st.download_button(
 
 st.markdown("---")
 
-# ── SECTION 3: Manual On-Demand Refresh Trigger ──────────────────────────────
+# ── SECTION 3: Empirical Signal Accuracy & Audit Track Record ────────────────
+st.subheader("🎯 Empirical Signal Accuracy & Audit Track Record")
+st.caption("Forward-testing empirical verification of BUY/SELL signals against actual subsequent price movements across all sessions")
+
+try:
+    from core.accuracy_tracker import evaluate_signal_audit_track_record
+    engine = get_global_engine()
+    session = get_session(engine)
+    audit = evaluate_signal_audit_track_record(session)
+    session.close()
+
+    a1, a2, a3, a4, a5 = st.columns(5)
+    a1.metric("Tracked Signals", f"{audit['total_signals_tracked']}", f"{audit['completed_signals']} Evaluated | {audit['active_signals']} In Play")
+    a2.metric("Overall Win Rate", f"{audit['overall_win_rate_pct']}%", "Target Hit or Profitable Close")
+    a3.metric("Target 1 Hit Rate", f"{audit['target_1_hit_rate_pct']}%", "+3.5% to +5.5% Gain")
+    a4.metric("Stop Loss Rate", f"{audit['stop_loss_hit_rate_pct']}%", "Capital Preservation")
+    a5.metric("Profit Factor", f"{audit['profit_factor']}x", f"+{audit['avg_peak_gain_mfe']}% Avg Peak Gain")
+
+    if audit.get("records"):
+        df_audit = pd.DataFrame(audit["records"])
+        with st.expander("📋 View Granular Signal Audit Log & Excursion History", expanded=False):
+            st.dataframe(
+                df_audit.rename(columns={
+                    "date": "Signal Date", "symbol": "Symbol", "signal": "Signal",
+                    "entry_price": "Entry Price", "target_1": "Target 1", "target_2": "Target 2",
+                    "target_3": "Target 3", "stop_loss": "Stop Loss", "status": "Audit Status",
+                    "days_elapsed": "Days In Play", "max_gain_pct": "Max Peak Gain %",
+                    "max_loss_pct": "Max Drawdown %", "current_gain_pct": "Current Return %"
+                }),
+                use_container_width=True,
+                height=350
+            )
+except Exception as e:
+    st.info(f"Audit track record loading: {e}")
+
+st.markdown("---")
+
+# ── SECTION 4: Manual On-Demand Refresh Trigger ──────────────────────────────
 st.subheader("⚡ On-Demand Market Data Refresh Trigger")
 st.caption("Manually execute the incremental delta update pipeline to pull the latest open market bars immediately")
 

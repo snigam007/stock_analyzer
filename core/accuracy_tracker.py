@@ -1,4 +1,4 @@
-﻿"""
+"""
 Empirical Signal Accuracy & Audit Track Record Tracker
 - Persistently evaluates historical BUY/SELL signals against forward price evolution
 - Quantifies actual empirical hit rates for Target 1 (+4%), Target 2 (+8%), Target 3 (+15%), and Stop-Loss triggers
@@ -90,13 +90,19 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
     if not signals_rows:
         return {
             'total_signals_tracked': 0, 'completed_signals': 0, 'active_signals': 0,
-            'target_1_hit_rate_pct': 82.4, 'target_2_hit_rate_pct': 64.2,
-            'target_3_hit_rate_pct': 41.8, 'stop_loss_hit_rate_pct': 12.6,
-            'overall_win_rate_pct': 82.4, 'records': []
+            'target_1_hit_rate_pct': 0.0, 'target_2_hit_rate_pct': 0.0,
+            'target_3_hit_rate_pct': 0.0, 'stop_loss_hit_rate_pct': 0.0,
+            'overall_win_rate_pct': 0.0, 'profit_factor': 1.0,
+            'avg_peak_gain_mfe': 0.0, 'avg_max_drawdown_mae': 0.0,
+            'records': []
         }
 
     evaluated_records = []
-    t1_hits, t2_hits, t3_hits, sl_hits, pending = 0, 0, 0, 0, 0
+    t1_hits, t2_hits, t3_hits, sl_hits, active_in_play = 0, 0, 0, 0, 0
+    profitable_count = 0
+    all_gains = []
+    all_losses = []
+    fwd_evaluated_count = 0
 
     for row in signals_rows:
         sig_id, s_date, sym, sig_type, entry, t1, t2, t3, sl = row
@@ -109,15 +115,17 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
         """), {'s': sym, 'd': s_date}).fetchall()
 
         if len(fwd_prices) <= 1:
-            pending += 1
+            active_in_play += 1
             evaluated_records.append({
                 'date': s_date, 'symbol': sym, 'signal': sig_type,
-                'entry_price': entry, 'target_1': t1, 'target_2': t2, 'target_3': t3,
-                'stop_loss': sl, 'status': '⏳ IN PLAY',
-                'days_elapsed': len(fwd_prices), 'max_gain_pct': 0.0,
+                'entry_price': round(entry, 2), 'target_1': round(t1, 2) if t1 else None,
+                'target_2': round(t2, 2) if t2 else None, 'target_3': round(t3, 2) if t3 else None,
+                'stop_loss': round(sl, 2) if sl else None, 'status': '⏳ IN PLAY (Latest Session)',
+                'days_elapsed': 0, 'max_gain_pct': 0.0, 'max_loss_pct': 0.0, 'current_gain_pct': 0.0,
             })
             continue
 
+        fwd_evaluated_count += 1
         hit_t1, hit_t2, hit_t3, hit_sl = False, False, False, False
         max_high = entry
         min_low = entry
@@ -130,43 +138,49 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
                 if sl and l <= sl and not hit_t1:
                     hit_sl = True
                     break
-                if t1 and h >= t1:
-                    hit_t1 = True
-                if t2 and h >= t2:
-                    hit_t2 = True
-                if t3 and h >= t3:
-                    hit_t3 = True
+                if t1 and h >= t1: hit_t1 = True
+                if t2 and h >= t2: hit_t2 = True
+                if t3 and h >= t3: hit_t3 = True
             elif sig_type == 'SELL':
                 if sl and h >= sl and not hit_t1:
                     hit_sl = True
                     break
-                if t1 and l <= t1:
-                    hit_t1 = True
-                if t2 and l <= t2:
-                    hit_t2 = True
-                if t3 and l <= t3:
-                    hit_t3 = True
+                if t1 and l <= t1: hit_t1 = True
+                if t2 and l <= t2: hit_t2 = True
+                if t3 and l <= t3: hit_t3 = True
 
-        max_gain_pct = ((max_high - entry) / entry * 100) if sig_type == 'BUY' else ((entry - min_low) / entry * 100)
+        latest_close = float(fwd_prices[-1][3])
+        if sig_type == 'BUY':
+            max_gain_pct = (max_high - entry) / entry * 100.0
+            max_loss_pct = (min_low - entry) / entry * 100.0
+            curr_return_pct = (latest_close - entry) / entry * 100.0
+        else:
+            max_gain_pct = (entry - min_low) / entry * 100.0
+            max_loss_pct = (entry - max_high) / entry * 100.0
+            curr_return_pct = (entry - latest_close) / entry * 100.0
+
+        all_gains.append(max(0.0, max_gain_pct))
+        all_losses.append(min(0.0, max_loss_pct))
 
         if hit_t3:
             status_str = '🎯🎯🎯 T3 HIT (+15%+)'
-            t3_hits += 1
-            t2_hits += 1
-            t1_hits += 1
+            t3_hits += 1; t2_hits += 1; t1_hits += 1; profitable_count += 1
         elif hit_t2:
             status_str = '🎯🎯 T2 HIT (+8%+)'
-            t2_hits += 1
-            t1_hits += 1
+            t2_hits += 1; t1_hits += 1; profitable_count += 1
         elif hit_t1:
             status_str = '🎯 T1 HIT (+4%+)'
-            t1_hits += 1
+            t1_hits += 1; profitable_count += 1
         elif hit_sl:
             status_str = '🛑 STOP LOSS HIT'
             sl_hits += 1
+        elif curr_return_pct > 0:
+            status_str = '🟢 IN PLAY (PROFITABLE)'
+            profitable_count += 1
+            active_in_play += 1
         else:
-            status_str = '⏳ IN PLAY'
-            pending += 1
+            status_str = '🟡 IN PLAY (DRAWDOWNS)'
+            active_in_play += 1
 
         evaluated_records.append({
             'date': s_date, 'symbol': sym, 'signal': sig_type,
@@ -176,25 +190,36 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
             'target_3': round(t3, 2) if t3 else None,
             'stop_loss': round(sl, 2) if sl else None,
             'status': status_str,
-            'days_elapsed': len(fwd_prices),
+            'days_elapsed': len(fwd_prices) - 1,
             'max_gain_pct': round(max_gain_pct, 2),
+            'max_loss_pct': round(max_loss_pct, 2),
+            'current_gain_pct': round(curr_return_pct, 2),
         })
 
-    total_evaluated = len(signals_rows) - pending
-    denom = max(1, total_evaluated)
-    t1_rate = round((t1_hits / denom) * 100, 1) if total_evaluated > 0 else 82.4
-    t2_rate = round((t2_hits / denom) * 100, 1) if total_evaluated > 0 else 64.2
-    t3_rate = round((t3_hits / denom) * 100, 1) if total_evaluated > 0 else 41.8
-    sl_rate = round((sl_hits / denom) * 100, 1) if total_evaluated > 0 else 12.6
+    denom = max(1, fwd_evaluated_count)
+    t1_rate = round((t1_hits / denom) * 100, 1)
+    t2_rate = round((t2_hits / denom) * 100, 1)
+    t3_rate = round((t3_hits / denom) * 100, 1)
+    sl_rate = round((sl_hits / denom) * 100, 1)
+    overall_win_rate = round((profitable_count / denom) * 100, 1)
+
+    avg_mfe = round(float(np.mean(all_gains)), 2) if all_gains else 0.0
+    avg_mae = round(float(np.mean(all_losses)), 2) if all_losses else 0.0
+    sum_gains = sum(all_gains) if all_gains else 1.0
+    sum_losses = abs(sum(all_losses)) if all_losses and abs(sum(all_losses)) > 0.001 else 1.0
+    profit_factor = round(sum_gains / sum_losses, 2)
 
     return {
         'total_signals_tracked': len(signals_rows),
-        'completed_signals': total_evaluated,
-        'active_signals': pending,
+        'completed_signals': fwd_evaluated_count,
+        'active_signals': active_in_play,
         'target_1_hit_rate_pct': t1_rate,
         'target_2_hit_rate_pct': t2_rate,
         'target_3_hit_rate_pct': t3_rate,
         'stop_loss_hit_rate_pct': sl_rate,
-        'overall_win_rate_pct': t1_rate,
+        'overall_win_rate_pct': overall_win_rate,
+        'profit_factor': profit_factor,
+        'avg_peak_gain_mfe': avg_mfe,
+        'avg_max_drawdown_mae': avg_mae,
         'records': evaluated_records,
     }

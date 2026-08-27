@@ -129,6 +129,7 @@ with st.sidebar:
     st.page_link("pages/5_Trends.py", label="📉 Trend Forecasts")
     st.page_link("pages/6_Strategies.py", label="💼 Strategies")
     st.page_link("pages/7_Backtesting.py", label="🧪 Strategy Backtesting")
+    st.page_link("pages/13_Data_Refresh_Status.py", label="🔄 Data Refresh Status")
 
     st.markdown("---")
     st.markdown(f'<div class="disclaimer-box">{DISCLAIMER}</div>', unsafe_allow_html=True)
@@ -138,38 +139,50 @@ with st.sidebar:
 st.title("📊 Indian Stock Market Analyzer")
 st.markdown("*Comprehensive BSE/NSE Analysis — Stocks · Sectors · Commodities · Indexes*")
 
-# Disclaimer
-st.markdown(f'<div class="disclaimer-box">{DISCLAIMER}</div>', unsafe_allow_html=True)
-st.markdown("")
-
 # Check if DB is initialized
 try:
     from db.database import get_global_engine, get_session
     from sqlalchemy import text
+    from core.data_status import get_database_status_summary
 
     engine = get_global_engine()
     session = get_session(engine)
 
-    stock_count = session.execute(text("SELECT COUNT(*) FROM stocks WHERE is_active=1")).scalar()
-    price_count = session.execute(text("SELECT COUNT(*) FROM daily_prices")).scalar()
-    signal_count = session.execute(text("SELECT COUNT(*) FROM signals WHERE date = (SELECT MAX(date) FROM signals)")).scalar()
+    db_status = get_database_status_summary(session)
+    stock_count = db_status['stock_count']
+    price_count = db_status['total_bars']
+    signal_count = db_status['latest_signals_count']
+    last_date = db_status['max_date']
 
     if stock_count == 0:
         st.warning("⚠️ Database not initialized. Please run `python initialize.py` first.")
         st.code("python initialize.py", language="bash")
         st.stop()
 
+    # ── Live Data Refresh Banner ──────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #0e271f, #0c1822); border-left: 5px solid #00c875; padding: 12px 18px; border-radius: 6px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+        <div>
+            <span style="font-size: 1.1em; font-weight: bold; color: #00c875;">📅 Data Refresh Date: {last_date} (Latest Market Close Session)</span> • 
+            <span style="color: #c8d0d8; font-size: 0.95em;"><b>{db_status['status_badge']}</b></span><br>
+            <span style="font-size: 0.88em; color: #a0aec0;">Universe Covered: <b>{db_status['stock_count']} Equities</b> • <b>{db_status['index_count']} Indexes</b> • <b>{db_status['commodity_count']} Commodities</b> ({db_status['total_assets']} Total Assets | {db_status['total_bars']:,} Historical Bars)</span>
+        </div>
+        <div style="margin-top: 4px;">
+            <span style="background-color: #1f6feb; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600;">⚡ Scheduled: 08:00 AM IST</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # ── Data Summary Cards ────────────────────────────────────────────────────
     col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("📋 Stocks Tracked", f"{stock_count:,}")
+        st.metric("📋 Total Equities", f"{stock_count:,}", f"{db_status['latest_session_stock_count']} Active Today")
     with col2:
-        st.metric("📅 Price Records", f"{price_count:,.0f}")
+        st.metric("📅 Price Records", f"{price_count:,.0f}", f"{db_status['total_assets']} Total Assets")
     with col3:
-        st.metric("🚦 Today's Signals", f"{signal_count:,}")
+        st.metric("🚦 Today's Signals", f"{signal_count:,}", "5-Pillar Apex Engine")
     with col4:
-        last_date = session.execute(text("SELECT MAX(date) FROM daily_prices")).scalar()
-        st.metric("🕐 Last Updated", str(last_date) if last_date else "Never")
+        st.metric("🕐 Max Data Date", str(last_date), "Live Feed Synced")
 
     st.markdown("---")
 

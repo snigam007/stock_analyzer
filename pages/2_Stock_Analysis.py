@@ -245,11 +245,17 @@ def format_pct(p, suffix="%"):
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 st.sidebar.title("🔍 Asset Deep-Dive")
 
+all_assets = get_all_asset_list()
+total_cnt = len(all_assets)
+stock_cnt = sum(1 for a in all_assets if a[5] == "Stock")
+idx_cnt = sum(1 for a in all_assets if a[5] == "Index")
+comm_cnt = sum(1 for a in all_assets if a[5] == "Commodity")
+
 # 1. Asset Category Filter
 asset_type_filter = st.sidebar.radio(
     "Asset Category",
-    ["All Assets", "Stocks", "Indexes", "Commodities"],
-    horizontal=True
+    [f"All Assets ({total_cnt})", f"Stocks ({stock_cnt})", f"Indexes ({idx_cnt})", f"Commodities ({comm_cnt})"],
+    horizontal=False
 )
 
 # 2. Search Bar
@@ -259,14 +265,12 @@ search_term = st.sidebar.text_input(
     placeholder="e.g. RELIANCE, NIFTY, Gold, Crude, TCS..."
 ).strip()
 
-all_assets = get_all_asset_list()
-
 # Filter pool by category
-if asset_type_filter == "Stocks":
+if "Stocks" in asset_type_filter:
     pool = [a for a in all_assets if a[5] == "Stock"]
-elif asset_type_filter == "Indexes":
+elif "Indexes" in asset_type_filter:
     pool = [a for a in all_assets if a[5] == "Index"]
-elif asset_type_filter == "Commodities":
+elif "Commodities" in asset_type_filter:
     pool = [a for a in all_assets if a[5] == "Commodity"]
 else:
     pool = all_assets
@@ -282,7 +286,7 @@ if not pool:
     st.stop()
 
 # Sector Filter (for Stocks)
-if asset_type_filter in ["All Assets", "Stocks"]:
+if "All Assets" in asset_type_filter or "Stocks" in asset_type_filter:
     stock_sectors = sorted(set(a[2] for a in pool if a[5] == "Stock"))
     if stock_sectors:
         selected_sector = st.sidebar.selectbox("Filter by Sector", ["All Sectors"] + stock_sectors)
@@ -294,7 +298,7 @@ symbols = [a[0] for a in pool]
 asset_type_icons = {"Stock": "🏢", "Index": "📊", "Commodity": "🪙"}
 labels = [f"{asset_type_icons.get(a[5], '🏢')} {'● ' if a[4] > 0 else '○ '}{a[0]} — {a[1][:30]}" for a in pool]
 
-selected_idx = st.sidebar.selectbox(f"Select Asset ({len(pool)} available)", range(len(labels)), format_func=lambda i: labels[i])
+selected_idx = st.sidebar.selectbox(f"Select Asset ({len(pool)} matching)", range(len(labels)), format_func=lambda i: labels[i])
 selected_symbol = symbols[selected_idx]
 selected_asset_info = pool[selected_idx]
 selected_asset_type = selected_asset_info[5]
@@ -304,6 +308,23 @@ period_days = st.sidebar.selectbox("Chart Period", [30, 90, 180, 365, 730, 1825]
                                                            365: "1 Year", 730: "2 Years", 1825: "5 Years"}[d], index=3)
 
 # ─── Main Content ─────────────────────────────────────────────────────────────
+from core.data_status import get_database_status_summary
+db_status = get_database_status_summary()
+
+# Universe Summary Banner
+st.markdown(f"""
+<div style="background: linear-gradient(90deg, #0e271f, #0c1822); border-left: 5px solid #00c875; padding: 10px 16px; border-radius: 6px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+    <div>
+        <span style="font-size: 1.05em; font-weight: bold; color: #00c875;">📅 Data Refresh Date: {db_status['max_date']} (Latest Market Session)</span> • 
+        <span style="color: #c8d0d8; font-size: 0.9em;"><b>{db_status['status_badge']}</b></span><br>
+        <span style="font-size: 0.85em; color: #a0aec0;">Universe Tracked: <b>{db_status['stock_count']} Equities</b> • <b>{db_status['index_count']} Indexes</b> • <b>{db_status['commodity_count']} Commodities</b> ({db_status['total_assets']} Total Assets)</span>
+    </div>
+    <div style="margin-top: 4px;">
+        <span style="background-color: #21262d; border: 1px solid #30363d; color: #58a6ff; padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600;">⚡ Scheduled: 08:00 AM IST</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 prices, ind, sig, score, forecast = get_stock_data(selected_symbol, selected_asset_type, period_days)
 
 stock_name = selected_asset_info[1]

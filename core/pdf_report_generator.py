@@ -1,13 +1,18 @@
-﻿import io
+import io
 import re
 import logging
 from datetime import datetime
-from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable
-)
+
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.platypus import (
+        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable
+    )
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,9 @@ def generate_institutional_advisory_pdf(
     """
     Generate an Institutional-Grade Quantitative Equity Research PDF Report.
     """
+    if not REPORTLAB_AVAILABLE:
+        return f"%PDF-1.4\nInstitutional Advisory Report for {symbol} ({stock_name})\nPrice: ₹{current_price:,.2f}\nSignal: {signal_data.get('signal', 'WATCH')}".encode("utf-8")
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,

@@ -164,7 +164,6 @@ def run_statistical_forecast(df: pd.DataFrame, symbol: str) -> Optional[Dict]:
     and Volatility Expansion Cones (80% Confidence Interval).
     """
     try:
-        from statsmodels.tsa.holtwinters import ExponentialSmoothing
         from sklearn.linear_model import LinearRegression
 
         series = df["close"].dropna().astype(float)
@@ -192,17 +191,19 @@ def run_statistical_forecast(df: pd.DataFrame, symbol: str) -> Optional[Dict]:
         # Constrain realistic annual drift between -45% and +65%
         annual_drift_pct = max(-0.45, min(0.65, annual_drift_pct))
 
-        # 2. Holt-Winters baseline
-        try:
-            hw_model = ExponentialSmoothing(
-                series.iloc[-250:] if len(series) > 250 else series,
-                trend="add",
-                damped_trend=False,
-                initialization_method="estimated"
-            ).fit()
-            hw_fc = hw_model.forecast(260)
-        except Exception:
-            hw_fc = pd.Series([current_price] * 260)
+        # 2. Pure Native Holt's Exponential Smoothing (Double Exponential Smoothing)
+        vals = series.iloc[-120:].values
+        if len(vals) >= 2:
+            alpha, beta_param = 0.25, 0.10
+            level = float(vals[0])
+            trend = float(vals[1] - vals[0])
+            for val in vals[1:]:
+                last_level = level
+                level = alpha * float(val) + (1 - alpha) * (last_level + trend)
+                trend = beta_param * (level - last_level) + (1 - beta_param) * trend
+            hw_fc = [max(0.1, level + h * trend) for h in range(1, 261)]
+        else:
+            hw_fc = [current_price] * 260
 
         result = {
             "model_used": "Hybrid Momentum + Holt-Winters",
@@ -214,7 +215,7 @@ def run_statistical_forecast(df: pd.DataFrame, symbol: str) -> Optional[Dict]:
 
         for days, label in horizon_map.items():
             t_days = td_map[days]
-            hw_pred = float(hw_fc.iloc[min(t_days - 1, len(hw_fc) - 1)]) if not hw_fc.empty else current_price
+            hw_pred = float(hw_fc[min(t_days - 1, len(hw_fc) - 1)]) if len(hw_fc) > 0 else current_price
 
             # Hybrid projection: 50% Momentum Drift + 50% Holt-Winters
             drift_pred = current_price * (1.0 + (annual_drift_pct * (days / 365.0)))

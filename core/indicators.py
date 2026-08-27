@@ -1,7 +1,9 @@
 """
 Technical Indicators Engine
-Computes all 10 technical indicators using pandas-ta and saves to database.
+Computes all 10 technical indicators using pure vectorized Pandas/NumPy operations
+and saves them to the database.
 Also computes trend patterns (↑↑↓↑), trend direction, and volume analysis.
+Zero C-extension / JIT compilation build dependencies for maximum portability.
 """
 import logging
 import warnings
@@ -12,7 +14,6 @@ import sys
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
@@ -96,7 +97,8 @@ def classify_trend_direction(prices: pd.Series, window: int = 20) -> tuple:
 # ─── Core Indicator Computation ───────────────────────────────────────────────
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute all technical indicators for a DataFrame with OHLCV data.
+    Compute all technical indicators for a DataFrame with OHLCV data using
+    fast vectorized Pandas/NumPy operations without requiring external C extensions.
     Returns the enriched DataFrame with indicator columns added.
     """
     if df is None or df.empty or len(df) < 50:
@@ -108,63 +110,84 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     close = df["close"]
     high = df["high"]
     low = df["low"]
-    volume = df.get("volume", pd.Series(index=df.index))
+    volume = df.get("volume", pd.Series(index=df.index, dtype=float))
 
-    # ── 1. RSI ────────────────────────────────────────────────────────────────
-    df["rsi_14"] = ta.rsi(close, length=RSI_PERIOD)
+    # ── 1. RSI (Wilder's Smoothing) ───────────────────────────────────────────
+    delta = close.diff()
+    gain = delta.where(delta > 0, 0.0)
+    loss = -delta.where(delta < 0, 0.0)
+    avg_gain = gain.ewm(alpha=1.0 / RSI_PERIOD, min_periods=RSI_PERIOD, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / RSI_PERIOD, min_periods=RSI_PERIOD, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df["rsi_14"] = (100.0 - (100.0 / (1.0 + rs))).fillna(50.0)
 
     # ── 2. MACD ───────────────────────────────────────────────────────────────
-    macd_df = ta.macd(close, fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL)
-    if macd_df is not None:
-        macd_cols = macd_df.columns.tolist()
-        df["macd"] = macd_df.iloc[:, 0]           # MACD line
-        df["macd_signal"] = macd_df.iloc[:, 2]    # Signal line
-        df["macd_hist"] = macd_df.iloc[:, 1]      # Histogram
+    ema_fast = close.ewm(span=MACD_FAST, adjust=False).mean()
+    ema_slow = close.ewm(span=MACD_SLOW, adjust=False).mean()
+    df["macd"] = ema_fast - ema_slow
+    df["macd_signal"] = df["macd"].ewm(span=MACD_SIGNAL, adjust=False).mean()
+    df["macd_hist"] = df["macd"] - df["macd_signal"]
 
     # ── 3. Bollinger Bands ────────────────────────────────────────────────────
-    bb_df = ta.bbands(close, length=BB_PERIOD, std=BB_STD)
-    if bb_df is not None:
-        df["bb_lower"] = bb_df.iloc[:, 0]
-        df["bb_middle"] = bb_df.iloc[:, 1]
-        df["bb_upper"] = bb_df.iloc[:, 2]
-        df["bb_width"] = bb_df.iloc[:, 3]
-        df["bb_pct"] = bb_df.iloc[:, 4]           # %B: position within bands
+    bb_middle = close.rolling(window=BB_PERIOD).mean()
+    bb_std = close.rolling(window=BB_PERIOD).std()
+    df["bb_upper"] = bb_middle + (BB_STD * bb_std)
+    df["bb_middle"] = bb_middle
+    df["bb_lower"] = bb_middle - (BB_STD * bb_std)
+    band_diff = df["bb_upper"] - df["bb_lower"]
+    df["bb_width"] = (band_diff / bb_middle.replace(0, np.nan)) * 100.0
+    df["bb_pct"] = (close - df["bb_lower"]) / band_diff.replace(0, np.nan)
 
     # ── 4. EMAs ───────────────────────────────────────────────────────────────
     for period in EMA_PERIODS:
-        df[f"ema_{period}"] = ta.ema(close, length=period)
+        df[f"ema_{period}"] = close.ewm(span=period, adjust=False).mean()
 
-    # ── 5. ADX ────────────────────────────────────────────────────────────────
-    adx_df = ta.adx(high, low, close, length=ADX_PERIOD)
-    if adx_df is not None:
-        df["adx"] = adx_df.iloc[:, 0]
-        df["di_plus"] = adx_df.iloc[:, 1]
-        df["di_minus"] = adx_df.iloc[:, 2]
+    # ── 5. ATR & ADX / DMI ────────────────────────────────────────────────────
+    tr1 = high - low
+    tr2 = (high - close.shift(1)).abs()
+    tr3 = (low - close.shift(1)).abs()
+    tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1.0 / ATR_PERIOD, min_periods=ATR_PERIOD, adjust=False).mean()
+    df["atr_14"] = atr
 
-    # ── 6. Stochastic ─────────────────────────────────────────────────────────
-    stoch_df = ta.stoch(high, low, close, k=STOCH_K, d=STOCH_D)
-    if stoch_df is not None:
-        df["stoch_k"] = stoch_df.iloc[:, 0]
-        df["stoch_d"] = stoch_df.iloc[:, 1]
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    plus_dm_series = pd.Series(plus_dm, index=df.index).ewm(alpha=1.0 / ADX_PERIOD, min_periods=ADX_PERIOD, adjust=False).mean()
+    minus_dm_series = pd.Series(minus_dm, index=df.index).ewm(alpha=1.0 / ADX_PERIOD, min_periods=ADX_PERIOD, adjust=False).mean()
+    df["di_plus"] = (plus_dm_series / atr.replace(0, np.nan)) * 100.0
+    df["di_minus"] = (minus_dm_series / atr.replace(0, np.nan)) * 100.0
+    di_sum = df["di_plus"] + df["di_minus"]
+    dx = ((df["di_plus"] - df["di_minus"]).abs() / di_sum.replace(0, np.nan)) * 100.0
+    df["adx"] = dx.ewm(alpha=1.0 / ADX_PERIOD, min_periods=ADX_PERIOD, adjust=False).mean().fillna(20.0)
+
+    # ── 6. Stochastic Oscillator ──────────────────────────────────────────────
+    lowest_low = low.rolling(window=STOCH_K).min()
+    highest_high = high.rolling(window=STOCH_K).max()
+    stoch_range = highest_high - lowest_low
+    df["stoch_k"] = ((close - lowest_low) / stoch_range.replace(0, np.nan)) * 100.0
+    df["stoch_d"] = df["stoch_k"].rolling(window=STOCH_D).mean()
 
     # ── 7. CCI ────────────────────────────────────────────────────────────────
-    df["cci_20"] = ta.cci(high, low, close, length=CCI_PERIOD)
+    tp = (high + low + close) / 3.0
+    sma_tp = tp.rolling(window=CCI_PERIOD).mean()
+    mad = tp.rolling(window=CCI_PERIOD).apply(lambda x: np.mean(np.abs(x - np.mean(x))), raw=True)
+    df["cci_20"] = (tp - sma_tp) / (0.015 * mad.replace(0, np.nan))
 
     # ── 8. OBV ────────────────────────────────────────────────────────────────
     if not volume.isna().all():
-        df["obv"] = ta.obv(close, volume)
-        df["obv_sma"] = ta.sma(df["obv"], length=OBV_SMOOTH)
+        direction = np.sign(close.diff()).fillna(0)
+        df["obv"] = (direction * volume).cumsum()
+        df["obv_sma"] = df["obv"].rolling(window=OBV_SMOOTH).mean()
 
-    # ── 9. ATR ────────────────────────────────────────────────────────────────
-    df["atr_14"] = ta.atr(high, low, close, length=ATR_PERIOD)
-
-    # ── 10. Volume Analysis ───────────────────────────────────────────────────
+    # ── 9. Volume Analysis ───────────────────────────────────────────────────
     if not volume.isna().all():
-        df["volume_sma_20"] = ta.sma(volume, length=20)
+        df["volume_sma_20"] = volume.rolling(window=20).mean()
         df["volume_ratio"] = volume / df["volume_sma_20"].replace(0, np.nan)
         df["volume_spike"] = df["volume_ratio"] > VOLUME_SPIKE_MULTIPLIER
 
-    # ── 11. Trend Pattern ─────────────────────────────────────────────────────
+    # ── 10. Trend Pattern ─────────────────────────────────────────────────────
     df["trend_pattern"] = build_trend_pattern(close)
     trend_dir, trend_str = classify_trend_direction(close)
     df["trend_direction"] = trend_dir

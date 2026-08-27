@@ -276,11 +276,19 @@ def get_searchable_universe_directory(session: Optional[Session] = None) -> pd.D
 
         # Combine
         combined = pd.concat([df_stocks, df_indexes, df_commodities], ignore_index=True)
-        combined["signal"] = combined["signal"].fillna("WATCH")
-        combined["risk_level"] = combined["risk_level"].fillna("MODERATE")
-        combined["composite_score"] = combined["composite_score"].fillna(50.0).round(1)
-        combined["latest_close"] = combined["latest_close"].round(2)
-        combined["daily_return_pct"] = (combined["daily_return_pct"] * 100.0).round(2)
+        combined["symbol"] = combined["symbol"].fillna("").astype(str)
+        combined["name"] = combined["name"].fillna("").astype(str)
+        combined["asset_type"] = combined["asset_type"].fillna("Stock").astype(str)
+        combined["sector"] = combined["sector"].fillna("General").astype(str)
+        combined["tier"] = combined["tier"].fillna("Standard").astype(str)
+        combined["signal"] = combined["signal"].fillna("WATCH").astype(str)
+        combined["risk_level"] = combined["risk_level"].fillna("MODERATE").astype(str)
+        combined["composite_score"] = pd.to_numeric(combined["composite_score"], errors="coerce").fillna(50.0).round(1)
+        combined["latest_close"] = pd.to_numeric(combined["latest_close"], errors="coerce").fillna(0.0).round(2)
+        combined["daily_return_pct"] = (pd.to_numeric(combined["daily_return_pct"], errors="coerce").fillna(0.0) * 100.0).round(2)
+        combined["min_date"] = combined["min_date"].fillna("—").astype(str)
+        combined["max_date"] = combined["max_date"].fillna("—").astype(str)
+        combined["price_records"] = pd.to_numeric(combined["price_records"], errors="coerce").fillna(0).astype(int)
 
         return combined
     finally:

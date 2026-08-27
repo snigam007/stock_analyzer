@@ -29,7 +29,6 @@ from core.data_status import (
     get_daily_stock_counts_history,
     get_searchable_universe_directory,
 )
-from update_daily import run_daily_delta_update
 
 st.set_page_config(
     page_title="Data Refresh Status",
@@ -277,16 +276,21 @@ def style_return(val):
     color = "#00c875" if val > 0 else ("#e04b4b" if val < 0 else "#ffffff")
     return f"color: {color}; font-weight: bold;"
 
+styler = table_display.style
+map_fn = getattr(styler, "map", getattr(styler, "applymap", None))
+if map_fn:
+    styler = map_fn(style_signal, subset=["Signal"])
+    map_fn_2 = getattr(styler, "map", getattr(styler, "applymap", None))
+    if map_fn_2:
+        styler = map_fn_2(style_return, subset=["Daily Return %"])
+
 st.dataframe(
-    table_display.style
-        .applymap(style_signal, subset=["Signal"])
-        .applymap(style_return, subset=["Daily Return %"])
-        .format({
-            "Latest Close": "₹{:,.2f}",
-            "Daily Return %": "{:+.2f}%",
-            "Score": "{:.1f}",
-            "Bars Count": "{:,d}"
-        }),
+    styler.format({
+        "Latest Close": "₹{:,.2f}",
+        "Daily Return %": "{:+.2f}%",
+        "Score": "{:.1f}",
+        "Bars Count": "{:,d}"
+    }),
     use_container_width=True,
     height=450
 )
@@ -312,6 +316,7 @@ with btn_col1:
     if st.button("🚀 Trigger Delta Update Now", type="primary", use_container_width=True):
         with st.spinner("⚡ Fetching latest price deltas & recomputing indicators & signals..."):
             try:
+                from update_daily import run_daily_delta_update
                 run_daily_delta_update()
                 st.success("✅ Database refreshed successfully! Please reload the page to view updated numbers.")
                 st.rerun()

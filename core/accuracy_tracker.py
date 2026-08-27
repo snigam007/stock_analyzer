@@ -202,6 +202,7 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
     t3_rate = round((t3_hits / denom) * 100, 1)
     sl_rate = round((sl_hits / denom) * 100, 1)
     overall_win_rate = round((profitable_count / denom) * 100, 1)
+    intact_rate = round(max(0.0, (1.0 - (sl_hits / denom))) * 100, 1)
 
     avg_mfe = round(float(np.mean(all_gains)), 2) if all_gains else 0.0
     avg_mae = round(float(np.mean(all_losses)), 2) if all_losses else 0.0
@@ -213,10 +214,17 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
         'total_signals_tracked': len(signals_rows),
         'completed_signals': fwd_evaluated_count,
         'active_signals': active_in_play,
+        't1_hits_count': t1_hits,
+        't2_hits_count': t2_hits,
+        't3_hits_count': t3_hits,
+        'sl_hits_count': sl_hits,
+        'profitable_count': profitable_count,
         'target_1_hit_rate_pct': t1_rate,
         'target_2_hit_rate_pct': t2_rate,
         'target_3_hit_rate_pct': t3_rate,
         'stop_loss_hit_rate_pct': sl_rate,
+        'active_intact_rate_pct': intact_rate,
+        'in_play_profitable_pct': overall_win_rate,
         'overall_win_rate_pct': overall_win_rate,
         'profit_factor': profit_factor,
         'avg_peak_gain_mfe': avg_mfe,

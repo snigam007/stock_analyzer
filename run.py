@@ -1,4 +1,4 @@
-﻿"""
+"""
 run.py — Single Point of Execution for Indian Stock Analyzer & Financial Powerhouse
 
 Provides an interactive menu & CLI flags for:
@@ -61,18 +61,31 @@ def check_db_exists() -> bool:
     return db_path.exists() and db_path.stat().st_size > 100000
 
 
+def find_available_port(start_port: int = 8501, max_tries: int = 10) -> int:
+    """Find the first available open port to avoid 'Port already in use' collisions."""
+    import socket
+    for p in range(start_port, start_port + max_tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", p)) != 0:
+                return p
+    return start_port
+
+
 def launch_streamlit(port: int = 8501):
-    """Launch the Streamlit web application."""
-    logger.info(f"\n🚀 Launching Streamlit App on http://localhost:{port} ...")
+    """Launch the Streamlit web application on an open port."""
+    available_port = find_available_port(port)
+    if available_port != port:
+        logger.warning(f"⚠️ Port {port} is occupied. Automatically routing to open port {available_port}...")
+    logger.info(f"\n🚀 Launching Streamlit App on http://localhost:{available_port} ...")
     app_main = str(BASE_DIR / "app" / "main.py")
     
     # Try finding streamlit inside virtualenv or PATH
     python_exe = sys.executable
     venv_streamlit = BASE_DIR / "venv" / "Scripts" / "streamlit.exe"
     if venv_streamlit.exists():
-        cmd = [str(venv_streamlit), "run", app_main, f"--server.port={port}", "--server.headless=false"]
+        cmd = [str(venv_streamlit), "run", app_main, f"--server.port={available_port}", "--server.headless=false"]
     else:
-        cmd = [python_exe, "-m", "streamlit", "run", app_main, f"--server.port={port}", "--server.headless=false"]
+        cmd = [python_exe, "-m", "streamlit", "run", app_main, f"--server.port={available_port}", "--server.headless=false"]
     
     try:
         subprocess.run(cmd, cwd=str(BASE_DIR))

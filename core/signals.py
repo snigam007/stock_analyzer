@@ -294,3 +294,7 @@ def compute_and_save_signals(session: Session, progress_callback=None):
 
     session.commit()
     logger.info("✅ 5-Pillar Apex Signals batch generation complete!")
+
+
+# Alias for backward compatibility
+generate_all_signals = compute_and_save_signals

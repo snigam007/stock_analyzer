@@ -127,6 +127,8 @@ with nav_col3:
         - **7. 🧪 Strategy Backtester**: Walk-forward equity curves, win rates, and alpha metrics.
         - **8. 💼 Portfolio Optimizer**: Markowitz MPT Efficient Frontier (4,000 paths) and Live Paper Trading.
         - **9. 📱 Alerts & Dispatcher**: 8:45 AM Pre-Market Morning Intelligence & Webhook dispatching.
+        - **14. ⭐ Watchlists & 52W Radar**: Multi-watchlist targets, stop-losses, and proximity breakdown alerts.
+        - **15. 🏦 Institutional Deals & Calendar**: Official NSE bulk/block whale flows and RBI/F&O macro calendar.
         """)
 
 st.markdown("---")

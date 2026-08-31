@@ -130,6 +130,8 @@ with st.sidebar:
     st.page_link("pages/6_Strategies.py", label="💼 Strategies")
     st.page_link("pages/7_Backtesting.py", label="🧪 Strategy Backtesting")
     st.page_link("pages/13_Data_Refresh_Status.py", label="🔄 Data Refresh Status")
+    st.page_link("pages/14_Watchlist_and_Alerts.py", label="⭐ Watchlist & 52W Radar")
+    st.page_link("pages/15_Institutional_Deals_and_Calendar.py", label="🏦 Deals & Macro Calendar")
 
     st.markdown("---")
     st.markdown(f'<div class="disclaimer-box">{DISCLAIMER}</div>', unsafe_allow_html=True)

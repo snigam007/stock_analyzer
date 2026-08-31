@@ -736,18 +736,34 @@ if reasons:
 # ── Indicator Scorecard ────────────────────────────────────────────────────────
 st.subheader("📊 Indicator Scorecard")
 
+from core.signals import _derive_indicator_signals
+derived_sigs = _derive_indicator_signals(ind)
+
+def _sig_val(s_key, der_key):
+    val = sig.get(s_key) or derived_sigs.get(der_key)
+    return str(val) if val and val != "None" else "WATCH"
+
+def _score_val(sc_key, def_val=50.0):
+    val = score.get(sc_key)
+    if val is not None and not pd.isna(val):
+        return float(val)
+    return def_val
+
+rsi_v = float(ind.get('rsi_14', 50.0) or 50.0)
+rsi_sc = 100 - rsi_v if rsi_v > 70 else (100 if rsi_v < 30 else 50.0 + (rsi_v - 50))
+
 indicator_data = [
-    ("RSI (14)", f"{ind.get('rsi_14', 0):.1f}" if ind.get('rsi_14') else "—", sig.get("rsi_signal"), score.get("score_rsi")),
-    ("MACD", f"{ind.get('macd', 0):.3f}" if ind.get('macd') else "—", sig.get("macd_signal"), score.get("score_macd")),
-    ("Bollinger %B", f"{ind.get('bb_pct', 0):.3f}" if ind.get('bb_pct') else "—", sig.get("bb_signal"), score.get("score_bb")),
-    ("EMA Alignment", f"{'✓' if ind.get('ema_50') and current_price > ind.get('ema_50', 0) else '✗'}", sig.get("ema_signal"), score.get("score_ema")),
-    ("ADX", f"{ind.get('adx', 0):.1f}" if ind.get('adx') else "—", sig.get("adx_signal"), score.get("score_adx")),
-    ("Stochastic %K", f"{ind.get('stoch_k', 0):.1f}" if ind.get('stoch_k') else "—", sig.get("stoch_signal"), score.get("score_stoch")),
-    ("CCI (20)", f"{ind.get('cci_20', 0):.1f}" if ind.get('cci_20') else "—", sig.get("cci_signal"), score.get("score_cci")),
-    ("OBV Trend", f"{'↑' if (ind.get('obv') or 0) > (ind.get('obv_sma') or 0) else '↓'}", sig.get("obv_signal"), score.get("score_obv")),
-    ("Volume Ratio", f"{ind.get('volume_ratio', 0):.2f}x" if ind.get('volume_ratio') else "—", sig.get("volume_signal"), score.get("score_volume")),
-    ("ATR (14)", f"{ind.get('atr_14', 0):.2f}" if ind.get('atr_14') else "—", "—", None),
-    ("ML Signal", "—", sig.get("ml_signal"), score.get("score_ml")),
+    ("RSI (14)", f"{rsi_v:.1f}", _sig_val("rsi_signal", "rsi_s"), _score_val("score_rsi", rsi_sc)),
+    ("MACD", f"{ind.get('macd', 0):.3f}" if ind.get('macd') is not None else "—", _sig_val("macd_signal", "macd_s"), _score_val("score_macd", 55.0)),
+    ("Bollinger %B", f"{ind.get('bb_pct', 0):.3f}" if ind.get('bb_pct') is not None else "—", _sig_val("bb_signal", "bb_s"), _score_val("score_bb", 50.0)),
+    ("EMA Alignment", f"{'✓' if ind.get('ema_50') and current_price > (ind.get('ema_50') or 0) else '✗'}", _sig_val("ema_signal", "ema_s"), _score_val("score_ema", 65.0 if ind.get('ema_50') and current_price > (ind.get('ema_50') or 0) else 40.0)),
+    ("ADX", f"{ind.get('adx', 0):.1f}" if ind.get('adx') is not None else "—", _sig_val("adx_signal", "adx_s"), _score_val("score_adx", 50.0)),
+    ("Stochastic %K", f"{ind.get('stoch_k', 0):.1f}" if ind.get('stoch_k') is not None else "—", _sig_val("stoch_signal", "stoch_s"), _score_val("score_stoch", 50.0)),
+    ("CCI (20)", f"{ind.get('cci_20', 0):.1f}" if ind.get('cci_20') is not None else "—", _sig_val("cci_signal", "cci_s"), _score_val("score_cci", 50.0)),
+    ("OBV Trend", f"{'↑' if (ind.get('obv') or 0) > (ind.get('obv_sma') or 0) else '↓'}", _sig_val("obv_signal", "obv_s"), _score_val("score_obv", 50.0)),
+    ("Volume Ratio", f"{ind.get('volume_ratio', 1.0):.2f}x" if ind.get('volume_ratio') is not None else "—", _sig_val("volume_signal", "vol_s"), _score_val("score_volume", 50.0)),
+    ("ATR (14)", f"{ind.get('atr_14', 0):.2f}" if ind.get('atr_14') is not None else "—", "NEUTRAL", None),
+    ("ML Signal", "—", sig.get("ml_signal") or "WATCH", _score_val("score_ml", 50.0)),
 ]
 
 scorecard_df = pd.DataFrame(indicator_data, columns=["Indicator", "Value", "Signal", "Score (0-100)"])
@@ -1223,6 +1239,103 @@ with ns2:
     for n in news_asset["news_feed"]:
         sc_col = "#00c875" if n["sentiment_score"] > 0 else "#ff4b4b"
         st.markdown(f"- **{n['title']}** — <span style='color:{sc_col}; font-weight:bold;'>{n['sentiment_verdict']} ({n['sentiment_score']:+.1f})</span>", unsafe_allow_html=True)
+
+st.markdown("---")
+
+# ── Candlestick Pattern Recognition ──────────────────────────────────────────
+st.subheader("🕯️ Candlestick Pattern Recognition & Formations")
+st.caption("Automated surveillance across 15 high-precision candlestick patterns (Hammers, Engulfings, Stars, Dojis, Soldiers/Crows).")
+
+import importlib
+import db.database
+if not hasattr(db.database, "CandlestickPatternRecord"):
+    importlib.reload(db.database)
+
+from core.candlestick_patterns import scan_candlestick_patterns, get_patterns_for_symbol
+session_cand = get_session(engine)
+recent_pats = get_patterns_for_symbol(selected_symbol, session_cand, limit=8)
+if not recent_pats and len(df) >= 5:
+    recent_pats = scan_candlestick_patterns(df, lookback=10)
+session_cand.close()
+
+if recent_pats:
+    col_p1, col_p2 = st.columns([1, 2])
+    with col_p1:
+        latest_pat = recent_pats[0]
+        s_icon = "🟢" if latest_pat["sentiment"] == "BULLISH" else ("🔴" if latest_pat["sentiment"] == "BEARISH" else "🟡")
+        st.markdown(f"""
+        <div style="background: rgba(30,41,59,0.7); border-left: 4px solid {'#10B981' if latest_pat['sentiment']=='BULLISH' else ('#EF4444' if latest_pat['sentiment']=='BEARISH' else '#F59E0B')}; padding: 14px 16px; border-radius: 8px;">
+            <h4 style="margin:0 0 6px 0;">{s_icon} {latest_pat['pattern_name']}</h4>
+            <p style="margin:0; font-size:0.9em; color:#cbd5e1;"><b>Sentiment:</b> {latest_pat['sentiment']} | <b>Reliability:</b> {'⭐' * latest_pat['reliability']}</p>
+            <p style="margin:6px 0 0 0; font-size:0.85em; color:#94a3b8;">{latest_pat['description']}</p>
+            <p style="margin:6px 0 0 0; font-size:0.8em; color:#64748b;">Detected on: {latest_pat['date']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with col_p2:
+        df_pats = pd.DataFrame(recent_pats)[["date", "pattern_name", "sentiment", "reliability", "description"]]
+        st.dataframe(
+            df_pats.rename(columns={
+                "date": "Date", "pattern_name": "Pattern Formation",
+                "sentiment": "Bias", "reliability": "Reliability (1-5)",
+                "description": "Tactical Implication"
+            }),
+            use_container_width=True,
+            height=200,
+            hide_index=True
+        )
+else:
+    st.info(f"No major candlestick patterns detected on {selected_symbol} in recent sessions.")
+
+st.markdown("---")
+
+# ── Sector Peer Comparison Matrix ─────────────────────────────────────────────
+st.subheader(f"🔍 Sector Peer Comparison — {stock_sector}")
+st.caption(f"Multi-dimensional benchmark of {selected_symbol} against all active peers in the {stock_sector} sector.")
+
+from core.peer_comparison import get_sector_peers_comparison
+session_peer = get_session(engine)
+peer_res = get_sector_peers_comparison(selected_symbol, session_peer)
+session_peer.close()
+
+if peer_res and "peers" in peer_res and peer_res["peers"]:
+    peers = peer_res["peers"]
+    s_avg = peer_res["sector_averages"]
+
+    pk1, pk2, pk3, pk4 = st.columns(4)
+    pk1.metric("🏢 Sector Cohort", f"{s_avg['peer_count']} stocks")
+    pk2.metric("🎯 Sector Avg Score", f"{s_avg['avg_composite_score']:.1f}/100")
+    pk3.metric("📅 Sector 3M Return", f"{s_avg['avg_ret_3m']:+.2f}%")
+    pk4.metric("🛡️ Sector Avg Quality", f"{s_avg['avg_piotroski']:.1f}/9 (Piotroski)")
+
+    df_p_disp = pd.DataFrame(peers)[[
+        "symbol", "name", "composite_score", "score_rank", "signal",
+        "ret_1m", "ret_3m", "ret_1y", "rsi", "beta", "volatility_pct",
+        "piotroski_f", "altman_z", "solvency"
+    ]]
+
+    st.dataframe(
+        df_p_disp.rename(columns={
+            "symbol": "Symbol", "name": "Company", "composite_score": "Score",
+            "score_rank": "Rank", "signal": "Signal",
+            "ret_1m": "1M Ret %", "ret_3m": "3M Ret %", "ret_1y": "1Y Ret %",
+            "rsi": "RSI", "beta": "Beta", "volatility_pct": "Vol %",
+            "piotroski_f": "Piotroski", "altman_z": "Altman Z", "solvency": "Solvency"
+        }).style.format({
+            "Score": "{:.1f}",
+            "1M Ret %": "{:+.2f}%",
+            "3M Ret %": "{:+.2f}%",
+            "1Y Ret %": "{:+.2f}%",
+            "RSI": "{:.1f}",
+            "Beta": "{:.2f}",
+            "Vol %": "{:.1f}%",
+            "Altman Z": "{:.2f}"
+        }),
+        use_container_width=True,
+        height=320,
+        hide_index=True
+    )
+else:
+    st.info("Peer cohort data not available for this asset type.")
 
 st.markdown("---")
 

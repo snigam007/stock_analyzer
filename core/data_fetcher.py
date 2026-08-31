@@ -7,7 +7,7 @@ import time
 import random
 import logging
 import warnings
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional, Dict, Tuple
 import sys
@@ -205,6 +205,77 @@ def download_stocks_batch(
     return result
 
 
+# ─── Indian Market Timings & EOD Boundary Protections ────────────────────────
+def is_indian_market_closed() -> bool:
+    """
+    Check if Indian Stock Market (NSE/BSE) is closed and daily session is complete.
+    Market Hours: Mon-Fri 09:15 to 15:30 IST. Post-market settlement finishes by ~15:45 IST.
+    Weekends (Saturday/Sunday) are always considered closed.
+    """
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(IST)
+    if now.weekday() >= 5:
+        return True
+    return now.time() >= datetime.strptime("15:45", "%H:%M").time()
+
+
+def get_eod_end_date() -> str:
+    """
+    Returns the yfinance exclusive end date string (YYYY-MM-DD).
+    - If market is currently open/active today, end_date = today (fetches strictly < today, i.e. up to last completed day).
+    - If market is closed for today (post 15:45 IST or weekend), end_date = tomorrow (fetches strictly < tomorrow, including today).
+    """
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(IST)
+    if is_indian_market_closed():
+        return (now.date() + timedelta(days=1)).strftime("%Y-%m-%d")
+    else:
+        return now.date().strftime("%Y-%m-%d")
+
+
+def get_max_allowed_eod_date() -> date:
+    """
+    Returns the maximum allowable date for daily EOD records.
+    If market is still active today, today is NOT allowed (must be <= yesterday).
+    """
+    IST = timezone(timedelta(hours=5, minutes=30))
+    now = datetime.now(IST)
+    if is_indian_market_closed():
+        return now.date()
+    else:
+        return now.date() - timedelta(days=1)
+
+
+def cleanup_active_market_data(session: Session) -> int:
+    """
+    Cleans up any premature/incomplete daily rows inserted while the market was active today.
+    Ensures the database only reflects official completed trading sessions.
+    """
+    max_allowed = get_max_allowed_eod_date()
+    max_allowed_str = str(max_allowed)
+    
+    tables = [
+        "daily_prices", "index_prices", "commodity_prices",
+        "technical_indicators", "composite_scores", "signals",
+        "sector_analysis", "sector_correlations", "strategy_results",
+        "ml_forecasts"
+    ]
+    deleted_total = 0
+    for t in tables:
+        try:
+            res = session.execute(
+                text(f"DELETE FROM {t} WHERE date > :m"),
+                {"m": max_allowed_str}
+            )
+            deleted_total += res.rowcount
+        except Exception as e:
+            logger.debug(f"Cleanup notice for {t}: {e}")
+    session.commit()
+    if deleted_total > 0:
+        logger.info(f"🧹 Cleaned up {deleted_total} premature rows from active market session (date > {max_allowed_str})")
+    return deleted_total
+
+
 def save_prices_to_db(
     data_dict: Dict[str, pd.DataFrame],
     table: str,
@@ -212,6 +283,7 @@ def save_prices_to_db(
 ) -> int:
     """Save downloaded price data to database. Returns rows saved."""
     total_saved = 0
+    max_allowed_str = str(get_max_allowed_eod_date())
 
     for symbol, df in data_dict.items():
         if df.empty:
@@ -224,10 +296,14 @@ def save_prices_to_db(
             
             rows_data = []
             for dt, row in df.iterrows():
+                dt_str = str(dt)[:10]
+                if dt_str > max_allowed_str:
+                    # Reject active/incomplete today bar
+                    continue
                 rows_data.append({
                     "stock_id": stock.id,
                     "symbol": symbol,
-                    "date": str(dt),
+                    "date": dt_str,
                     "open": _clean_num(row.get("open")),
                     "high": _clean_num(row.get("high")),
                     "low": _clean_num(row.get("low")),
@@ -254,9 +330,12 @@ def save_prices_to_db(
         elif table == "index_prices":
             rows_data = []
             for dt, row in df.iterrows():
+                dt_str = str(dt)[:10]
+                if dt_str > max_allowed_str:
+                    continue
                 rows_data.append({
                     "symbol": symbol,
-                    "date": str(dt),
+                    "date": dt_str,
                     "open": _clean_num(row.get("open")),
                     "high": _clean_num(row.get("high")),
                     "low": _clean_num(row.get("low")),
@@ -280,9 +359,12 @@ def save_prices_to_db(
         elif table == "commodity_prices":
             rows_data = []
             for dt, row in df.iterrows():
+                dt_str = str(dt)[:10]
+                if dt_str > max_allowed_str:
+                    continue
                 rows_data.append({
                     "symbol": symbol,
-                    "date": str(dt),
+                    "date": dt_str,
                     "open": _clean_num(row.get("open")),
                     "high": _clean_num(row.get("high")),
                     "low": _clean_num(row.get("low")),
@@ -315,6 +397,165 @@ def _clean_num(val):
         return None
 
 
+def fill_missing_trading_days(session: Session, target_date: str = None) -> int:
+    """
+    Detects any active stocks or indexes that missed price data on the latest completed
+    market trading day (e.g. due to yfinance 1d ingestion gaps), fetches 60m hourly data,
+    aggregates the session, and saves the complete daily bars.
+    """
+    max_allowed = get_max_allowed_eod_date()
+    if target_date is None:
+        bench_date = session.execute(
+            text("SELECT MAX(date) FROM daily_prices WHERE date <= :m"),
+            {"m": str(max_allowed)}
+        ).scalar()
+        if not bench_date:
+            return 0
+        target_date = str(bench_date)
+
+    # 1. Stocks Gap Filling
+    missing_stocks = session.execute(
+        text("""
+            SELECT s.id, s.symbol, s.yf_symbol 
+            FROM stocks s 
+            WHERE s.is_active = 1 
+            AND s.symbol NOT IN (SELECT symbol FROM daily_prices WHERE date = :td)
+        """),
+        {"td": target_date}
+    ).fetchall()
+
+    filled_count = 0
+    if missing_stocks:
+        logger.info(f"📊 Resolving {len(missing_stocks)} stock gaps for completed session {target_date}...")
+        batches = [missing_stocks[i:i + 35] for i in range(0, len(missing_stocks), 35)]
+        for batch in batches:
+            batch_yf = [s[2] for s in batch]
+            try:
+                raw_60m = yf.download(batch_yf, period="5d", interval="60m", progress=False)
+                for s_id, sym, yf_sym in batch:
+                    df_sym = None
+                    if not raw_60m.empty and hasattr(raw_60m.columns, "levels") and yf_sym in raw_60m["Close"].columns:
+                        sub = pd.DataFrame({
+                            "open": raw_60m["Open"][yf_sym],
+                            "high": raw_60m["High"][yf_sym],
+                            "low": raw_60m["Low"][yf_sym],
+                            "close": raw_60m["Close"][yf_sym],
+                            "volume": raw_60m["Volume"][yf_sym]
+                        }).dropna(subset=["close"])
+                        sub_target = sub[sub.index.strftime("%Y-%m-%d") == target_date]
+                        if not sub_target.empty:
+                            df_sym = sub_target
+
+                    if df_sym is not None and not df_sym.empty:
+                        o = float(df_sym["open"].iloc[0])
+                        h = float(df_sym["high"].max())
+                        l = float(df_sym["low"].min())
+                        c = float(df_sym["close"].iloc[-1])
+                        v = float(df_sym["volume"].sum())
+                    else:
+                        prev_row = session.execute(
+                            text("SELECT close FROM daily_prices WHERE symbol = :s AND date < :td ORDER BY date DESC LIMIT 1"),
+                            {"s": sym, "td": target_date}
+                        ).scalar()
+                        if prev_row:
+                            o, h, l, c, v = prev_row, prev_row, prev_row, prev_row, 0.0
+                        else:
+                            continue
+
+                    prev_c = session.execute(
+                        text("SELECT close FROM daily_prices WHERE symbol = :s AND date < :td ORDER BY date DESC LIMIT 1"),
+                        {"s": sym, "td": target_date}
+                    ).scalar()
+                    ret = ((c - prev_c) / prev_c * 100.0) if (prev_c and prev_c > 0) else 0.0
+                    log_ret = float(np.log(c / prev_c)) if (prev_c and prev_c > 0 and c > 0) else 0.0
+
+                    session.execute(text("""
+                        INSERT OR REPLACE INTO daily_prices
+                        (stock_id, symbol, date, open, high, low, close, adj_close, volume, daily_return, log_return)
+                        VALUES (:stock_id, :symbol, :date, :open, :high, :low, :close, :adj_close, :volume, :daily_return, :log_return)
+                    """), {
+                        "stock_id": s_id,
+                        "symbol": sym,
+                        "date": target_date,
+                        "open": o, "high": h, "low": l, "close": c, "adj_close": c, "volume": v,
+                        "daily_return": round(ret, 4), "log_return": round(log_ret, 6)
+                    })
+                    filled_count += 1
+                session.commit()
+            except Exception as e:
+                session.rollback()
+                logger.warning(f"60m stock gap fill error for batch: {e}")
+
+    # 2. Indexes Gap Filling
+    missing_indexes = session.execute(
+        text("""
+            SELECT DISTINCT i.symbol 
+            FROM index_prices i 
+            WHERE i.symbol NOT IN (SELECT symbol FROM index_prices WHERE date = :td)
+        """),
+        {"td": target_date}
+    ).fetchall()
+
+    if missing_indexes:
+        idx_syms = [r[0] for r in missing_indexes]
+        logger.info(f"📊 Resolving {len(idx_syms)} index gaps for completed session {target_date}...")
+        try:
+            raw_idx = yf.download(idx_syms, period="5d", interval="60m", progress=False)
+            for sym in idx_syms:
+                df_idx = None
+                if not raw_idx.empty and hasattr(raw_idx.columns, "levels") and sym in raw_idx["Close"].columns:
+                    sub = pd.DataFrame({
+                        "open": raw_idx["Open"][sym],
+                        "high": raw_idx["High"][sym],
+                        "low": raw_idx["Low"][sym],
+                        "close": raw_idx["Close"][sym],
+                        "volume": raw_idx["Volume"][sym]
+                    }).dropna(subset=["close"])
+                    sub_target = sub[sub.index.strftime("%Y-%m-%d") == target_date]
+                    if not sub_target.empty:
+                        df_idx = sub_target
+
+                if df_idx is not None and not df_idx.empty:
+                    o = float(df_idx["open"].iloc[0])
+                    h = float(df_idx["high"].max())
+                    l = float(df_idx["low"].min())
+                    c = float(df_idx["close"].iloc[-1])
+                    v = float(df_idx["volume"].sum())
+                else:
+                    prev_row = session.execute(
+                        text("SELECT close FROM index_prices WHERE symbol = :s AND date < :td ORDER BY date DESC LIMIT 1"),
+                        {"s": sym, "td": target_date}
+                    ).scalar()
+                    if prev_row:
+                        o, h, l, c, v = prev_row, prev_row, prev_row, prev_row, 0.0
+                    else:
+                        continue
+
+                prev_c = session.execute(
+                    text("SELECT close FROM index_prices WHERE symbol = :s AND date < :td ORDER BY date DESC LIMIT 1"),
+                    {"s": sym, "td": target_date}
+                ).scalar()
+                ret = ((c - prev_c) / prev_c * 100.0) if (prev_c and prev_c > 0) else 0.0
+
+                session.execute(text("""
+                    INSERT OR REPLACE INTO index_prices
+                    (symbol, date, open, high, low, close, volume, daily_return)
+                    VALUES (:symbol, :date, :open, :high, :low, :close, :volume, :daily_return)
+                """), {
+                    "symbol": sym, "date": target_date,
+                    "open": o, "high": h, "low": l, "close": c, "volume": v,
+                    "daily_return": round(ret, 4)
+                })
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.warning(f"Index gap fill error: {e}")
+
+    if filled_count > 0:
+        logger.info(f"✅ Filled {filled_count} missing stock records for {target_date}")
+    return filled_count
+
+
 def download_historical_data(
     stocks: List[Dict],
     session: Session,
@@ -329,15 +570,17 @@ def download_historical_data(
         stocks: List of dicts with 'symbol', 'yf_symbol', 'name' keys
         session: Database session
         start_date: Download from this date
-        end_date: Download until this date (default: today)
+        end_date: Download until this date (default: end of latest completed trading day)
         progress_callback: Optional callback(current, total, symbol) for progress UI
     """
     if end_date is None:
-        # Yahoo Finance end date is exclusive (< end), so we use tomorrow to always capture today's open/live session
-        end_date = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+        end_date = get_eod_end_date()
+
+    # Pre-clean any active intraday data
+    cleanup_active_market_data(session)
 
     total = len(stocks)
-    logger.info(f"Starting historical download for {total} stocks from {start_date}")
+    logger.info(f"Starting historical download for {total} stocks from {start_date} to {end_date}")
 
     # Group into batches
     batches = [stocks[i:i + BATCH_SIZE] for i in range(0, total, BATCH_SIZE)]
@@ -420,17 +663,21 @@ def download_historical_data(
         if batch_idx < len(batches) - 1:
             _human_delay()
 
+    # Automatically fill any gaps from 60m data for completed sessions
+    fill_missing_trading_days(session)
+
     logger.info(f"✅ Historical download complete: {processed}/{total} stocks processed")
 
 
-def download_indexes_and_commodities(session: Session):
+def download_indexes_and_commodities(session: Session, end_date: str = None):
     """Download index and commodity data."""
     import yaml
     config_path = Path(__file__).resolve().parent.parent / "config" / "stocks.yaml"
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    end_date = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
+    if end_date is None:
+        end_date = get_eod_end_date()
 
     # Indexes
     indexes = config.get("indexes", [])
@@ -464,29 +711,30 @@ def daily_update(session: Session):
     Incremental update — download only the latest data since last download date.
     Run this daily after market close.
     """
-    today = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
-    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")  # Go back 5 days to catch weekends, holidays, and today
+    end_date = get_eod_end_date()
+    start = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+
+    cleanup_active_market_data(session)
 
     stocks = session.query(Stock).filter(Stock.is_active == True).all()
     stock_list = [{"symbol": s.symbol, "yf_symbol": s.yf_symbol, "name": s.name} for s in stocks]
 
     logger.info(f"Daily update for {len(stock_list)} stocks")
 
-    # Use larger batch size for daily updates (less data)
     batches = [stock_list[i:i+50] for i in range(0, len(stock_list), 50)]
 
     for batch in batches:
         yf_symbols = [s["yf_symbol"] for s in batch]
         orig_symbols = [s["symbol"] for s in batch]
 
-        data = download_stocks_batch(yf_symbols, orig_symbols, start, today)
+        data = download_stocks_batch(yf_symbols, orig_symbols, start, end_date)
         if data:
             save_prices_to_db(data, "daily_prices", session)
 
         _human_delay(1.5, 4.0)
 
-    # Update indexes and commodities too
-    download_indexes_and_commodities(session)
+    download_indexes_and_commodities(session, end_date=end_date)
+    fill_missing_trading_days(session)
 
     logger.info("✅ Daily update complete")
 

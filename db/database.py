@@ -484,6 +484,112 @@ class DownloadLog(Base):
     downloaded_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ─── Candlestick Pattern Recognition ──────────────────────────────────────────
+class CandlestickPatternRecord(Base):
+    __tablename__ = "candlestick_patterns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    pattern_name = Column(String(50), nullable=False)   # e.g., "Bullish Engulfing", "Hammer", "Morning Star"
+    sentiment = Column(String(10), nullable=False)      # BULLISH / BEARISH / INDECISION
+    reliability = Column(Integer, default=3)           # 1 (low) to 5 (high)
+    candle_count = Column(Integer, default=1)          # 1, 2, or 3-bar formation
+    description = Column(Text)
+    close_price = Column(Float)
+    detected_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "date", "pattern_name", name="uq_pattern_sym_date"),
+        Index("ix_pattern_symbol_date", "symbol", "date"),
+    )
+
+
+# ─── Watchlist & Items ────────────────────────────────────────────────────────
+class Watchlist(Base):
+    __tablename__ = "watchlists"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(60), nullable=False, unique=True)
+    description = Column(String(200))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    items = relationship("WatchlistItem", back_populates="watchlist", cascade="all, delete-orphan")
+
+
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id"), nullable=False)
+    symbol = Column(String(20), nullable=False, index=True)
+    target_buy_price = Column(Float)
+    target_sell_price = Column(Float)
+    stop_loss = Column(Float)
+    notes = Column(Text)
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+    watchlist = relationship("Watchlist", back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "symbol", name="uq_watchlist_symbol"),
+    )
+
+
+# ─── Price & Breakout Alerts ──────────────────────────────────────────────────
+class PriceAlert(Base):
+    __tablename__ = "price_alerts"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    alert_type = Column(String(30), nullable=False)    # 52W_HIGH_BREAKOUT / 52W_LOW_BREAKDOWN / TARGET_HIT / STOP_LOSS / PATTERN
+    condition_value = Column(Float)
+    current_value = Column(Float)
+    message = Column(Text, nullable=False)
+    is_triggered = Column(Boolean, default=False)
+    triggered_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ─── Institutional Bulk & Block Deals ─────────────────────────────────────────
+class BulkBlockDeal(Base):
+    __tablename__ = "bulk_block_deals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, index=True)
+    symbol = Column(String(20), nullable=False, index=True)
+    security_name = Column(String(100))
+    client_name = Column(String(150), nullable=False, index=True)
+    deal_type = Column(String(10), default="BULK")     # BULK / BLOCK
+    buy_sell = Column(String(5), nullable=False)       # BUY / SELL
+    quantity = Column(Integer, nullable=False)
+    trade_price = Column(Float, nullable=False)
+    value_in_crores = Column(Float)
+    is_promoter_or_fii = Column(Boolean, default=False)
+
+    __table_args__ = (
+        Index("ix_deal_date_symbol", "date", "symbol"),
+    )
+
+
+# ─── Economic Calendar & Macro Events ─────────────────────────────────────────
+class EconomicEvent(Base):
+    __tablename__ = "economic_events"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    event_date = Column(Date, nullable=False, index=True)
+    event_name = Column(String(100), nullable=False)
+    category = Column(String(40), nullable=False)      # MONETARY_POLICY / INFLATION / GDP / FO_EXPIRY / EARNINGS / MACRO
+    impact_level = Column(String(10), default="MEDIUM") # HIGH / MEDIUM / LOW
+    affected_sector = Column(String(60))               # Sector or "ALL"
+    symbol = Column(String(20))                        # For stock-specific events like earnings
+    forecast_value = Column(String(30))
+    previous_value = Column(String(30))
+    actual_value = Column(String(30))
+    description = Column(Text)
+
+
 # ─── Engine & Session Setup ───────────────────────────────────────────────────
 def get_engine(db_url: str = DB_URL):
     engine = create_engine(

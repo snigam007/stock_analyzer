@@ -604,10 +604,13 @@ with tabs[8]:
         st.caption(f"Showing **{len(filtered_audit)}** of {len(audit_df)} historical audit records")
 
         table_cols = [
-            "date", "symbol", "signal", "entry_price", "target_1", "target_2", "stop_loss",
-            "status", "max_gain_pct", "current_gain_pct", "days_elapsed"
+            "date", "symbol", "signal", "entry_price", "target_1", "target_2",
+            "stop_loss", "trailing_stop", "status", "max_gain_pct",
+            "realized_gain_pct", "days_to_outcome", "composite_score"
         ]
-        
+        # Only keep columns that exist in the dataframe (graceful degradation)
+        table_cols = [c for c in table_cols if c in filtered_audit.columns]
+
         display_audit = filtered_audit[table_cols].rename(columns={
             "date": "Signal Date",
             "symbol": "Symbol",
@@ -616,22 +619,30 @@ with tabs[8]:
             "target_1": "Target 1 (₹)",
             "target_2": "Target 2 (₹)",
             "stop_loss": "Stop Loss (₹)",
+            "trailing_stop": "Trailing SL (₹)",
             "status": "Live Audit Status",
             "max_gain_pct": "Peak Move %",
-            "current_gain_pct": "Current P&L %",
-            "days_elapsed": "Days In Play"
+            "realized_gain_pct": "Realized P&L %",
+            "days_to_outcome": "Days to Close",
+            "composite_score": "Score",
         })
 
+        def _fmt_price(x): return f"₹{x:,.2f}" if pd.notnull(x) and x else "—"
+        def _fmt_pct(x):   return f"{x:+.2f}%" if pd.notnull(x) and x is not None else "—"
+        def _fmt_days(x):  return f"{int(x)}d" if pd.notnull(x) and x else "—"
+
+        fmt = {}
+        if "Entry (₹)" in display_audit.columns:       fmt["Entry (₹)"]        = _fmt_price
+        if "Target 1 (₹)" in display_audit.columns:    fmt["Target 1 (₹)"]     = _fmt_price
+        if "Target 2 (₹)" in display_audit.columns:    fmt["Target 2 (₹)"]     = _fmt_price
+        if "Stop Loss (₹)" in display_audit.columns:   fmt["Stop Loss (₹)"]    = _fmt_price
+        if "Trailing SL (₹)" in display_audit.columns: fmt["Trailing SL (₹)"]  = _fmt_price
+        if "Peak Move %" in display_audit.columns:      fmt["Peak Move %"]      = _fmt_pct
+        if "Realized P&L %" in display_audit.columns:  fmt["Realized P&L %"]   = _fmt_pct
+        if "Days to Close" in display_audit.columns:   fmt["Days to Close"]    = _fmt_days
+
         st.dataframe(
-            display_audit.style.format({
-                "Entry (₹)": "₹{:,.2f}",
-                "Target 1 (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
-                "Target 2 (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
-                "Stop Loss (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
-                "Peak Move %": "{:+.2f}%",
-                "Current P&L %": "{:+.2f}%",
-                "Days In Play": "{:d}d"
-            }),
+            display_audit.style.format(fmt),
             use_container_width=True,
             height=420,
             hide_index=True,
@@ -644,6 +655,64 @@ with tabs[8]:
             file_name=f"signal_audit_track_record.csv",
             mime="text/csv"
         )
+
+    st.markdown("---")
+
+    # ── Missed Alpha & False Negative Surveillance ────────────────────────────
+    st.subheader("🔍 Missed Alpha & False Negative Surveillance (Uncaught Movers)")
+    st.caption("Continuous surveillance across all 285+ stocks in the universe to identify large subsequent moves (>+3% to +10%) that occurred on WATCH ratings and diagnose the root cause.")
+
+    from core.missed_signals import scan_missed_opportunities
+
+    col_ms1, col_ms2 = st.columns([1, 1])
+    with col_ms1:
+        ms_lookback = st.slider("Surveillance Lookback Horizon (Days):", min_value=3, max_value=15, value=5, step=1, key="ms_lookback_slider")
+    with col_ms2:
+        ms_min_gain = st.slider("Minimum Subsequent Gain Threshold (%):", min_value=2.0, max_value=15.0, value=4.0, step=0.5, key="ms_min_gain_slider")
+
+    session_ms = get_session(engine)
+    missed_report = scan_missed_opportunities(session_ms, lookback_days=ms_lookback, min_gain_pct=ms_min_gain)
+    session_ms.close()
+
+    m_sum = missed_report["summary"]
+    if m_sum:
+        mk1, mk2, mk3, mk4 = st.columns(4)
+        mk1.metric("🚀 Total Fast Movers", f"{m_sum['total_movers_detected']} stocks", f">={ms_min_gain}% Gain")
+        mk2.metric("🔍 Uncaught / Missed", f"{m_sum['missed_movers_count']} stocks", f"Score < 59 on T-{ms_lookback}")
+        mk3.metric("📈 Avg Missed Alpha", f"+{m_sum['avg_missed_gain_pct']:.2f}%", f"Over {ms_lookback} sessions")
+        mk4.metric("🧠 Primary Bottleneck", f"{m_sum['top_bottleneck_factor']}", "Dominant Lagging Factor")
+
+        st.markdown("---")
+
+        if missed_report["missed_movers"]:
+            st.markdown("##### 🔬 Algorithmic Post-Mortem & Diagnostic Teardown")
+            df_missed = pd.DataFrame(missed_report["missed_movers"])[[
+                "symbol", "name", "sector", "tier", "gain_pct", "start_score",
+                "bottleneck", "diagnosis", "pattern_catalyst", "actionable_takeaway"
+            ]]
+
+            st.dataframe(
+                df_missed.rename(columns={
+                    "symbol": "Symbol",
+                    "name": "Company",
+                    "sector": "Sector",
+                    "tier": "Cap Tier",
+                    "gain_pct": "Actual Gain %",
+                    "start_score": "Score on Day 0",
+                    "bottleneck": "Primary Bottleneck",
+                    "diagnosis": "Quantitative Diagnosis",
+                    "pattern_catalyst": "Candlestick Catalyst",
+                    "actionable_takeaway": "Actionable Quant Learning"
+                }).style.format({
+                    "Actual Gain %": "+{:,.2f}%",
+                    "Score on Day 0": "{:.1f}/100"
+                }),
+                use_container_width=True,
+                height=350,
+                hide_index=True
+            )
+        else:
+            st.success(f"Zero missed opportunities! No WATCH stocks generated >=+{ms_min_gain}% gains over the last {ms_lookback} sessions.")
 
 # Tab 10: Custom Quantitative Screener & Institutional Presets
 with tabs[9]:

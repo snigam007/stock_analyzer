@@ -303,3 +303,66 @@ if "error" not in rrg_data and rrg_data.get("sectors"):
         st.markdown("### 🔴 Lagging Sectors")
         for s in [sec for sec in rrg_data["sectors"] if "Lagging" in sec["quadrant"]]:
             st.error(f"**{s['sector']}** (RS: {s['rs_ratio']:.1f})")
+
+st.markdown("---")
+
+# ─── Sector Peer Benchmarking Matrix ──────────────────────────────────────────
+st.subheader("🔍 Intra-Sector Peer Ranking & Valuation Matrix")
+st.caption("Deep-dive comparative ranking across all companies within any target sector.")
+
+from db.database import Stock
+from core.peer_comparison import get_custom_peer_comparison
+
+session_sec = get_session(engine)
+all_sec_names = [s[0] for s in session_sec.execute(text("SELECT DISTINCT sector FROM stocks WHERE is_active=1 ORDER BY sector")).fetchall()]
+
+if all_sec_names:
+    selected_bench_sector = st.selectbox("📂 Select Sector to Benchmark:", all_sec_names, index=0)
+
+    sec_stocks = session_sec.query(Stock).filter(Stock.sector == selected_bench_sector, Stock.is_active == True).all()
+    sec_symbols = [s.symbol for s in sec_stocks]
+
+    if sec_symbols:
+        peer_results = get_custom_peer_comparison(sec_symbols, session_sec)
+        session_sec.close()
+
+        if peer_results and "peers" in peer_results and peer_results["peers"]:
+            peers_list = peer_results["peers"]
+            s_avg = peer_results["sector_averages"]
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("🏢 Sector Universe", f"{s_avg['peer_count']} stocks")
+            k2.metric("🎯 Average Score", f"{s_avg['avg_composite_score']:.1f}/100")
+            k3.metric("📅 3M Cohort Return", f"{s_avg['avg_ret_3m']:+.2f}%")
+            k4.metric("🛡️ Quality Benchmark", f"{s_avg['avg_piotroski']:.1f}/9 (Piotroski)")
+
+            df_peer_table = pd.DataFrame(peers_list)[[
+                "symbol", "name", "composite_score", "score_rank", "signal",
+                "ret_1m", "ret_3m", "ret_1y", "rsi", "adx", "beta", "volatility_pct",
+                "piotroski_f", "altman_z", "solvency"
+            ]]
+
+            st.dataframe(
+                df_peer_table.rename(columns={
+                    "symbol": "Symbol", "name": "Company", "composite_score": "Score",
+                    "score_rank": "Rank", "signal": "Signal",
+                    "ret_1m": "1M Ret %", "ret_3m": "3M Ret %", "ret_1y": "1Y Ret %",
+                    "rsi": "RSI", "adx": "ADX", "beta": "Beta", "volatility_pct": "Vol %",
+                    "piotroski_f": "Piotroski", "altman_z": "Altman Z", "solvency": "Solvency"
+                }).style.format({
+                    "Score": "{:.1f}",
+                    "1M Ret %": "{:+.2f}%",
+                    "3M Ret %": "{:+.2f}%",
+                    "1Y Ret %": "{:+.2f}%",
+                    "RSI": "{:.1f}",
+                    "ADX": "{:.1f}",
+                    "Beta": "{:.2f}",
+                    "Vol %": "{:.1f}%",
+                    "Altman Z": "{:.2f}"
+                }),
+                use_container_width=True,
+                height=350,
+                hide_index=True
+            )
+else:
+    session_sec.close()

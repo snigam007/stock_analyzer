@@ -101,7 +101,10 @@ def run_daily_delta(launch: bool = True):
     logger.info("=" * 65)
     
     from db.database import get_global_engine, get_session, Stock
-    from core.data_fetcher import download_historical_data, download_indexes_and_commodities
+    from core.data_fetcher import (
+        download_historical_data, download_indexes_and_commodities,
+        cleanup_active_market_data, is_indian_market_closed
+    )
     from core.indicators import compute_all_indicators
     from core.scoring import compute_and_save_scores
     from core.signals import generate_all_signals
@@ -112,6 +115,9 @@ def run_daily_delta(launch: bool = True):
 
     engine = get_global_engine()
     session = get_session(engine)
+
+    # Clean any unfinalized data if market is active today
+    cleanup_active_market_data(session)
 
     stocks = session.query(Stock).filter(Stock.is_active == True).all()
     stock_list = [{"symbol": s.symbol, "yf_symbol": s.yf_symbol, "name": s.name} for s in stocks]

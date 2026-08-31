@@ -34,7 +34,13 @@ def get_sector_returns(session: Session, days: int = 90) -> pd.DataFrame:
     Get average daily returns per sector for the last N days.
     Returns DataFrame: index=date, columns=sectors.
     """
-    start_date = (date.today() - timedelta(days=days)).strftime("%Y-%m-%d")
+    as_of = session.execute(text("SELECT MAX(date) FROM daily_prices")).scalar()
+    if as_of:
+        ref_date = datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date() if isinstance(as_of, str) else as_of
+    else:
+        ref_date = date.today()
+
+    start_date = (ref_date - timedelta(days=days)).strftime("%Y-%m-%d")
 
     result = session.execute(text("""
         SELECT p.date, s.sector, AVG(p.daily_return) as avg_return
@@ -78,7 +84,12 @@ def compute_sector_performance(session: Session) -> pd.DataFrame:
     """
     Compute multi-period performance for each sector.
     """
-    today = date.today()
+    as_of = session.execute(text("SELECT MAX(date) FROM daily_prices")).scalar()
+    if as_of:
+        today = datetime.strptime(str(as_of)[:10], "%Y-%m-%d").date() if isinstance(as_of, str) else as_of
+    else:
+        today = date.today()
+
     periods = {
         "1D": 1, "1W": 7, "1M": 30, "3M": 90, "6M": 180, "YTD": (today - date(today.year, 1, 1)).days
     }

@@ -164,10 +164,11 @@ def compute_apex_multi_factor_score(
     z_penalty = -25.0 if alt_z < 1.81 else (+10.0 if alt_z > 2.99 else 0.0)
     score_fundamental = float(np.clip(pio_score + z_penalty, 10.0, 95.0))
 
-    # 4. F&O Derivatives & Gamma Exposure Pillar (15% weight)
+    # 4. F&O Derivatives & Gamma Exposure Pillar (15% base weight)
     opt = fetch_option_chain_analytics(symbol, close)
     pcr = opt.get("pcr", 1.0)
     max_pain = opt.get("max_pain_strike", close)
+    has_fno = bool(opt.get("total_call_oi", 0) > 0 or opt.get("pcr_oi", 1.0) != 1.0)
     
     score_derivatives = 50.0
     if pcr > 1.2: score_derivatives += 20.0
@@ -177,19 +178,37 @@ def compute_apex_multi_factor_score(
     elif close < max_pain * 0.96: score_derivatives -= 10.0
     score_derivatives = float(np.clip(score_derivatives, 15.0, 90.0))
 
-    # 5. AI Ensemble & News Sentiment Velocity (15% weight)
+    # 5. AI Ensemble & News Sentiment Velocity (15% base weight)
     news = get_asset_specific_news_sentiment(symbol, name)
+    news_feed = news.get("news_feed", [])
+    has_news = len(news_feed) > 0
+    has_ml = bool(ml_forecast_score and ml_forecast_score != 50.0)
+
     news_scaled = (news.get("sentiment_score", 0.0) + 100.0) / 2.0 # 0 to 100
     score_ai_news = (ml_forecast_score * 0.6) + (news_scaled * 0.4)
 
-    # Master Weighted Composite Formula
+    # ── Dynamic Pillar Weight Redistribution ──────────────────────────────────
+    # If a stock is non-F&O or lacks live news, redistribute weight into Technical & Smart Money
+    w_tech = 0.30
+    w_sm = 0.25
+    w_fund = 0.15
+    w_deriv = 0.15 if has_fno else 0.0
+    w_ai = 0.15 if (has_news or has_ml) else 0.0
+
+    missing_weight = (0.15 if not has_fno else 0.0) + (0.15 if not (has_news or has_ml) else 0.0)
+    if missing_weight > 0:
+        w_tech += missing_weight * 0.50   # 50% to Technical momentum
+        w_sm += missing_weight * 0.35     # 35% to Smart Money & Volume
+        w_fund += missing_weight * 0.15   # 15% to Fundamental health
+
+    tot_w = max(0.01, w_tech + w_sm + w_fund + w_deriv + w_ai)
     composite = (
-        score_technical * 0.30 +
-        score_smart_money * 0.25 +
-        score_fundamental * 0.15 +
-        score_derivatives * 0.15 +
-        score_ai_news * 0.15
-    )
+        score_technical * w_tech +
+        score_smart_money * w_sm +
+        score_fundamental * w_fund +
+        score_derivatives * w_deriv +
+        score_ai_news * w_ai
+    ) / tot_w
     composite = round(float(np.clip(composite, 0.0, 100.0)), 2)
 
     components = {
@@ -199,7 +218,11 @@ def compute_apex_multi_factor_score(
         "pillar_smart_money": round(score_smart_money, 2),
         "pillar_fundamental": round(score_fundamental, 2),
         "pillar_derivatives": round(score_derivatives, 2),
-        "pillar_ai_news": round(score_ai_news, 2)
+        "pillar_ai_news": round(score_ai_news, 2),
+        "has_fno": has_fno,
+        "has_news": has_news,
+        "w_technical": round(w_tech / tot_w, 2),
+        "w_smart_money": round(w_sm / tot_w, 2),
     }
 
     return composite, components

@@ -89,21 +89,21 @@ def calculate_targets(
     # ── Fix 5A: ADX-aware ATR multiplier for stop loss ──────────────────────
     adx_val = float(adx or 20.0)
     if adx_val >= 30:
-        sl_atr_mult = 1.2   # Strong trend: tight SL, direction is clear
+        sl_atr_mult = 1.6   # Strong trend: clear direction
     elif adx_val >= 20:
-        sl_atr_mult = 1.8   # Moderate trend: balanced cushion
+        sl_atr_mult = 2.2   # Moderate trend: balanced noise cushion
     else:
-        sl_atr_mult = 2.5   # Weak/choppy: wide SL to survive noise
+        sl_atr_mult = 2.8   # Weak/choppy: wider buffer to survive market noise
 
     # ── Fix 5B: Market-cap tier floor (% of price) ───────────────────────────
-    tier_floor = {"large": 0.018, "mid": 0.025, "small": 0.035}.get(
-        (market_cap_tier or "mid").lower(), 0.025
+    tier_floor = {"large": 0.022, "mid": 0.032, "small": 0.045}.get(
+        (market_cap_tier or "mid").lower(), 0.030
     )
 
     # ── Fix 5C: VIX regime adjustment (widen in high-fear environments) ──────
     if vix and vix > 22:
         sl_atr_mult *= 1.25
-        tier_floor *= 1.1
+        tier_floor *= 1.15
     elif vix and vix > 18:
         sl_atr_mult *= 1.1
 
@@ -289,17 +289,39 @@ def generate_signal_for_stock(
     is_above_50_ema  = bool(ema_50 and close > ema_50)
     is_above_200_ema = bool(ema_200 and close > ema_200)
 
-    # 1. Primary Signal Determination
-    # Calibrated to 5-pillar composite distribution (mean ~55, top 10% is 59.5 - 62.4)
-    final_score = composite_score
-    effective_buy_threshold  = 59.5 + regime_buy_boost   # ~59.5 in Bull, ~60.5 in Bear
-    effective_sell_threshold = 50.5 - regime_buy_boost   # ~50.5 in Bull, ~49.5 in Bear
+    # 1. Fundamental & Risk Quality Evaluation
+    fh = compute_fundamental_health_scorecard(stock.symbol, stock.name, stock.sector, stock.market_cap_tier or "mid")
+    pio_score = fh.get("piotroski_f_score", 5)
+    alt_z = fh.get("altman_z_score", 3.0)
 
-    # BUY: need solid score in top ~8% OR (score >= threshold-1.5 with 5+ bullish indicators & above both 50 and 200 EMA)
+    # 2. Sector Relative Strength (RS) Alignment Gate
+    sector_name = (stock.sector or "").upper()
+    sector_boost = 0.0
+    if any(s in sector_name for s in ["PHARMA", "HEALTH", "ENERGY", "POWER", "CAPITAL GOODS", "ENGINEERING"]):
+        sector_boost = +1.5
+    elif any(s in sector_name for s in ["METAL", "MINING"]):
+        sector_boost = -1.5
+
+    final_score = float(np.clip(composite_score + sector_boost, 0.0, 100.0))
+    effective_buy_threshold  = 59.5 + regime_buy_boost   # ~59.5 in Bull, ~60.5 in Bear
+    effective_sell_threshold = 42.0 - regime_buy_boost   # ~42.0 in Bull, ~41.0 in Bear
+
+    # 3. Contrarian Quality Mean-Reversion Trigger (Oversold Quality Bounces below 50 EMA)
+    is_quality_oversold_reversal = False
+    if not is_above_50_ema and pio_score >= 7 and alt_z >= 2.99 and rsi_val <= 44.0:
+        if price_df is not None and not price_df.empty and len(price_df) >= 5:
+            from core.candlestick_patterns import analyze_candlestick_patterns
+            pats = analyze_candlestick_patterns(price_df)
+            has_bullish_pat = any(p.get("sentiment") == "BULLISH" for p in pats)
+            if has_bullish_pat or final_score >= 54.0:
+                is_quality_oversold_reversal = True
+
+    # 4. Primary Signal Decision
     if (final_score >= effective_buy_threshold and (is_above_50_ema or bullish_count >= 4)) or \
-       (final_score >= effective_buy_threshold - 1.5 and bullish_count >= 5 and is_above_50_ema and is_above_200_ema):
+       (final_score >= effective_buy_threshold - 1.0 and bullish_count >= 5 and is_above_50_ema and is_above_200_ema) or \
+       is_quality_oversold_reversal:
         candidate_signal = "BUY"
-    elif (final_score <= effective_sell_threshold) or \
+    elif (final_score <= effective_sell_threshold and (not is_above_50_ema or bearish_count >= 4)) or \
          (final_score <= effective_sell_threshold + 1.5 and bearish_count >= 5 and not is_above_50_ema):
         candidate_signal = "SELL"
     else:
@@ -308,11 +330,10 @@ def generate_signal_for_stock(
     # ── Quantitative Quality & Safety Guardrails ──────────────────────────────
     # Guardrail 1: ADX Chop Filter
     if adx_val < 18.0 and candidate_signal in ["BUY", "SELL"]:
-        if final_score < 72.0 and final_score > 28.0:
+        if final_score < 72.0 and final_score > 28.0 and not is_quality_oversold_reversal:
             candidate_signal = "WATCH"
 
     # ── Fix 4 (RSI guardrail): Only block BUY if RSI overbought AND trend weak ──
-    # Strong uptrends (ADX >= 25) can sustain RSI 68-80 — allow momentum trades
     if candidate_signal == "BUY" and rsi_val > 78.0:
         candidate_signal = "WATCH"   # True parabolic exhaustion cutoff
     elif candidate_signal == "BUY" and rsi_val > 68.0 and adx_val < 25.0:
@@ -328,11 +349,7 @@ def generate_signal_for_stock(
     strength = "STRONG" if (final_score >= 75 or final_score <= 25) else ("MODERATE" if (final_score >= 62 or final_score <= 38) else "WEAK")
     confidence = round(abs(final_score - 50) / 50.0, 2)
 
-    # 2. Risk Classification incorporating Piotroski & Altman Z
-    fh = compute_fundamental_health_scorecard(stock.symbol, stock.name, stock.sector, stock.market_cap_tier or "mid")
-    pio_score = fh.get("piotroski_f_score", 5)
-    alt_z = fh.get("altman_z_score", 3.0)
-
+    # 5. Risk Classification incorporating Piotroski & Altman Z
     if alt_z < 1.81 or (beta and beta > 1.45) or (volatility and volatility > 0.40):
         risk_level = "RISKY"
     elif pio_score >= 7 and alt_z >= 2.99 and (not beta or beta < 0.95) and (not volatility or volatility < 0.28):

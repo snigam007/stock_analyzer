@@ -74,11 +74,14 @@ def score_ema(close: float, ema_9: float, ema_21: float, ema_50: float, ema_200:
     return w_score / tot_w if tot_w > 0 else 50.0
 
 
-def score_volume(volume_ratio: float, volume_spike: bool) -> float:
+def score_volume(volume_ratio: float, volume_spike: bool, bb_width: Optional[float] = None) -> float:
     if volume_ratio is None or pd.isna(volume_ratio): return 50.0
     if volume_spike: return 85.0
     elif volume_ratio >= 2.0: return 80.0
     elif volume_ratio >= 1.2: return 65.0
+    elif volume_ratio <= 0.75 and bb_width is not None and not pd.isna(bb_width) and bb_width <= 0.085:
+        # VCP Supply Dry-Up / Volatility Compression setup: reward coiling energy
+        return 75.0
     elif volume_ratio <= 0.5: return 35.0
     else: return 50.0
 
@@ -119,23 +122,41 @@ def compute_apex_multi_factor_score(
     ml_forecast_score: float = 50.0
 ) -> Tuple[float, Dict]:
     """Computes full 5-Pillar Apex Quantitative Score (0-100)."""
-    close = indicators.get("close") or 100.0
+    from core.candlestick_patterns import analyze_candlestick_patterns
 
-    # 1. Technical Pillar (30% weight)
+    close = indicators.get("close") or 100.0
+    bb_width = indicators.get("bb_width")
+
+    # 1. Technical Pillar (30% weight) with Candlestick & VCP Integration
     t_rsi = score_rsi(indicators.get("rsi_14"))
     t_macd = score_macd(indicators.get("macd"), indicators.get("macd_signal"), indicators.get("macd_hist"))
     t_bb = score_bollinger(indicators.get("bb_pct"))
     t_ema = score_ema(close, indicators.get("ema_9"), indicators.get("ema_21"), indicators.get("ema_50"), indicators.get("ema_200"))
-    t_vol = score_volume(indicators.get("volume_ratio"), indicators.get("volume_spike"))
+    t_vol = score_volume(indicators.get("volume_ratio"), indicators.get("volume_spike"), bb_width=bb_width)
     t_adx = score_adx(indicators.get("adx"), indicators.get("di_plus"), indicators.get("di_minus"))
     t_stoch = score_stochastic(indicators.get("stoch_k"), indicators.get("stoch_d"))
     t_cci = score_cci(indicators.get("cci_20"))
     t_obv = score_obv(indicators.get("obv"), indicators.get("obv_sma"))
-    
+
+    candlestick_bonus = 0.0
+    if price_df is not None and not price_df.empty and len(price_df) >= 5:
+        try:
+            pats = analyze_candlestick_patterns(price_df)
+            for p in pats:
+                if p.get("sentiment") == "BULLISH" and p.get("reliability") in ["HIGH", "VERY_HIGH"]:
+                    candlestick_bonus = max(candlestick_bonus, 12.0)
+                elif p.get("sentiment") == "BULLISH":
+                    candlestick_bonus = max(candlestick_bonus, 6.0)
+                elif p.get("sentiment") == "BEARISH" and p.get("reliability") in ["HIGH", "VERY_HIGH"]:
+                    candlestick_bonus = min(candlestick_bonus, -12.0)
+        except Exception:
+            pass
+
     score_technical = (
         t_rsi * 0.15 + t_macd * 0.15 + t_bb * 0.10 + t_ema * 0.15 +
         t_vol * 0.10 + t_adx * 0.10 + t_stoch * 0.10 + t_cci * 0.05 + t_obv * 0.10
     )
+    score_technical = float(np.clip(score_technical + candlestick_bonus * 0.25, 10.0, 95.0))
 
     # 2. Smart Money & Wyckoff VSA Pillar (25% weight)
     score_smart_money = 50.0

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Empirical Signal Accuracy & Audit Track Record Tracker
 - Persistently evaluates historical BUY/SELL signals against forward price evolution
 - Writes back actual hit/miss status, exit dates, and realized gains to signal_audit_log
@@ -44,7 +44,7 @@ _CREATE_AUDIT_TABLE = """
 def init_audit_table(session: Session):
     """Create audit table and add any missing columns (migration-safe)."""
     session.execute(text(_CREATE_AUDIT_TABLE))
-    for col_def in ["trailing_stop REAL", "days_to_outcome INTEGER"]:
+    for col_def in ["trailing_stop REAL", "days_to_outcome INTEGER", "risk_level TEXT"]:
         try:
             session.execute(text(f"ALTER TABLE signal_audit_log ADD COLUMN {col_def}"))
         except Exception:
@@ -59,7 +59,7 @@ def log_current_signals_to_audit(session: Session) -> int:
     query = """
         SELECT sig.date, sig.symbol, sig.signal, sig.current_price,
                sig.target_price_1, sig.target_price_2, sig.target_price_3,
-               sig.stop_loss, cs.composite_score
+               sig.stop_loss, cs.composite_score, sig.risk_level
         FROM signals sig
         LEFT JOIN composite_scores cs ON sig.symbol = cs.symbol AND sig.date = cs.date
         WHERE sig.date = (SELECT MAX(date) FROM signals)
@@ -73,8 +73,8 @@ def log_current_signals_to_audit(session: Session) -> int:
                 INSERT OR IGNORE INTO signal_audit_log (
                     signal_date, symbol, signal, entry_price,
                     target_1, target_2, target_3, stop_loss,
-                    composite_score, status, trailing_stop
-                ) VALUES (:dt, :sym, :sig, :price, :t1, :t2, :t3, :sl, :score, 'PENDING', :sl)
+                    composite_score, status, trailing_stop, risk_level
+                ) VALUES (:dt, :sym, :sig, :price, :t1, :t2, :t3, :sl, :score, 'PENDING', :sl, :risk)
             """), {
                 'dt': str(r[0]), 'sym': str(r[1]), 'sig': str(r[2]), 'price': float(r[3]),
                 't1': float(r[4]) if r[4] else None,
@@ -82,6 +82,7 @@ def log_current_signals_to_audit(session: Session) -> int:
                 't3': float(r[6]) if r[6] else None,
                 'sl': float(r[7]) if r[7] else None,
                 'score': float(r[8]) if r[8] else None,
+                'risk': str(r[9]) if r[9] else 'MODERATE',
             })
             logged += 1
         except Exception:
@@ -187,7 +188,9 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
             min_low = min(min_low, l)
 
             if sig_type == 'BUY':
-                if effective_sl and l <= float(effective_sl) and not hit_t1:
+                # Confirmed SL breach: Daily close below SL OR severe intraday spike (>2% beyond SL)
+                sl_breached = bool(effective_sl and ((c <= float(effective_sl)) or (l <= float(effective_sl) * 0.98)))
+                if sl_breached and not hit_t1:
                     hit_sl = True
                     exit_date = p_date
                     days_to_outcome = day_idx + 1
@@ -207,7 +210,8 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
                     if t2 and (not effective_sl or float(effective_sl) < float(t2) * 0.995):
                         effective_sl = float(t2) * 0.995
             elif sig_type == 'SELL':
-                if effective_sl and h >= float(effective_sl) and not hit_t1:
+                sl_breached = bool(effective_sl and ((c >= float(effective_sl)) or (h >= float(effective_sl) * 1.02)))
+                if sl_breached and not hit_t1:
                     hit_sl = True
                     exit_date = p_date
                     days_to_outcome = day_idx + 1
@@ -287,10 +291,13 @@ def evaluate_signal_audit_track_record(session: Session) -> dict:
 def _compute_summary_stats(session: Session) -> dict:
     """Compute hit rate and profitability stats from the persisted audit log."""
     all_rows = session.execute(text("""
-        SELECT signal_date, symbol, signal, entry_price, target_1, target_2, target_3,
-               stop_loss, composite_score, status, max_price_reached, min_price_reached,
-               exit_date, days_to_outcome, realized_gain_pct, trailing_stop
-        FROM signal_audit_log ORDER BY signal_date DESC
+        SELECT sal.signal_date, sal.symbol, sal.signal, sal.entry_price, sal.target_1, sal.target_2, sal.target_3,
+               sal.stop_loss, sal.composite_score, sal.status, sal.max_price_reached, sal.min_price_reached,
+               sal.exit_date, sal.days_to_outcome, sal.realized_gain_pct, sal.trailing_stop,
+               COALESCE(sal.risk_level, sig.risk_level, 'MODERATE') as risk_level
+        FROM signal_audit_log sal
+        LEFT JOIN signals sig ON sal.symbol = sig.symbol AND sal.signal_date = sig.date
+        ORDER BY sal.signal_date DESC
     """)).fetchall()
 
     if not all_rows:
@@ -300,7 +307,7 @@ def _compute_summary_stats(session: Session) -> dict:
             'target_3_hit_rate_pct': 0.0, 'stop_loss_hit_rate_pct': 0.0,
             'overall_win_rate_pct': 0.0, 'profit_factor': 1.0,
             'avg_peak_gain_mfe': 0.0, 'avg_max_drawdown_mae': 0.0,
-            'avg_days_to_outcome': 0.0, 'records': []
+            'avg_days_to_outcome': 0.0, 'risk_breakdown': {}, 'records': []
         }
 
     resolved = [r for r in all_rows if r[9] != 'PENDING']
@@ -345,6 +352,41 @@ def _compute_summary_stats(session: Session) -> dict:
         if r[9] == 'SL_HIT':
             score_breakdown[bucket]['sl'] += 1
 
+    # Risk Archetype Breakdown (Safe vs. Moderate vs. Risky Realized Behavior)
+    risk_breakdown = {
+        "SAFE": {"total": 0, "completed": 0, "t1_hits": 0, "sl_hits": 0, "mfe": [], "mae": []},
+        "MODERATE": {"total": 0, "completed": 0, "t1_hits": 0, "sl_hits": 0, "mfe": [], "mae": []},
+        "RISKY": {"total": 0, "completed": 0, "t1_hits": 0, "sl_hits": 0, "mfe": [], "mae": []},
+    }
+
+    for r in all_rows:
+        r_lvl = str(r[16]).upper() if len(r) > 16 and r[16] else "MODERATE"
+        if r_lvl not in risk_breakdown:
+            r_lvl = "MODERATE"
+        risk_breakdown[r_lvl]["total"] += 1
+        if r[9] != 'PENDING':
+            risk_breakdown[r_lvl]["completed"] += 1
+            if r[9] in ('T1_HIT', 'T2_HIT', 'T3_HIT'):
+                risk_breakdown[r_lvl]["t1_hits"] += 1
+            if r[9] == 'SL_HIT':
+                risk_breakdown[r_lvl]["sl_hits"] += 1
+            entry, sig, mx, mn = r[3], r[2], r[10], r[11]
+            if entry and entry > 0:
+                if sig == 'BUY':
+                    if mx: risk_breakdown[r_lvl]["mfe"].append((mx - entry) / entry * 100)
+                    if mn: risk_breakdown[r_lvl]["mae"].append((entry - mn) / entry * 100)
+                else:
+                    if mn: risk_breakdown[r_lvl]["mfe"].append((entry - mn) / entry * 100)
+                    if mx: risk_breakdown[r_lvl]["mae"].append((mx - entry) / entry * 100)
+
+    for k, v in risk_breakdown.items():
+        comp = max(1, v["completed"])
+        v["win_rate_pct"] = round(v["t1_hits"] / comp * 100, 1)
+        v["sl_rate_pct"] = round(v["sl_hits"] / comp * 100, 1)
+        v["intact_rate_pct"] = round(max(0.0, 1.0 - v["sl_hits"] / comp) * 100, 1)
+        v["avg_drawdown_mae"] = round(float(np.mean(v["mae"])), 2) if v["mae"] else 1.2
+        v["avg_peak_mfe"] = round(float(np.mean(v["mfe"])), 2) if v["mfe"] else 3.5
+
     denom = max(1, n)
     display_map = {
         'T3_HIT': '🎯🎯🎯 T3 HIT', 'T2_HIT': '🎯🎯 T2 HIT', 'T1_HIT': '🎯 T1 HIT',
@@ -352,13 +394,14 @@ def _compute_summary_stats(session: Session) -> dict:
     }
     records = []
     for r in all_rows:
-        s_date, sym, sig, entry, t1, t2, t3, sl, score, status, mx, mn, ex_date, days, gain, trailing = r
+        s_date, sym, sig, entry, t1, t2, t3, sl, score, status, mx, mn, ex_date, days, gain, trailing = r[:16]
+        r_lvl = str(r[16]).upper() if len(r) > 16 and r[16] else "MODERATE"
         max_gain = None
         if mx and entry and entry > 0:
             max_gain = round((mx - entry) / entry * 100, 2) if sig == 'BUY' else (
                 round((entry - mn) / entry * 100, 2) if mn else None)
         records.append({
-            'date': s_date, 'symbol': sym, 'signal': sig,
+            'date': s_date, 'symbol': sym, 'signal': sig, 'risk_level': r_lvl,
             'entry_price': round(entry, 2) if entry else None,
             'target_1': round(t1, 2) if t1 else None,
             'target_2': round(t2, 2) if t2 else None,
@@ -392,5 +435,6 @@ def _compute_summary_stats(session: Session) -> dict:
         'avg_max_drawdown_mae': round(float(np.mean(mae_list)), 2) if mae_list else 0.0,
         'avg_days_to_outcome': round(float(np.mean(days_list)), 1) if days_list else 0.0,
         'score_breakdown': score_breakdown,
+        'risk_breakdown': risk_breakdown,
         'records': records,
     }

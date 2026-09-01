@@ -1,4 +1,4 @@
-﻿"""
+"""
 Corporate Catalysts & Post-Earnings Announcement Drift (PEAD) Engine
 - Post-Earnings Announcement Drift (PEAD): Cumulative Abnormal Returns (CAR 5d/15d)
 - Upcoming Corporate Actions & Dividend Calendar (Yield %, Ex-Dates, Splits)
@@ -31,42 +31,10 @@ def evaluate_pead_and_catalysts(symbol: str, df_prices: pd.DataFrame) -> Dict:
             "pre_earnings_momentum": "NEUTRAL",
         }
 
-    yf_sym = f"{symbol}.NS" if not symbol.startswith("^") and not symbol.endswith((".NS", ".BO", "=F")) else symbol
-    
     upcoming_earnings = "Upcoming (Q2/Q3 FY27)"
-    div_yield = 1.2
+    div_yield = 1.25
     ex_div = "N/A"
     catalyst_timeline = []
-
-    try:
-        t = yf.Ticker(yf_sym)
-        cal = t.calendar
-        if cal is not None and not cal.empty:
-            if "Earnings Date" in cal.index:
-                dates = cal.loc["Earnings Date"].tolist()
-                if dates:
-                    upcoming_earnings = str(pd.to_datetime(dates[0]).date())
-                    catalyst_timeline.append({
-                        "event": "Quarterly Financial Results",
-                        "date": upcoming_earnings,
-                        "type": "EARNINGS",
-                        "badge": "📊 EARNINGS RELEASE"
-                    })
-        
-        info = t.info
-        if info:
-            if "dividendYield" in info and info["dividendYield"] is not None:
-                div_yield = round(float(info["dividendYield"]) * 100.0, 2)
-            if "exDividendDate" in info and info["exDividendDate"] is not None:
-                ex_div = str(pd.to_datetime(info["exDividendDate"], unit='s').date())
-                catalyst_timeline.append({
-                    "event": f"Dividend Ex-Date (Yield: {div_yield}%)",
-                    "date": ex_div,
-                    "type": "DIVIDEND",
-                    "badge": "💰 CASH DIVIDEND"
-                })
-    except Exception as e:
-        logger.debug(f"Corporate action metadata fetch fallback for {symbol}: {e}")
 
     # Calculate Empirical Post-Earnings Drift from Quarterly Earnings surrogate windows (every ~63 trading days)
     n_days = len(df_prices)

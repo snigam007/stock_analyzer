@@ -56,12 +56,41 @@ from core.pdf_report_generator import generate_institutional_advisory_pdf
 engine = get_global_engine()
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def get_cached_champion_strategy(symbol: str, years: int = 3):
     session = get_session(engine)
     res = find_champion_strategy(symbol, session, years=years)
     session.close()
     return res
+
+
+@st.cache_data(ttl=300)
+def get_cached_ml_ensemble(symbol: str, _df: pd.DataFrame):
+    return compute_ml_ensemble_consensus(_df)
+
+
+@st.cache_data(ttl=300)
+def get_cached_fundamental_health(symbol: str, name: str, sector: str, tier: str):
+    from core.fundamental_health import compute_fundamental_health_scorecard
+    return compute_fundamental_health_scorecard(symbol, name, sector or "General", tier or "large")
+
+
+@st.cache_data(ttl=300)
+def get_cached_crisis_test(symbol: str, name: str, sector: str, current_price: float, beta: float, volatility: float):
+    from core.stress_testing import simulate_stock_crisis_stress_test
+    return simulate_stock_crisis_stress_test(symbol, name, sector or "General", current_price, beta=beta, annual_volatility=volatility)
+
+
+@st.cache_data(ttl=300)
+def get_cached_smart_money(symbol: str, _df: pd.DataFrame):
+    from core.smart_money import calculate_smart_money_metrics
+    return calculate_smart_money_metrics(_df)
+
+
+@st.cache_data(ttl=300)
+def get_cached_pead(symbol: str, _df: pd.DataFrame):
+    from core.earnings_catalysts import evaluate_pead_and_catalysts
+    return evaluate_pead_and_catalysts(symbol, _df)
 
 
 COMMODITY_NAMES = {
@@ -393,8 +422,15 @@ with col1:
     st.caption(f"📂 {stock_sector} | 📊 {stock_tier.upper()} Cap | NSE")
 with col2:
     current_price = sig.get("current_price") or (df["close"].iloc[-1] if len(df) > 0 else 0)
-    st.metric("Current Price", format_price(current_price),
-              f"{df['daily_return'].iloc[-1]:+.2f}%" if len(df) > 0 and df['daily_return'].iloc[-1] else None)
+    day_ret = None
+    if len(df) > 0:
+        raw_ret = df["daily_return"].iloc[-1]
+        if pd.notna(raw_ret) and not np.isnan(raw_ret):
+            day_ret = f"{raw_ret:+.2f}%"
+        elif len(df) >= 2 and df["close"].iloc[-2] > 0:
+            calc_ret = ((df["close"].iloc[-1] - df["close"].iloc[-2]) / df["close"].iloc[-2]) * 100
+            day_ret = f"{calc_ret:+.2f}%"
+    st.metric("Current Price", format_price(current_price), day_ret)
 with col3:
     st.metric("Signal", f"{signal_icons.get(signal,'🟡')} {signal}", sig.get("signal_strength", ""))
 with col4:
@@ -405,34 +441,12 @@ with col5:
 with col6:
     st.write("")
     try:
-        session_fno = get_session(engine)
-        fno_quick = analyze_fno_derivatives(selected_symbol, current_price, session_fno, rsi_14=ind.get("rsi_14", 50.0))
-        session_fno.close()
-        pdf_bytes = generate_institutional_advisory_pdf(
-            symbol=selected_symbol,
-            stock_name=stock_name,
-            sector=stock_sector,
-            current_price=current_price,
-            signal_data=sig,
-            score_data=score,
-            ml_ensemble_data=compute_ml_ensemble_consensus(df),
-            champion_data=get_cached_champion_strategy(selected_symbol),
-            trade_plan=generate_trade_execution_plan(current_price, sig.get("buy_price", current_price), sig.get("target_price_1"), sig.get("target_price_2"), sig.get("target_price_3"), sig.get("stop_loss")),
-            pos_sizing=calculate_position_size(100000.0, current_price, sig.get("stop_loss") or (current_price*0.95)),
-            fno_data=fno_quick,
-            macro_data=macro_data,
-        )
+        fh_data = get_cached_fundamental_health(selected_symbol, stock_name, stock_sector or "General", stock_tier or "large")
+        cr_data = get_cached_crisis_test(selected_symbol, stock_name, stock_sector or "General", current_price, beta=score.get("beta", 1.0), volatility=score.get("volatility_annual", 0.22))
+        sm_data = get_cached_smart_money(selected_symbol, df)
+        pead_data = get_cached_pead(selected_symbol, df)
+
         from core.report_generator import generate_stock_teardown_html
-        from core.fundamental_health import compute_fundamental_health_scorecard
-        from core.stress_testing import simulate_stock_crisis_stress_test
-        from core.smart_money import calculate_smart_money_metrics
-        from core.earnings_catalysts import evaluate_pead_and_catalysts
-
-        fh_data = compute_fundamental_health_scorecard(selected_symbol, stock_name, stock_sector or "General", stock_tier or "large")
-        cr_data = simulate_stock_crisis_stress_test(selected_symbol, stock_name, stock_sector or "General", current_price, beta=score.get("beta", 1.0), annual_volatility=score.get("volatility_annual", 0.22))
-        sm_data = calculate_smart_money_metrics(df)
-        pead_data = evaluate_pead_and_catalysts(selected_symbol, df)
-
         teardown_html = generate_stock_teardown_html(
             symbol=selected_symbol,
             name=stock_name,
@@ -839,7 +853,7 @@ model_view = st.radio(
     help="Compare the 5-Model ML Ensemble against the empirically proven Backtested Champion Strategy."
 )
 
-ml_ens = compute_ml_ensemble_consensus(df)
+ml_ens = get_cached_ml_ensemble(selected_symbol, df)
 champ_data_obj = champion_data.get("champion") if (champion_data and "champion" in champion_data) else None
 emp_proj = compute_empirical_strategy_projections(current_price, champ_data_obj) if champ_data_obj else None
 
@@ -944,8 +958,9 @@ rc4.metric("Max Drawdown", f"{score.get('max_drawdown', 0):.1f}%" if score.get('
            help="Largest peak-to-trough decline in the period")
 
 # Fundamental Health Card (Piotroski & Altman)
-from core.fundamental_health import compute_fundamental_health_scorecard
-fund_health = compute_fundamental_health_scorecard(selected_symbol, stock_name, stock_sector or "General", stock_tier or "large")
+if "fh_data" not in locals() or not fh_data:
+    fh_data = get_cached_fundamental_health(selected_symbol, stock_name, stock_sector or "General", stock_tier or "large")
+fund_health = fh_data
 
 with st.expander("📊 **Institutional Fundamental Health Scorecard (Piotroski F-Score & Altman Z-Score)**", expanded=False):
     fh1, fh2, fh3, fh4 = st.columns(4)
@@ -958,12 +973,13 @@ with st.expander("📊 **Institutional Fundamental Health Scorecard (Piotroski F
     st.markdown(" • ".join(fund_health["checklist"]))
 
 # Black Swan Crisis Simulator
-from core.stress_testing import simulate_stock_crisis_stress_test
-crisis_data = simulate_stock_crisis_stress_test(
-    selected_symbol, stock_name, stock_sector or "General", current_price,
-    beta=score.get("beta", 1.0),
-    annual_volatility=score.get("volatility_annual", 0.22)
-)
+if "cr_data" not in locals() or not cr_data:
+    cr_data = get_cached_crisis_test(
+        selected_symbol, stock_name, stock_sector or "General", current_price,
+        beta=score.get("beta", 1.0),
+        annual_volatility=score.get("volatility_annual", 0.22)
+    )
+crisis_data = cr_data
 
 with st.expander("🛡️ **Black Swan Crisis & Macro Stress-Testing Simulator**", expanded=False):
     st.caption("Replays historical market crash vectors against this asset to simulate drawdown depth, 99% VaR, and projected recovery duration")
@@ -989,8 +1005,9 @@ with st.expander("🛡️ **Black Swan Crisis & Macro Stress-Testing Simulator**
     )
 
 # Institutional Smart Money & Delivery Footprint
-from core.smart_money import calculate_smart_money_metrics
-sm_stock = calculate_smart_money_metrics(df)
+if "sm_data" not in locals() or not sm_data:
+    sm_data = get_cached_smart_money(selected_symbol, df)
+sm_stock = sm_data
 
 with st.expander("🐋 **Institutional Smart Money & Delivery Footprint**", expanded=False):
     sm1, sm2, sm3, sm4 = st.columns(4)
@@ -1002,8 +1019,9 @@ with st.expander("🐋 **Institutional Smart Money & Delivery Footprint**", expa
     st.markdown(f"**Order Flow Assessment:** `{sm_stock['smart_money_bias']}` — *A/D Trend:* **{sm_stock['accumulation_distribution_trend']}** | *Stealth Panic Absorption:* **{'YES (Active)' if sm_stock['absorption_detected'] else 'NO'}**")
 
 # Corporate Catalysts & Post-Earnings Announcement Drift (PEAD)
-from core.earnings_catalysts import evaluate_pead_and_catalysts
-pead_stock = evaluate_pead_and_catalysts(selected_symbol, df)
+if "pead_data" not in locals() or not pead_data:
+    pead_data = get_cached_pead(selected_symbol, df)
+pead_stock = pead_data
 
 with st.expander("📅 **Corporate Catalysts & Post-Earnings Announcement Drift (PEAD)**", expanded=False):
     pe1, pe2, pe3, pe4 = st.columns(4)
@@ -1352,7 +1370,7 @@ ai_memo = generate_institutional_equity_research_memo(
     current_price=current_price,
     signal_data=sig,
     score_data=score,
-    ml_ensemble_data=compute_ml_ensemble_consensus(df),
+    ml_ensemble_data=ml_ens,
     champion_data=champion_data,
     fno_data=fno_profile,
     macro_data=macro_data,
@@ -1396,7 +1414,7 @@ if ai_query:
             current_price=current_price,
             signal_data=sig,
             score_data=score,
-            ml_ensemble_data=compute_ml_ensemble_consensus(df),
+            ml_ensemble_data=ml_ens,
             champion_data=champion_data,
             fno_data=fno_profile,
             macro_data=macro_data,

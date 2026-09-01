@@ -85,6 +85,7 @@ def scan_missed_opportunities(
         end_p = float(r[5] or 0)
         gain = float(r[6] or 0)
         st_date = str(r[7])
+        end_date = str(r[8])
         sig = r[11] or "WATCH"
         score = float(r[12] or 50.0)
         rsi = float(r[13] or 50.0) if r[13] is not None else 50.0
@@ -93,6 +94,16 @@ def scan_missed_opportunities(
         ema_50 = float(r[16] or 0.0) if r[16] is not None else 0.0
         vol_ratio = float(r[17] or 1.0) if r[17] is not None else 1.0
 
+        # Check if BUY was triggered on Day 0 OR during the incubation window
+        was_caught = (sig == "BUY")
+        if not was_caught:
+            incubation_buys = session.execute(text("""
+                SELECT COUNT(*) FROM signals
+                WHERE symbol = :s AND signal = 'BUY' AND date >= :st AND date <= :en
+            """), {"s": sym, "st": st_date, "en": end_date}).scalar()
+            if incubation_buys and incubation_buys > 0:
+                was_caught = True
+
         item = {
             "symbol": sym, "name": name, "sector": sector, "tier": tier,
             "start_price": start_p, "end_price": end_p, "gain_pct": gain,
@@ -100,7 +111,7 @@ def scan_missed_opportunities(
             "rsi": rsi, "adx": adx, "vol_ratio": vol_ratio,
         }
 
-        if sig == "BUY":
+        if was_caught:
             caught_movers.append(item)
             continue
 

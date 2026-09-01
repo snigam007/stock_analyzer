@@ -230,6 +230,10 @@ def scan_candlestick_patterns(df: pd.DataFrame, lookback: int = 5) -> List[Dict]
     return results
 
 
+# Alias for backward and cross-module compatibility
+analyze_candlestick_patterns = scan_candlestick_patterns
+
+
 def batch_scan_candlestick_patterns(session: Session, progress_callback=None) -> int:
     """
     Batch scans all active stocks and stores detected candlestick patterns into candlestick_patterns table.

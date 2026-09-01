@@ -670,18 +670,27 @@ def download_historical_data(
 
 
 def download_indexes_and_commodities(session: Session, end_date: str = None):
-    """Download index and commodity data."""
-    import yaml
-    config_path = Path(__file__).resolve().parent.parent / "config" / "stocks.yaml"
-    with open(config_path) as f:
-        config = yaml.safe_load(f)
+    """Download index and commodity data with safe YAML config and builtin fallbacks."""
+    config = {}
+    try:
+        import yaml
+        config_path = Path(__file__).resolve().parent.parent / "config" / "stocks.yaml"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(f"Could not load stocks.yaml via yaml module: {e}. Using builtin index & commodity definitions.")
 
     if end_date is None:
         end_date = get_eod_end_date()
 
     # Indexes
     indexes = config.get("indexes", [])
-    idx_symbols = [i["symbol"] for i in indexes]
+    if indexes:
+        idx_symbols = [i["symbol"] for i in indexes if isinstance(i, dict) and "symbol" in i]
+    else:
+        idx_symbols = ["^NSEI", "^NSEBANK", "^CNXIT", "^CNXAUTO", "^CNXPHARMA", "^CNXMETAL", "^CNXFMCG", "^CNXENERGY", "^INDIAVIX"]
+
     logger.info(f"Downloading {len(idx_symbols)} indexes...")
 
     for i in range(0, len(idx_symbols), 5):
@@ -693,7 +702,11 @@ def download_indexes_and_commodities(session: Session, end_date: str = None):
 
     # Commodities
     commodities = config.get("commodities", [])
-    com_symbols = [c["symbol"] for c in commodities]
+    if commodities:
+        com_symbols = [c["symbol"] for c in commodities if isinstance(c, dict) and "symbol" in c]
+    else:
+        com_symbols = ["GC=F", "SI=F", "CL=F", "NG=F", "HG=F"]
+
     logger.info(f"Downloading {len(com_symbols)} commodities...")
 
     for i in range(0, len(com_symbols), 5):

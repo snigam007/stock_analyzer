@@ -90,7 +90,7 @@ def log_current_signals_to_audit(session: Session) -> int:
     for r in rows:
         try:
             session.execute(text("""
-                INSERT OR IGNORE INTO signal_audit_log (
+                INSERT OR REPLACE INTO signal_audit_log (
                     signal_date, symbol, signal, entry_price,
                     target_1, target_2, target_3, stop_loss,
                     composite_score, status, trailing_stop, risk_level, asset_type

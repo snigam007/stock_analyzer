@@ -98,9 +98,24 @@ def get_database_status_summary(session: Optional[Session] = None) -> Dict[str, 
             "status_badge": status_badge,
             "next_refresh_ist": "08:00 AM IST (Daily Scheduled)",
         }
+    except Exception as e:
+        logger.warning(f"Error fetching database status summary: {e}")
+        return {
+            "max_date": str(date.today()),
+            "stock_count": 0,
+            "index_count": 0,
+            "commodity_count": 0,
+            "total_assets": 0,
+            "total_bars": 0,
+            "latest_session_stock_count": 0,
+            "latest_signals_count": 0,
+            "status_badge": "🟡 Connecting / Rebuilding...",
+            "next_refresh_ist": "08:00 AM IST (Daily Scheduled)",
+        }
     finally:
         if close_session:
             session.close()
+
 
 
 def get_daily_stock_counts_history(days: int = 180, session: Optional[Session] = None) -> pd.DataFrame:

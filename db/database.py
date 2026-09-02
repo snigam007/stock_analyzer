@@ -602,12 +602,17 @@ def get_engine(db_url: str = DB_URL):
         pool_size=15,
         max_overflow=30,
     )
-    # Enable WAL mode and performance pragmas on every connection
+    # Enable performance pragmas and safe journal mode on every connection
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         try:
             cursor = dbapi_connection.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
+            # Streamlit Cloud container (/mount/src) runs on overlayfs where WAL shared memory mmap is prone to corruption.
+            is_cloud = os.path.exists("/mount/src") or bool(os.environ.get("STREAMLIT_SHARING_HOST")) or bool(os.environ.get("STREAMLIT_SERVER_PORT"))
+            if is_cloud:
+                cursor.execute("PRAGMA journal_mode=DELETE")
+            else:
+                cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
             cursor.execute("PRAGMA cache_size=10000")
             cursor.execute("PRAGMA temp_store=MEMORY")
@@ -615,6 +620,7 @@ def get_engine(db_url: str = DB_URL):
             cursor.close()
         except Exception:
             pass
+
 
     return engine
 

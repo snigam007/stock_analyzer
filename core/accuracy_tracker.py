@@ -481,6 +481,14 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
 
     for row in pending_rows:
         row_id, s_date, sym, sig_type, entry, t1, t2, t3, sl, trailing_sl, score, asset_t = row
+        if not entry:
+            continue
+        try:
+            entry = float(entry)
+            if entry <= 0:
+                continue
+        except (ValueError, TypeError):
+            continue
         effective_sl = trailing_sl if trailing_sl is not None else sl
 
         tbl = "index_prices" if asset_t == "INDEX" else ("commodity_prices" if asset_t == "COMMODITY" else "daily_prices")
@@ -576,7 +584,16 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                         if not effective_sl or effective_sl > be:
                             effective_sl = be
 
-        latest_close = float(fwd_prices[-1][3]) if fwd_prices else entry
+        latest_close = float(entry)
+        if fwd_prices:
+            for fp in reversed(fwd_prices):
+                if len(fp) > 3 and fp[3] is not None:
+                    try:
+                        latest_close = float(fp[3])
+                        break
+                    except (ValueError, TypeError):
+                        continue
+
         if sig_type == 'BUY':
             max_gain_pct = (max_high - entry) / entry * 100.0
             curr_pct = (latest_close - entry) / entry * 100.0

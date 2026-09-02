@@ -548,9 +548,15 @@ with tabs[8]:
     selected_asset = asset_map.get(audit_asset_label, "STOCK")
 
     audit_session = get_session(engine)
-    # Ensure backfill is loaded
-    audit_data = evaluate_signal_audit_track_record(audit_session, asset_type=selected_asset)
-    audit_session.close()
+    try:
+        audit_data = evaluate_signal_audit_track_record(audit_session, asset_type=selected_asset)
+    except Exception as e:
+        logger.warning(f"Error evaluating audit track record: {e}")
+        from core.accuracy_tracker import _compute_summary_stats
+        audit_data = _compute_summary_stats(audit_session, asset_type=selected_asset)
+    finally:
+        audit_session.close()
+
 
     # ── Institutional Status & Incubation Banner ──────────────────────────────────
     intact_pct = audit_data.get('active_intact_rate_pct', 94.3)

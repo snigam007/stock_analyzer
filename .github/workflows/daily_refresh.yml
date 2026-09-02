@@ -2,8 +2,8 @@ name: Daily Market Data Refresh & Quant Pipeline
 
 on:
   schedule:
-    # 02:30 UTC = 08:00 AM IST (every day)
-    - cron: '30 2 * * *'
+    # 19:07 UTC (Mon-Fri) = 12:37 AM IST (Tue-Sat, covering Mon-Fri market sessions)
+    - cron: '7 19 * * 1-5'
   workflow_dispatch: # Allows manual one-click trigger from GitHub Actions UI
 
 concurrency:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   refresh-market-data:
-    name: ⚡ 8:00 AM IST Daily Delta Refresh
+    name: ⚡ 12:37 AM IST Daily Delta Refresh
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -48,7 +48,7 @@ jobs:
           git status
           if [ -n "$(git status --porcelain data/stock_analyzer.db)" ]; then
             git add data/stock_analyzer.db
-            git commit -m "chore(auto): 8:00 AM IST daily market delta refresh [skip ci]"
+            git commit -m "chore(auto): 12:37 AM IST daily market delta refresh [skip ci]"
             git push
             echo "✅ Successfully refreshed and pushed updated market database to GitHub."
           else

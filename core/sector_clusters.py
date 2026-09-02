@@ -75,8 +75,8 @@ CLUSTER_METADATA = {
 # ── Cap Tier Calibration Parameters ───────────────────────────────────────────
 CAP_TIER_PARAMETERS = {
     "large": {
-        "buy_threshold": 57.0,       # More sensitive for slow, high-institutional grinders
-        "sell_threshold": 44.0,
+        "buy_threshold": 57.0,        # Institutional quality momentum (75th percentile)
+        "sell_threshold": 53.0,       # Confirmed breakdown / exit threshold (25th percentile)
         "min_volume_ratio": 1.15,     # Steady block accumulation doesn't require retail volume spikes
         "target_1_floor_pct": 0.025,  # 2.5% Target 1 floor (calibrated to ~1.4% ATR)
         "target_1_atr_mult": 1.4,
@@ -88,8 +88,8 @@ CAP_TIER_PARAMETERS = {
         "default_atr_pct": 0.016,
     },
     "mid": {
-        "buy_threshold": 59.5,       # Standard momentum sweet spot
-        "sell_threshold": 42.0,
+        "buy_threshold": 59.5,        # Standard momentum sweet spot
+        "sell_threshold": 52.0,       # Structural breakdown / hedge trigger
         "min_volume_ratio": 1.25,
         "target_1_floor_pct": 0.038,  # 3.8% Target 1 floor
         "target_1_atr_mult": 1.8,
@@ -101,8 +101,8 @@ CAP_TIER_PARAMETERS = {
         "default_atr_pct": 0.026,
     },
     "small": {
-        "buy_threshold": 63.5,       # Strict filter against low-volume retail traps/fakeouts
-        "sell_threshold": 38.0,
+        "buy_threshold": 63.5,        # Strict filter against low-volume retail traps/fakeouts
+        "sell_threshold": 50.5,       # Capital preservation exit floor
         "min_volume_ratio": 1.75,     # High volume expansion required before confirming small-cap breakout
         "target_1_floor_pct": 0.060,  # 6.0% Target 1 floor (high beta compensates for risk)
         "target_1_atr_mult": 2.4,

@@ -380,12 +380,14 @@ def generate_signal_for_stock(
        (is_quality_oversold_reversal and final_score >= effective_buy_threshold - 1.5):
         candidate_signal = "BUY"
     elif (final_score <= effective_sell_threshold and (not is_above_50_ema or bearish_count >= 4)) or \
+         (not is_above_50_ema and not is_above_200_ema and bearish_count >= 4 and final_score <= (effective_sell_threshold + 1.5)) or \
          (final_score <= effective_sell_threshold + 1.5 and bearish_count >= 5 and not is_above_50_ema) or \
          (rsi_val > 70.0 and not is_above_50_ema and not is_above_200_ema and bearish_count >= 3 and adx_val >= 18.0) or \
          (sector_alignment == 0.0 and final_score <= effective_sell_threshold + 5.0 and not is_above_200_ema and bearish_count >= 4):
         candidate_signal = "SELL"
     else:
         candidate_signal = "WATCH"
+
 
     # ── Quantitative Quality & Safety Guardrails ──────────────────────────────
     # Guardrail 1: ADX Chop Filter (Never buy/sell into dead sideways drift)
@@ -597,6 +599,7 @@ def compute_and_save_signals(session: Session, progress_callback=None):
     # Fix 7: Load regime context once (not per stock)
     regime = _load_market_regime(session)
     logger.info(f"Generating 5-Pillar Apex Signals for {total} stocks (regime: {'BULL' if regime['nifty_above_50ema'] else 'BEAR'}, VIX={regime['vix']:.1f})...")
+    db_cols = None
 
     for i, stock in enumerate(stocks):
         try:
@@ -655,9 +658,16 @@ def compute_and_save_signals(session: Session, progress_callback=None):
             )
 
             if sig_dict:
-                cols = ", ".join(sig_dict.keys())
-                placeholders = ", ".join(f":{k}" for k in sig_dict.keys())
-                session.execute(text(f"INSERT OR REPLACE INTO signals ({cols}) VALUES ({placeholders})"), sig_dict)
+                if db_cols is None:
+                    try:
+                        col_rows = session.execute(text("PRAGMA table_info(signals)")).fetchall()
+                        db_cols = {c[1] for c in col_rows}
+                    except Exception:
+                        db_cols = set()
+                insert_dict = {k: v for k, v in sig_dict.items() if not db_cols or k in db_cols}
+                cols = ", ".join(insert_dict.keys())
+                placeholders = ", ".join(f":{k}" for k in insert_dict.keys())
+                session.execute(text(f"INSERT OR REPLACE INTO signals ({cols}) VALUES ({placeholders})"), insert_dict)
 
         except Exception as e:
             session.rollback()

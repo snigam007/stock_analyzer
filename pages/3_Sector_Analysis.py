@@ -72,20 +72,88 @@ if perf_data:
     for i, (_, row) in enumerate(perf_df.head(8).iterrows()):
         col = cols[i % 4]
         with col:
-            daily = row["Daily %"] or 0
+            daily = float(row["Daily %"] or 0)
+            if abs(daily) < 0.15 and abs(daily) > 0.00001:
+                daily = daily * 100.0
             color = "🟢" if daily > 0 else "🔴"
             sig_icon = {"BUY": "🟢", "SELL": "🔴", "WATCH": "🟡"}.get(row["Signal"], "🟡")
             st.metric(
                 f"{row['Sector'][:25]}",
                 f"{daily:+.2f}%",
-                f"A/D: {row['Up']}/{row['Down']} | {sig_icon} {row['Signal']}"
+                f"A/D: {int(row['Up'] or 0)}/{int(row['Down'] or 0)} | {sig_icon} {row['Signal']}"
             )
 
     st.markdown("---")
 
-    # Performance table
+    # ── Enhanced Multi-Metric Sector Heatmap (Item 3.5) ──────────────────────
+    st.subheader("🌡️ Sector Performance Heatmap")
+    hm_df = perf_df[["Sector", "Daily %", "Weekly %", "Monthly %", "Avg Score", "Buy Signals", "A/D Ratio"]].copy()
+    for col in ["Daily %", "Weekly %", "Monthly %", "Avg Score", "A/D Ratio"]:
+        hm_df[col] = pd.to_numeric(hm_df[col], errors="coerce").fillna(0)
+
+    # Normalize each metric independently for coloring
+    metrics = ["Daily %", "Weekly %", "Monthly %", "Avg Score"]
+    z_matrix = []
+    hover_matrix = []
+    for _, row in hm_df.iterrows():
+        z_row = []
+        h_row = []
+        for m in metrics:
+            val = row[m]
+            # Normalize: returns as %, score as percentile of 0-100
+            if m == "Avg Score":
+                norm = (val - 30) / 50.0  # 30=min 80=max expected range
+            else:
+                norm = val / 5.0  # ±5% = full scale
+            z_row.append(float(np.clip(norm, -1, 1)))
+            if m == "Avg Score":
+                h_row.append(f"{m}: {val:.0f}")
+            else:
+                h_row.append(f"{m}: {val:+.2f}%")
+        z_matrix.append(z_row)
+        hover_matrix.append([
+            f"<b>{row['Sector']}</b><br>{h}<br>A/D: {int(row['Buy Signals']or 0)}/{int((row['A/D Ratio']*100)or 0)}%<br>Buys: {int(row['Buy Signals']or 0)}"
+            for h in h_row
+        ])
+
+    fig_hm = go.Figure(data=go.Heatmap(
+        z=z_matrix,
+        x=metrics,
+        y=hm_df["Sector"].tolist(),
+        colorscale=[[0, "#d32f2f"], [0.5, "#f57f17"], [1, "#1b5e20"]],
+        text=hover_matrix,
+        hovertemplate="%{text}<extra></extra>",
+        showscale=False,
+        zmin=-1, zmax=1,
+    ))
+    # Add text annotations for actual values
+    for i, row in hm_df.iterrows():
+        for j, m in enumerate(metrics):
+            val = row[m]
+            label = f"{val:.0f}" if m == "Avg Score" else f"{val:+.1f}%"
+            fig_hm.add_annotation(
+                x=m, y=row["Sector"],
+                text=label,
+                font=dict(color="white", size=10, family="monospace"),
+                showarrow=False,
+            )
+    fig_hm.update_layout(
+        paper_bgcolor="#0e1117", plot_bgcolor="#1a1d23",
+        font=dict(color="#e0e0e0"),
+        height=max(280, len(hm_df) * 28 + 60),
+        margin=dict(l=10, r=10, t=30, b=10),
+        xaxis=dict(side="top"),
+    )
+    st.plotly_chart(fig_hm, use_container_width=True)
+
+    # ── Plain Performance Table ───────────────────────────────────────────────
     st.subheader("📅 Multi-Period Sector Returns")
-    perf_display = perf_df[["Sector", "Daily %", "Weekly %", "Monthly %", "Avg Score", "Buy Signals", "Signal"]].copy()
+    perf_display = perf_df[[
+        "Sector", "Daily %", "Weekly %", "Monthly %", "Quarterly %",
+        "Avg Score", "Buy Signals", "A/D Ratio", "Signal"
+    ]].copy()
+    for col in ["Daily %", "Weekly %", "Monthly %", "Quarterly %", "Avg Score", "A/D Ratio"]:
+        perf_display[col] = pd.to_numeric(perf_display[col], errors="coerce")
 
     def color_return(val):
         try:
@@ -104,14 +172,28 @@ if perf_data:
         except: pass
         return ""
 
+    def color_ad(val):
+        try:
+            v = float(val)
+            if v >= 0.6: return "color: #00c875; font-weight: bold"
+            elif v < 0.35: return "color: #ff6b6b; font-weight: bold"
+        except: pass
+        return ""
+
     st.dataframe(
         perf_display.style
-            .map(color_return, subset=["Daily %", "Weekly %", "Monthly %"])
+            .map(color_return, subset=["Daily %", "Weekly %", "Monthly %", "Quarterly %"])
             .map(color_score, subset=["Avg Score"])
-            .format({"Daily %": "{:+.2f}%", "Weekly %": "{:+.2f}%", "Monthly %": "{:+.2f}%", "Avg Score": "{:.0f}"}),
+            .map(color_ad, subset=["A/D Ratio"])
+            .format({
+                "Daily %": "{:+.2f}%", "Weekly %": "{:+.2f}%",
+                "Monthly %": "{:+.2f}%", "Quarterly %": "{:+.2f}%",
+                "Avg Score": "{:.0f}", "A/D Ratio": "{:.2f}",
+            }),
         use_container_width=True,
         hide_index=True,
     )
+
 
     # Sector signal bar chart
     fig_bar = px.bar(

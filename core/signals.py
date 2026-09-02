@@ -32,6 +32,7 @@ from core.cpr_vsa_scanner import analyze_wyckoff_vsa, calculate_cpr_and_camarill
 from core.fundamental_health import compute_fundamental_health_scorecard
 from core.options_analytics import fetch_option_chain_analytics
 from core.news_sentiment import get_asset_specific_news_sentiment
+from core.sector_clusters import get_sector_cluster, get_tier_parameters
 
 logger = logging.getLogger(__name__)
 
@@ -82,51 +83,54 @@ def calculate_targets(
       - VIX regime: high volatility = wider SL to avoid noise stops
       - Swing low/high anchor: structural support level as hard floor
     """
+    tier_cfg = get_tier_parameters(market_cap_tier)
+    tier_floor = tier_cfg["sl_floor_pct"]
+    t1_floor = tier_cfg["target_1_floor_pct"]
+    t1_mult = tier_cfg["target_1_atr_mult"]
+    t2_floor = tier_cfg["target_2_floor_pct"]
+    t2_mult = tier_cfg["target_2_atr_mult"]
+    t3_floor = tier_cfg["target_3_floor_pct"]
+    t3_mult = tier_cfg["target_3_atr_mult"]
+
     if not atr or atr <= 0 or pd.isna(atr):
-        atr = current_price * 0.022
+        atr = current_price * tier_cfg["default_atr_pct"]
     mult = 1.0 + (trend_strength / 100.0) * 0.35
 
-    # ── Fix 5A: ADX-aware ATR multiplier for stop loss ──────────────────────
+    # ── ADX-aware ATR multiplier for stop loss ───────────────────────────────
     adx_val = float(adx or 20.0)
     if adx_val >= 30:
-        sl_atr_mult = 1.6   # Strong trend: clear direction
+        sl_atr_mult = 1.5   # Strong trend: clear direction
     elif adx_val >= 20:
-        sl_atr_mult = 2.2   # Moderate trend: balanced noise cushion
+        sl_atr_mult = 2.0   # Moderate trend: balanced noise cushion
     else:
-        sl_atr_mult = 2.8   # Weak/choppy: wider buffer to survive market noise
+        sl_atr_mult = 2.6   # Weak/choppy: wider buffer to survive market noise
 
-    # ── Fix 5B: Market-cap tier floor (% of price) ───────────────────────────
-    tier_floor = {"large": 0.022, "mid": 0.032, "small": 0.045}.get(
-        (market_cap_tier or "mid").lower(), 0.030
-    )
-
-    # ── Fix 5C: VIX regime adjustment (widen in high-fear environments) ──────
+    # ── VIX regime adjustment (widen in high-fear environments) ───────────────
     if vix and vix > 22:
-        sl_atr_mult *= 1.25
+        sl_atr_mult *= 1.20
         tier_floor *= 1.15
     elif vix and vix > 18:
-        sl_atr_mult *= 1.1
+        sl_atr_mult *= 1.10
 
     sl_distance = max(atr * sl_atr_mult, current_price * tier_floor)
 
     if signal == "BUY":
         buy_price = round(current_price * 0.998, 2)
-        target_1 = round(current_price + max(current_price * 0.035, atr * 1.8 * mult), 2)
-        target_2 = round(current_price + max(current_price * 0.075, atr * 3.5 * mult), 2)
-        target_3 = round(current_price + max(current_price * 0.140, atr * 6.0 * mult), 2)
+        target_1 = round(current_price + max(current_price * t1_floor, atr * t1_mult * mult), 2)
+        target_2 = round(current_price + max(current_price * t2_floor, atr * t2_mult * mult), 2)
+        target_3 = round(current_price + max(current_price * t3_floor, atr * t3_mult * mult), 2)
         raw_sl = current_price - sl_distance
-        # ── Fix 5D: Anchor to swing low (structural support floor) ───────────
+        # ── Anchor to swing low (structural support floor) ───────────────────
         if swing_low and swing_low > 0 and swing_low < current_price:
-            # SL should not be above the nearest structural swing low minus 0.5%
             structural_sl = swing_low * 0.995
-            stop_loss = round(min(raw_sl, structural_sl), 2)  # Pick lower (more room)
+            stop_loss = round(min(raw_sl, structural_sl), 2)
         else:
             stop_loss = round(raw_sl, 2)
     elif signal == "SELL":
         buy_price = None
-        target_1 = round(current_price - max(current_price * 0.035, atr * 1.8 * mult), 2)
-        target_2 = round(current_price - max(current_price * 0.075, atr * 3.5 * mult), 2)
-        target_3 = round(current_price - max(current_price * 0.140, atr * 6.0 * mult), 2)
+        target_1 = round(current_price - max(current_price * t1_floor, atr * t1_mult * mult), 2)
+        target_2 = round(current_price - max(current_price * t2_floor, atr * t2_mult * mult), 2)
+        target_3 = round(current_price - max(current_price * t3_floor, atr * t3_mult * mult), 2)
         raw_sl = current_price + sl_distance
         if swing_high and swing_high > current_price:
             structural_sl = swing_high * 1.005
@@ -290,75 +294,162 @@ def generate_signal_for_stock(
     is_above_200_ema = bool(ema_200 and close > ema_200)
 
     # 1. Fundamental & Risk Quality Evaluation
-    fh = compute_fundamental_health_scorecard(stock.symbol, stock.name, stock.sector, stock.market_cap_tier or "mid")
+    cluster = get_sector_cluster(stock.sector)
+    tier = (stock.market_cap_tier or "mid").lower()
+    tier_cfg = get_tier_parameters(tier)
+
+    fh = compute_fundamental_health_scorecard(stock.symbol, stock.name, stock.sector, tier)
     pio_score = fh.get("piotroski_f_score", 5)
     alt_z = fh.get("altman_z_score", 3.0)
+    is_bank_exempt = fh.get("is_bank_exempt", False) or cluster == "BFSI"
 
-    # 2. Sector Relative Strength (RS) Alignment Gate
+    # 2. Sector Relative Strength (RS) Alignment Gate — Live A/D + Name-Based
     sector_name = (stock.sector or "").upper()
     sector_boost = 0.0
-    if any(s in sector_name for s in ["PHARMA", "HEALTH", "ENERGY", "POWER", "CAPITAL GOODS", "ENGINEERING"]):
+    sector_alignment = 0.5  # 0=bearish sector, 0.5=neutral, 1=bullish sector
+    if any(s in sector_name for s in ["PHARMA", "HEALTH", "ENERGY", "POWER", "CAPITAL GOODS", "ENGINEERING", "REAL ESTATE", "REALTY"]):
         sector_boost = +1.5
-    elif any(s in sector_name for s in ["METAL", "MINING"]):
+    elif any(s in sector_name for s in ["METAL", "MINING", "AUTO"]):
         sector_boost = -1.5
 
-    final_score = float(np.clip(composite_score + sector_boost, 0.0, 100.0))
-    effective_buy_threshold  = 59.5 + regime_buy_boost   # ~59.5 in Bull, ~60.5 in Bear
-    effective_sell_threshold = 42.0 - regime_buy_boost   # ~42.0 in Bull, ~41.0 in Bear
+    # Live sector A/D momentum overlay — query sector_analysis for today
+    try:
+        sa_row = session.execute(text("""
+            SELECT advance_decline_ratio, daily_return_avg
+            FROM sector_analysis
+            WHERE sector = :sec
+            ORDER BY date DESC LIMIT 1
+        """), {"sec": stock.sector or ""}).first()
+        if sa_row:
+            ad_ratio = float(sa_row[0] or 0.5)
+            daily_ret = float(sa_row[1] or 0.0)
+            if ad_ratio < 0.25:
+                # Heavy distribution: demote all signals in this sector
+                sector_boost -= 3.0
+                sector_alignment = 0.0
+            elif ad_ratio > 0.65 and daily_ret > 0:
+                # Broad sector strength: boost
+                sector_boost += 1.5
+                sector_alignment = 1.0
+            else:
+                sector_alignment = ad_ratio
+    except Exception:
+        pass
 
-    # 3. Contrarian Quality Mean-Reversion Trigger (Oversold Quality Bounces below 50 EMA)
+    final_score = float(np.clip(composite_score + sector_boost, 0.0, 100.0))
+
+    # ── Tier-Adaptive Thresholds (57.0 Large, 59.5 Mid, 63.5 Small) ──────────
+    base_buy_th = tier_cfg["buy_threshold"]
+    base_sell_th = tier_cfg["sell_threshold"]
+    min_vol_ratio = tier_cfg["min_volume_ratio"]
+
+    effective_buy_threshold  = base_buy_th + regime_buy_boost
+    effective_sell_threshold = base_sell_th - regime_buy_boost
+
+    # 3. Contrarian Quality Mean-Reversion Trigger (High Quality Capitulation Bounce)
     is_quality_oversold_reversal = False
-    if not is_above_50_ema and pio_score >= 7 and alt_z >= 2.99 and rsi_val <= 44.0:
+    reversal_reason = ""
+    # For banks, alt_z is exempt; otherwise requires alt_z >= 2.0
+    z_ok = is_bank_exempt or alt_z >= 2.0
+    if not is_above_50_ema and pio_score >= 7 and z_ok and rsi_val <= 32.0 and adx_val >= 18.0:
         if price_df is not None and not price_df.empty and len(price_df) >= 5:
             from core.candlestick_patterns import analyze_candlestick_patterns
             pats = analyze_candlestick_patterns(price_df)
             has_bullish_pat = any(p.get("sentiment") == "BULLISH" for p in pats)
-            if has_bullish_pat or final_score >= 54.0:
+            if has_bullish_pat and final_score >= (effective_buy_threshold - 1.5):
                 is_quality_oversold_reversal = True
+                reversal_reason = f"🏛️ Contrarian Alpha: High Quality Mean-Reversion (Piotroski {pio_score}/9, RSI={rsi_val:.1f})"
 
-    # 4. Primary Signal Decision
+    # 4. Volume Contraction Pattern (VCP) Breakout Trigger
+    is_vcp_breakout = False
+    vcp_reason = ""
+    vol_ratio_val = float(ind.get("volume_ratio") or 1.0)
+    # Tier-adaptive volume expansion requirement (1.15x Large, 1.25x Mid, 1.75x Small)
+    if is_above_50_ema and vol_ratio_val >= min_vol_ratio and (rsi_val >= 52.0 and rsi_val <= 75.0):
+        if price_df is not None and not price_df.empty and len(price_df) >= 10:
+            past_vols = price_df["volume"].tail(5).iloc[:-1]
+            avg_vol = price_df["volume"].tail(20).mean()
+            if avg_vol > 0 and (past_vols.min() / avg_vol <= 0.70 or adx_val >= 22.0):
+                is_vcp_breakout = True
+                vcp_reason = f"⚡ VCP Breakout: Volume Expansion ({vol_ratio_val:.2f}x >= {min_vol_ratio}x) post Volatility Contraction"
+
+    # 5. Primary Signal Decision
     if (final_score >= effective_buy_threshold and (is_above_50_ema or bullish_count >= 4)) or \
        (final_score >= effective_buy_threshold - 1.0 and bullish_count >= 5 and is_above_50_ema and is_above_200_ema) or \
-       is_quality_oversold_reversal:
+       (is_vcp_breakout and final_score >= effective_buy_threshold - 1.5) or \
+       (is_quality_oversold_reversal and final_score >= effective_buy_threshold - 1.5):
         candidate_signal = "BUY"
     elif (final_score <= effective_sell_threshold and (not is_above_50_ema or bearish_count >= 4)) or \
-         (final_score <= effective_sell_threshold + 1.5 and bearish_count >= 5 and not is_above_50_ema):
+         (final_score <= effective_sell_threshold + 1.5 and bearish_count >= 5 and not is_above_50_ema) or \
+         (rsi_val > 70.0 and not is_above_50_ema and not is_above_200_ema and bearish_count >= 3 and adx_val >= 18.0) or \
+         (sector_alignment == 0.0 and final_score <= effective_sell_threshold + 5.0 and not is_above_200_ema and bearish_count >= 4):
         candidate_signal = "SELL"
     else:
         candidate_signal = "WATCH"
 
     # ── Quantitative Quality & Safety Guardrails ──────────────────────────────
-    # Guardrail 1: ADX Chop Filter
+    # Guardrail 1: ADX Chop Filter (Never buy/sell into dead sideways drift)
     if adx_val < 18.0 and candidate_signal in ["BUY", "SELL"]:
-        if final_score < 72.0 and final_score > 28.0 and not is_quality_oversold_reversal:
+        if final_score < 72.0 and final_score > 28.0:
             candidate_signal = "WATCH"
 
-    # ── Fix 4 (RSI guardrail): Only block BUY if RSI overbought AND trend weak ──
+    # Guardrail 2: Cyclical Commodity Peak Filter (Prevent buying overbought Metal/Energy cycle tops)
+    if candidate_signal == "BUY" and cluster == "CYCLICAL" and rsi_val > 66.0 and vol_ratio_val < 2.0:
+        candidate_signal = "WATCH"
+
+    # Guardrail 3: RSI Parabolic Exhaustion
     if candidate_signal == "BUY" and rsi_val > 78.0:
         candidate_signal = "WATCH"   # True parabolic exhaustion cutoff
-    elif candidate_signal == "BUY" and rsi_val > 68.0 and adx_val < 25.0:
+    elif candidate_signal == "BUY" and rsi_val > 68.0 and adx_val < 25.0 and not is_vcp_breakout:
         candidate_signal = "WATCH"   # Overbought in weak trend only
 
     # RSI oversold guard for SELL — only block if ADX confirms no downtrend
     if candidate_signal == "SELL" and rsi_val < 22.0:
         candidate_signal = "WATCH"   # True capitulation floor
-    elif candidate_signal == "SELL" and rsi_val < 32.0 and adx_val < 25.0:
+    elif candidate_signal == "SELL" and rsi_val < 30.0 and adx_val < 22.0:
         candidate_signal = "WATCH"   # Oversold in weak trend
 
     primary_signal = candidate_signal
-    strength = "STRONG" if (final_score >= 75 or final_score <= 25) else ("MODERATE" if (final_score >= 62 or final_score <= 38) else "WEAK")
-    confidence = round(abs(final_score - 50) / 50.0, 2)
 
-    # 5. Risk Classification incorporating Piotroski & Altman Z
-    if alt_z < 1.81 or (beta and beta > 1.45) or (volatility and volatility > 0.40):
+    # ── Signal Strength: margin above/below threshold (item 2.2) ─────────────
+    margin = abs(final_score - (effective_buy_threshold if primary_signal == 'BUY' else effective_sell_threshold))
+    if margin >= 12:
+        strength = "CONVICTION"
+    elif margin >= 7:
+        strength = "STRONG"
+    elif margin >= 3:
+        strength = "MODERATE"
+    else:
+        strength = "WEAK"
+    if primary_signal == "WATCH":
+        strength = "NEUTRAL"
+
+    # ── Composite 5-Factor Confidence Score (item 4.2) ───────────────────────
+    score_margin_pct = min(1.0, margin / 15.0)
+    adx_norm = min(1.0, adx_val / 50.0)
+    volume_norm = min(1.0, float(ind.get('volume_ratio') or 1.0) / 3.0)
+    fundamental_quality = float(pio_score) / 9.0
+    confidence = round(
+        0.35 * score_margin_pct
+        + 0.20 * adx_norm
+        + 0.20 * volume_norm
+        + 0.15 * sector_alignment
+        + 0.10 * fundamental_quality,
+        2
+    )
+
+    # 5. Risk Classification incorporating Piotroski & Altman Z (Exempt for Banks)
+    if (not is_bank_exempt and alt_z < 1.81) or (beta and beta > 1.45) or (volatility and volatility > 0.40):
         risk_level = "RISKY"
-    elif pio_score >= 7 and alt_z >= 2.99 and (not beta or beta < 0.95) and (not volatility or volatility < 0.28):
+    elif pio_score >= 7 and (is_bank_exempt or alt_z >= 2.99) and (not beta or beta < 0.95) and (not volatility or volatility < 0.28):
         risk_level = "SAFE"
     else:
         risk_level = "MODERATE"
 
-    # 3. Multi-Pillar Reason Generation
+    # Multi-Pillar Reason Generation
     all_reasons = []
+    if reversal_reason: all_reasons.append(reversal_reason)
+    if vcp_reason:      all_reasons.append(vcp_reason)
     if rsi_s == primary_signal:   all_reasons.append(f"📊 RSI: {rsi_r}")
     if macd_s == primary_signal:  all_reasons.append(f"📈 MACD: {macd_r}")
     if ema_s == primary_signal:   all_reasons.append(f"〰️ Trend: {ema_r}")
@@ -453,6 +544,8 @@ def generate_signal_for_stock(
         "volume_signal": vol_s,   # Fix 3: now properly computed
         "obv_signal": obv_s,      # Fix 3: now properly computed
         "ml_signal": ml_signal,
+        "sector_alignment": round(sector_alignment, 2),
+        "signal_age_days": 0,  # freshness tracking — will be updated by audit updater
     }
 
 

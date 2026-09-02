@@ -45,10 +45,12 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git lfs install
           git status
           if [ -n "$(git status --porcelain data/stock_analyzer.db)" ]; then
             git add data/stock_analyzer.db
             git commit -m "chore(auto): 12:37 AM IST daily market delta refresh [skip ci]"
+            git pull --rebase origin ${{ github.ref_name }} || true
             git push
             echo "✅ Successfully refreshed and pushed updated market database to GitHub."
           else

@@ -239,7 +239,102 @@ def run_statistical_forecast(df: pd.DataFrame, symbol: str) -> Optional[Dict]:
         return None
 
 
+# ─── 1b. XGBoost Multi-Horizon Forecast Regressor (Items 1.3 & 5.2) ───────────
+def train_xgboost_forecast(df: pd.DataFrame, symbol: str) -> Optional[Dict]:
+    """
+    Items 1.3 & 5.2: XGBoost Multi-Horizon Return & Price Regressor.
+    Features: Returns (1d, 3d, 5d, 10d, 20d), Momentum (10, 20, 50), Volatility (10, 20),
+              52W price range position, Volume ratio, RSI, MACD, ADX, ATR ratio.
+    Trains on recent 800 days (stationary regime window), 80/20 train/val split.
+    Projects 7d, 14d, 1m, 3m, 6m, 1y price horizons with volatility cone bounds.
+    """
+    try:
+        import xgboost as xgb
+        if len(df) < 80:
+            return None
+
+        # Work with recent 800 days to avoid ancient regime bias
+        recent_df = df.tail(800)
+        features = build_features(recent_df).dropna()
+        if len(features) < 50:
+            return None
+
+        close = recent_df.loc[features.index, "close"].astype(float)
+        current_price = float(close.iloc[-1])
+
+        # Target: 10-day forward return (~14 calendar days)
+        fwd_ret = (close.shift(-10) - close) / close
+        valid_idx = fwd_ret.dropna().index
+
+        X = features.loc[valid_idx]
+        y = fwd_ret.loc[valid_idx]
+
+        split = int(len(X) * 0.8)
+        X_train, X_val = X.iloc[:split], X.iloc[split:]
+        y_train, y_val = y.iloc[:split], y.iloc[split:]
+
+        model = xgb.XGBRegressor(
+            n_estimators=75,
+            max_depth=3,
+            learning_rate=0.03,
+            subsample=0.8,
+            colsample_bytree=0.8,
+            reg_alpha=0.1,
+            reg_lambda=1.0,
+            random_state=42,
+            n_jobs=2
+        )
+        model.fit(X_train, y_train)
+
+        # Validation metrics
+        preds_val = model.predict(X_val)
+        corr = 0.0
+        if len(y_val) >= 5 and np.std(preds_val) > 0 and np.std(y_val) > 0:
+            corr = float(np.corrcoef(y_val, preds_val)[0, 1])
+            if np.isnan(corr):
+                corr = 0.0
+
+        # Predict forward return for latest bar
+        latest_feat = features.iloc[[-1]]
+        base_14d_ret = float(model.predict(latest_feat)[0])
+        # Clip to realistic 14-day boundaries (-20% to +25%)
+        base_14d_ret = max(-0.20, min(0.25, base_14d_ret))
+
+        # Daily historical volatility
+        ret_series = close.pct_change().dropna()
+        daily_vol = float(ret_series.std()) if len(ret_series) > 0 else 0.015
+
+        horizon_days = {"7d": 5, "14d": 10, "1m": 21, "3m": 63, "6m": 126, "1y": 252}
+        result = {
+            "model_used": f"XGBoost Regressor (Out-of-Sample Corr: {corr:.2f})",
+            "data_points_used": len(recent_df),
+        }
+
+        # Multi-horizon scaling: t^(1/2) scaling for drift with mean-reversion dampening
+        for label, td in horizon_days.items():
+            time_factor = (td / 10.0) ** 0.65  # sublinear horizon scaling
+            proj_ret = base_14d_ret * time_factor
+            proj_price = current_price * (1.0 + proj_ret)
+
+            # Volatility cone (80% CI: z=1.282)
+            vol_spread = 1.282 * daily_vol * np.sqrt(td) * current_price
+            upper = proj_price + vol_spread
+            lower = max(0.1, proj_price - vol_spread)
+
+            result[f"forecast_{label}_price"] = round(proj_price, 2)
+            result[f"forecast_{label}_change_pct"] = round(proj_ret * 100.0, 2)
+            result[f"forecast_{label}_upper"] = round(upper, 2)
+            result[f"forecast_{label}_lower"] = round(lower, 2)
+
+        return result
+
+    except Exception as e:
+        logger.warning(f"{symbol}: XGBoost forecast fallback: {e}")
+        return None
+
+
 # ─── 2. Random Forest Classifier ─────────────────────────────────────────────
+
 def run_random_forest(
     df: pd.DataFrame,
     symbol: str,
@@ -596,7 +691,10 @@ def compute_and_save_forecasts(
     if len(df) < 50:
         return
 
-    fc_results = run_prophet_forecast(df, symbol)
+    # Item 1.3/5.2: Try XGBoost Regressor first, fallback to Prophet / Holt-Winters
+    fc_results = train_xgboost_forecast(df, symbol)
+    if fc_results is None:
+        fc_results = run_prophet_forecast(df, symbol)
     if fc_results is None:
         return
 
@@ -715,14 +813,23 @@ def compute_ml_ensemble_consensus(df: pd.DataFrame) -> Dict:
 
     latest_X = features.iloc[[-1]].values
 
-    # 1. Gradient Boosting / Logistic Probability
+    # 1. XGBoost Gradient Boosting Machine
     gbm_prob = 0.50
     try:
-        lr = LogisticRegression(max_iter=100, random_state=42)
-        lr.fit(X, y)
-        gbm_prob = float(lr.predict_proba(latest_X)[0, 1])
+        import xgboost as xgb
+        xgb_clf = xgb.XGBClassifier(
+            n_estimators=40, max_depth=3, learning_rate=0.05,
+            subsample=0.8, random_state=42, n_jobs=2, eval_metric='logloss'
+        )
+        xgb_clf.fit(X, y)
+        gbm_prob = float(xgb_clf.predict_proba(latest_X)[0, 1])
     except Exception:
-        pass
+        try:
+            lr = LogisticRegression(max_iter=100, random_state=42)
+            lr.fit(X, y)
+            gbm_prob = float(lr.predict_proba(latest_X)[0, 1])
+        except Exception:
+            pass
 
     # 2. Random Forest (RF - Parallel Multi-core)
     rf_prob = 0.50

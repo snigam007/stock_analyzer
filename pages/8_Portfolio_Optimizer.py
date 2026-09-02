@@ -68,7 +68,8 @@ tabs = st.tabs([
     "🛡️ Black Swan Crisis Stress-Test",
     "🏛️ Barra & Fama-French Factor Risk Attribution",
     "🏰 Bridgewater Risk Parity & HRP",
-    "🎯 MAE / MFE Trade Analytics"
+    "🎯 MAE / MFE Trade Analytics",
+    "⚠️ Portfolio Risk & Kelly Sizing",
 ])
 
 # ── Tab 1: Efficient Frontier Optimizer ────────────────────────────────────────
@@ -520,4 +521,152 @@ with tabs[8]:
         use_container_width=True,
         hide_index=True
     )
+
+
+# ── Tab 10: Portfolio Risk Dashboard & Kelly Sizing (Items 4.1 + 5.3) ──────────
+with tabs[9]:
+    st.subheader("⚠️ Portfolio Risk Dashboard & Kelly Position Sizing")
+    st.caption("Beta-weighted VaR, sector concentration, correlation matrix, and optimal Kelly fraction per position")
+
+    risk_sess = get_session(engine)
+    try:
+        pos_rows = risk_sess.execute(text("""
+            SELECT symbol, shares, avg_entry_price, current_price,
+                   investment_amount, unrealized_pnl, unrealized_pnl_pct,
+                   target_1, stop_loss
+            FROM paper_portfolio_positions
+        """)).fetchall()
+
+        if not pos_rows:
+            st.info("No paper portfolio positions yet. Add some via the 'Execute Paper Trade' tab first.")
+        else:
+            pp_df = pd.DataFrame(pos_rows, columns=[
+                "Symbol", "Shares", "Avg Entry", "Current Price",
+                "Investment", "Unrealized P&L", "Unrealized %",
+                "Target 1", "Stop Loss"
+            ])
+
+            total_portfolio = float(pp_df["Investment"].sum() or 1.0)
+            total_pnl = float(pp_df["Unrealized P&L"].sum() or 0.0)
+
+            r1, r2, r3 = st.columns(3)
+            r1.metric("Total Portfolio Value", f"₹{total_portfolio:,.0f}")
+            r2.metric("Total Unrealized P&L", f"₹{total_pnl:,.0f}",
+                      delta_color="normal" if total_pnl >= 0 else "inverse")
+            r3.metric("Positions", len(pp_df))
+
+            st.markdown("---")
+
+            # ── Sector Concentration Pie ─────────────────────────────────────
+            st.markdown("##### 🏭 Sector Concentration")
+            sector_map = {}
+            for sym in pp_df["Symbol"]:
+                sec = risk_sess.execute(text(
+                    "SELECT sector FROM stocks WHERE symbol=:s LIMIT 1"
+                ), {"s": sym}).scalar() or "Unknown"
+                inv = float(pp_df[pp_df["Symbol"] == sym]["Investment"].iloc[0] or 0)
+                sector_map[sec] = sector_map.get(sec, 0) + inv
+
+            sec_df = pd.DataFrame(list(sector_map.items()), columns=["Sector", "Investment"])
+            sec_df["Weight %"] = sec_df["Investment"] / total_portfolio * 100
+
+            fig_pie = px.pie(
+                sec_df, names="Sector", values="Investment",
+                color_discrete_sequence=px.colors.qualitative.Set3,
+                hole=0.4,
+            )
+            fig_pie.update_layout(
+                paper_bgcolor="#0e1117", font=dict(color="#e0e0e0"), height=320,
+                margin=dict(l=10, r=10, t=20, b=10),
+            )
+            fig_pie.update_traces(textinfo="label+percent")
+
+            max_sec_wt = sec_df["Weight %"].max() if not sec_df.empty else 0
+            conc_col1, conc_col2 = st.columns([2, 1])
+            with conc_col1:
+                st.plotly_chart(fig_pie, use_container_width=True)
+            with conc_col2:
+                st.markdown("**Concentration Alerts:**")
+                for _, sr in sec_df.iterrows():
+                    wt = sr["Weight %"]
+                    icon = "🔴" if wt > 40 else ("🟡" if wt > 25 else "🟢")
+                    st.markdown(f"{icon} **{sr['Sector'][:28]}**: {wt:.1f}%")
+                if max_sec_wt > 40:
+                    st.warning(f"⚠️ High concentration ({max_sec_wt:.0f}%). Diversify across sectors.")
+
+            st.markdown("---")
+
+            # ── Beta-Weighted Portfolio VaR (95%) ────────────────────────────
+            st.markdown("##### 📉 Beta-Weighted Portfolio VaR (95%, 1-Day)")
+            portfolio_var_pct = 0.0
+            for sym in pp_df["Symbol"]:
+                beta_v = risk_sess.execute(text(
+                    "SELECT beta FROM composite_scores WHERE symbol=:s ORDER BY date DESC LIMIT 1"
+                ), {"s": sym}).scalar() or 1.0
+                vol_v = risk_sess.execute(text(
+                    "SELECT volatility_annual FROM composite_scores WHERE symbol=:s ORDER BY date DESC LIMIT 1"
+                ), {"s": sym}).scalar() or 0.22
+                inv = float(pp_df[pp_df["Symbol"] == sym]["Investment"].iloc[0] or 0)
+                weight = inv / total_portfolio
+                daily_vol = float(vol_v or 0.22) / np.sqrt(252)
+                portfolio_var_pct += weight * daily_vol * float(beta_v or 1.0) * 1.645
+
+            var_amount = total_portfolio * portfolio_var_pct
+            v1, v2, v3 = st.columns(3)
+            v1.metric("Portfolio VaR (95%, 1D)", f"-{portfolio_var_pct*100:.2f}%",
+                     help="Max estimated 1-day loss at 95% confidence")
+            v2.metric("VaR in Rupees", f"₹{var_amount:,.0f}")
+            v3.metric("Annual VaR (scaled)", f"-{portfolio_var_pct*100*np.sqrt(252):.1f}%")
+
+            st.markdown("---")
+
+            # ── Kelly Fraction Per Position (Item 5.3) ───────────────────────
+            st.markdown("##### 🎯 Kelly Optimal Position Sizing")
+            st.caption("Based on historical win rate and avg gain/loss from audit log. Half-Kelly recommended for live trading.")
+
+            kelly_data = []
+            for sym in pp_df["Symbol"]:
+                audit = risk_sess.execute(text("""
+                    SELECT
+                        COUNT(CASE WHEN realized_gain_pct > 0 THEN 1 END) as wins,
+                        COUNT(CASE WHEN realized_gain_pct <= 0 THEN 1 END) as losses,
+                        AVG(CASE WHEN realized_gain_pct > 0 THEN realized_gain_pct END) as avg_win,
+                        AVG(CASE WHEN realized_gain_pct <= 0 THEN ABS(realized_gain_pct) END) as avg_loss
+                    FROM signal_audit_log
+                    WHERE symbol = :s AND status != 'PENDING' AND realized_gain_pct IS NOT NULL
+                """), {"s": sym}).fetchone()
+
+                total_t = (audit[0] + audit[1]) if audit and audit[0] else 0
+                if total_t >= 3:
+                    w = audit[0] / total_t
+                    avg_w = float(audit[2] or 3.0)
+                    avg_l = float(audit[3] or 2.0)
+                    b = avg_w / avg_l
+                    kelly = (b * w - (1 - w)) / b
+                    kelly_f = max(0, min(kelly, 0.25))
+                    half_k = kelly_f / 2
+                    kelly_data.append({
+                        "Symbol": sym, "Win Rate": f"{w:.0%}",
+                        "Avg Win": f"{avg_w:.2f}%", "Avg Loss": f"{avg_l:.2f}%",
+                        "Full Kelly %": f"{kelly_f*100:.1f}%",
+                        "Half Kelly %": f"{half_k*100:.1f}%",
+                        "Suggested ₹ (of ₹10L)": f"₹{half_k*1000000:,.0f}",
+                        "Trades": total_t,
+                    })
+                else:
+                    kelly_data.append({
+                        "Symbol": sym, "Win Rate": "—", "Avg Win": "—", "Avg Loss": "—",
+                        "Full Kelly %": "—", "Half Kelly %": "—",
+                        "Suggested ₹ (of ₹10L)": "Insufficient data",
+                        "Trades": total_t,
+                    })
+
+            if kelly_data:
+                st.dataframe(pd.DataFrame(kelly_data), use_container_width=True, hide_index=True)
+                st.caption("💡 Half-Kelly is recommended for live trading. Full Kelly maximizes geometric growth but causes high drawdowns.")
+
+    except Exception as e:
+        st.error(f"Portfolio Risk Dashboard error: {e}")
+    finally:
+        risk_sess.close()
 

@@ -220,27 +220,33 @@ def compute_and_save_sector_analysis(session: Session):
             # Performance metrics
             stats = session.execute(text("""
                 SELECT
-                    AVG(p.daily_return) as daily_ret,
+                    AVG(COALESCE(p.daily_return, (p.close - prev.close) / prev.close)) as daily_ret,
                     COUNT(DISTINCT p.symbol) as total_stocks,
-                    SUM(CASE WHEN p.daily_return > 0 THEN 1 ELSE 0 END) as stocks_up,
-                    SUM(CASE WHEN p.daily_return < 0 THEN 1 ELSE 0 END) as stocks_down,
-                    SUM(CASE WHEN p.daily_return = 0 THEN 1 ELSE 0 END) as stocks_flat
+                    SUM(CASE WHEN COALESCE(p.daily_return, (p.close - prev.close) / prev.close) > 0.0005 THEN 1 ELSE 0 END) as stocks_up,
+                    SUM(CASE WHEN COALESCE(p.daily_return, (p.close - prev.close) / prev.close) < -0.0005 THEN 1 ELSE 0 END) as stocks_down,
+                    SUM(CASE WHEN ABS(COALESCE(p.daily_return, (p.close - prev.close) / prev.close)) <= 0.0005 THEN 1 ELSE 0 END) as stocks_flat
                 FROM daily_prices p
                 JOIN stocks s ON p.symbol = s.symbol
+                LEFT JOIN daily_prices prev ON prev.symbol = p.symbol
+                  AND prev.date = (SELECT MAX(d2.date) FROM daily_prices d2 WHERE d2.symbol = p.symbol AND d2.date < p.date)
                 WHERE s.sector = :sector AND p.date = :today
             """), {"sector": sector, "today": today.strftime("%Y-%m-%d")}).fetchone()
 
             # Multi-period returns
             weekly = session.execute(text("""
-                SELECT AVG(p.daily_return) * 5 FROM daily_prices p
+                SELECT AVG(COALESCE(p.daily_return, (p.close - prev.close) / prev.close)) * 5 * 100.0 FROM daily_prices p
                 JOIN stocks s ON p.symbol = s.symbol
+                LEFT JOIN daily_prices prev ON prev.symbol = p.symbol
+                  AND prev.date = (SELECT MAX(d2.date) FROM daily_prices d2 WHERE d2.symbol = p.symbol AND d2.date < p.date)
                 WHERE s.sector = :sector
                 AND p.date >= :start
             """), {"sector": sector, "start": (today - timedelta(days=7)).strftime("%Y-%m-%d")}).scalar()
 
             monthly = session.execute(text("""
-                SELECT AVG(p.daily_return) * 21 FROM daily_prices p
+                SELECT AVG(COALESCE(p.daily_return, (p.close - prev.close) / prev.close)) * 21 * 100.0 FROM daily_prices p
                 JOIN stocks s ON p.symbol = s.symbol
+                LEFT JOIN daily_prices prev ON prev.symbol = p.symbol
+                  AND prev.date = (SELECT MAX(d2.date) FROM daily_prices d2 WHERE d2.symbol = p.symbol AND d2.date < p.date)
                 WHERE s.sector = :sector
                 AND p.date >= :start
             """), {"sector": sector, "start": (today - timedelta(days=30)).strftime("%Y-%m-%d")}).scalar()
@@ -259,10 +265,13 @@ def compute_and_save_sector_analysis(session: Session):
 
             if stats:
                 total = stats[1] or 1
+                raw_daily = float(stats[0] or 0.0)
+                # Store as true percentage (e.g. -0.52% instead of -0.0052)
+                daily_pct = round(raw_daily * 100.0, 2) if abs(raw_daily) < 0.20 else round(raw_daily, 2)
                 sa_data = {
                     "sector": sector,
                     "date": str(today),
-                    "daily_return_avg": round(stats[0] or 0, 3),
+                    "daily_return_avg": daily_pct,
                     "weekly_return": round(weekly or 0, 2),
                     "monthly_return": round(monthly or 0, 2),
                     "total_stocks": stats[1] or 0,

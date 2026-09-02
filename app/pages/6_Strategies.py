@@ -22,6 +22,8 @@ st.set_page_config(page_title="Investment Strategies", page_icon="💼", layout=
 from db.database import get_global_engine, get_session
 from sqlalchemy import text
 from core.strategies import generate_portfolio_strategies
+from core.target_velocity import predict_time_to_target
+from core.sector_clusters import get_sector_cluster, get_cluster_metadata
 
 engine = get_global_engine()
 
@@ -42,10 +44,15 @@ def get_stock_strategies(risk_filter="ALL", action_filter="ALL", limit=20):
     query = """
         SELECT st.target_name as symbol, s.name, s.sector,
                st.strategy_name, st.strategy_type, st.risk_level, st.time_horizon,
-               st.description, st.action, st.entry_price, st.target_price,
-               st.stop_loss, st.expected_return_pct, st.rationale, st.risks
+               st.description, st.action,
+               COALESCE(st.entry_price, sig.current_price, sig.buy_price) as entry_price,
+               COALESCE(st.target_price, sig.target_price_1) as target_price,
+               COALESCE(st.stop_loss, sig.stop_loss) as stop_loss,
+               COALESCE(st.expected_return_pct, sig.target_1_upside_pct) as expected_return_pct,
+               st.rationale, st.risks
         FROM strategies st
         JOIN stocks s ON st.target_name = s.symbol
+        LEFT JOIN signals sig ON st.target_name = sig.symbol AND sig.date = (SELECT MAX(date) FROM signals)
         WHERE st.target_type = 'stock'
         AND st.date = (SELECT MAX(date) FROM strategies WHERE target_type='stock')
     """
@@ -56,7 +63,7 @@ def get_stock_strategies(risk_filter="ALL", action_filter="ALL", limit=20):
     if action_filter != "ALL":
         query += " AND st.action = :action"
         params["action"] = action_filter
-    query += f" ORDER BY st.expected_return_pct DESC NULLS LAST LIMIT {limit}"
+    query += f" ORDER BY COALESCE(st.expected_return_pct, sig.target_1_upside_pct) DESC NULLS LAST LIMIT {limit}"
     result = session.execute(text(query), params).fetchall()
     session.close()
     return result
@@ -96,16 +103,28 @@ with tabs[0]:
             action_icon = action_icons.get(action, "🟡")
             risk_color = risk_colors.get(risk, "#333")
 
+            pred_ttt = predict_time_to_target(
+                entry_price=entry or 0,
+                target_1=target or 0,
+                risk_level=risk,
+                setup_type=strat_type
+            )
+
+            cluster_name = get_sector_cluster(sector)
+            cluster_meta = get_cluster_metadata(cluster_name)
+
+            ret_badge = f" | 📈 **{exp_ret:+.1f}%**" if (exp_ret is not None and not pd.isna(exp_ret)) else (" | ⚠️ No Price Data" if not entry else "")
+
             with st.expander(
-                f"{action_icon} **{symbol}** — {name[:35]} | "
-                f"*{strat_name}* | {risk} | {horizon}-TERM",
+                f"{action_icon} **{symbol}** — {name[:24]}{ret_badge} | "
+                f"{cluster_meta['badge']} | *{strat_name}* | {risk} | ⏳ {pred_ttt['window_str']}",
                 expanded=False,
             ):
                 col1, col2 = st.columns([2, 1])
                 with col1:
-                    st.markdown(f"**📂 Sector:** {sector}")
+                    st.markdown(f"**📂 Sector:** {sector} ({cluster_meta['badge']})")
                     st.markdown(f"**🎯 Strategy:** {strat_name} ({strat_type})")
-                    st.markdown(f"**⏰ Horizon:** {horizon}-TERM")
+                    st.markdown(f"**⏰ Horizon:** {horizon}-TERM • **Est. Velocity:** {pred_ttt['badge_html']}", unsafe_allow_html=True)
                     st.markdown(f"\n{desc}")
                     st.markdown(f"\n**💡 Rationale:** {rationale}")
                     st.markdown(f"\n**⚠️ Risks:** {risks}")
@@ -116,6 +135,9 @@ with tabs[0]:
                     if target:
                         exp_str = f"{exp_ret:+.1f}%" if exp_ret else None
                         st.metric("Target", f"₹{target:,.2f}", exp_str)
+                    elif not entry:
+                        st.caption("⚠️ Price targets awaiting next signal cycle")
+                    st.metric("⏳ Est. Target Horizon", pred_ttt['window_str'], f"{pred_ttt['confidence_pct']}% Confidence")
                     if sl:
                         st.metric("Stop Loss", f"₹{sl:,.2f}")
                     st.markdown(

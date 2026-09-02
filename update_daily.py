@@ -87,23 +87,23 @@ def run_daily_delta_update(top_forecasts: int = 50):
     save_all_strategies(session)
 
     from core.accuracy_tracker import (
-        log_current_signals_to_audit,
+        log_all_multi_asset_signals_to_audit,
         evaluate_signal_audit_track_record,
         update_trailing_stops,
     )
     from sqlalchemy import text
 
-    logger.info("\n📋 Step 8/8: Signal Audit — Log, Trail & Evaluate...")
+    logger.info("\n📋 Step 8/8: Multi-Asset Signal Audit — Log, Trail & Evaluate...")
     try:
-        # Log today's new signals
-        logged = log_current_signals_to_audit(session)
-        logger.info(f"   Snapshotted {logged} new BUY/SELL signals to audit log.")
+        # Log today's multi-asset signals (Stocks, Indexes, Commodities, Breakouts)
+        logged_res = log_all_multi_asset_signals_to_audit(session)
+        logger.info(f"   Snapshotted {logged_res['total_logged']} multi-asset signals to audit log (Stocks: {logged_res['stocks_logged']}, Indices: {logged_res['indexes_logged']}, Commodities: {logged_res['commodities_logged']}, Breakouts: {logged_res['breakouts_logged']}).")
         # Update trailing stops on all open positions
         trailed = update_trailing_stops(session)
         if trailed:
             logger.info(f"   Updated {trailed} trailing stops.")
         # Evaluate and PERSIST outcomes for historical signals
-        stats = evaluate_signal_audit_track_record(session)
+        stats = evaluate_signal_audit_track_record(session, asset_type="ALL")
         logger.info(
             f"   Audit: {stats['total_signals_tracked']} total | "
             f"{stats['completed_signals']} resolved | "

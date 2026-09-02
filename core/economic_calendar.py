@@ -226,3 +226,37 @@ def get_upcoming_economic_events(
         })
 
     return results
+
+
+def get_upcoming_earnings_flag(symbol: str, session: Session, within_days: int = 14) -> Optional[Dict]:
+    """
+    Item 4.4: Checks if a stock has an earnings event within the next N days.
+    Returns dict with event_name, days_left, badge_text, event_date or None.
+    """
+    try:
+        today = date.today()
+        max_d = today + timedelta(days=within_days)
+        ev = session.execute(text("""
+            SELECT event_date, event_name, description
+            FROM economic_events
+            WHERE symbol = :s AND category = 'EARNINGS'
+              AND event_date >= :today AND event_date <= :max_d
+            ORDER BY event_date ASC LIMIT 1
+        """), {"s": symbol, "today": str(today), "max_d": str(max_d)}).mappings().first()
+
+        if ev:
+            ev_date = datetime.strptime(str(ev["event_date"])[:10], "%Y-%m-%d").date() if isinstance(ev["event_date"], str) else ev["event_date"]
+            days_left = (ev_date - today).days
+            badge = f"📅 Earnings in {days_left}d" if days_left > 0 else "📅 Earnings TODAY"
+            return {
+                "symbol": symbol,
+                "event_date": str(ev_date),
+                "days_left": days_left,
+                "event_name": ev["event_name"],
+                "description": ev["description"],
+                "badge_text": badge
+            }
+    except Exception:
+        pass
+    return None
+

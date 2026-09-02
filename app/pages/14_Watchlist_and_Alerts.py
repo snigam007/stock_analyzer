@@ -30,6 +30,7 @@ if not hasattr(db.database, "Watchlist"):
     importlib.reload(db.database)
 
 from db.database import get_global_engine, get_session, Stock
+from sqlalchemy import text
 from core.watchlist_manager import (
     get_all_watchlists, create_watchlist, delete_watchlist,
     get_watchlist_items, add_item_to_watchlist, remove_item_from_watchlist,
@@ -148,7 +149,69 @@ with tab1:
         kpi3.metric("🟢 BUY Signals", f"{bullish_items} active")
         kpi4.metric("🔔 Near Buy Target", f"{near_buy_targets} stocks")
 
+        # ── Smart Alert Engine (Item 3.6) ────────────────────────────────────
+        smart_alerts = []
+        try:
+            sig_date = session.execute(text("SELECT MAX(date) FROM signals")).scalar()
+            prev_date = session.execute(text(
+                "SELECT date FROM signals WHERE date < :d GROUP BY date ORDER BY date DESC LIMIT 1"
+            ), {"d": sig_date}).scalar() if sig_date else None
+
+            for it in items:
+                sym = it["symbol"]
+                curr_sig = it.get("signal", "WATCH")
+                curr_price = it.get("current_price", 0) or 0
+                user_sl = it.get("stop_loss")
+                user_target = it.get("target_buy_price")
+
+                # Signal change detection
+                if prev_date and sig_date:
+                    prev_sig_row = session.execute(text(
+                        "SELECT signal FROM signals WHERE symbol=:s AND date=:d LIMIT 1"
+                    ), {"s": sym, "d": prev_date}).scalar()
+                    if prev_sig_row and prev_sig_row != curr_sig:
+                        emoji = "🟢" if curr_sig == "BUY" else ("🔴" if curr_sig == "SELL" else "🟡")
+                        smart_alerts.append({
+                            "type": "signal_change",
+                            "symbol": sym,
+                            "msg": f"{emoji} **{sym}** signal changed: **{prev_sig_row} → {curr_sig}**",
+                            "level": "success" if curr_sig == "BUY" else ("error" if curr_sig == "SELL" else "info"),
+                        })
+
+                # SL proximity alert (within 1.5% of user stop loss)
+                if user_sl and curr_price and abs((curr_price - user_sl) / user_sl) <= 0.015:
+                    smart_alerts.append({
+                        "type": "sl_proximity",
+                        "symbol": sym,
+                        "msg": f"⚠️ **{sym}** is {(curr_price - user_sl)/user_sl*100:+.2f}% from your Stop Loss ₹{user_sl:,.2f}",
+                        "level": "warning",
+                    })
+
+                # Near target alert (within 1% of buy target)
+                if user_target and curr_price and abs((curr_price - user_target) / user_target) <= 0.01:
+                    smart_alerts.append({
+                        "type": "target",
+                        "symbol": sym,
+                        "msg": f"🎯 **{sym}** is within 1% of your Buy Target ₹{user_target:,.2f}",
+                        "level": "success",
+                    })
+        except Exception:
+            pass
+
+        if smart_alerts:
+            st.markdown("#### 🔔 Smart Alerts")
+            for alert in smart_alerts:
+                if alert["level"] == "success":
+                    st.success(alert["msg"])
+                elif alert["level"] == "error":
+                    st.error(alert["msg"])
+                elif alert["level"] == "warning":
+                    st.warning(alert["msg"])
+                else:
+                    st.info(alert["msg"])
+
         st.markdown("---")
+
 
         # Table Display
         df_items = pd.DataFrame(items)

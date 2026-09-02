@@ -416,10 +416,25 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ── Item 4.4: Earnings Calendar Flag ──────────────────────────────────────────
+from core.economic_calendar import get_upcoming_earnings_flag
+earn_sess = get_session(engine)
+earn_flag = get_upcoming_earnings_flag(selected_symbol, earn_sess, within_days=30)
+earn_sess.close()
+
+if earn_flag:
+    st.markdown(f"""
+    <div style="background: rgba(234, 179, 8, 0.12); border-left: 4px solid #eab308; padding: 8px 14px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9em; color: #fef08a;">
+        ⚡ <b>{earn_flag['badge_text']}</b>: {earn_flag['event_name']} on <b>{earn_flag['event_date']}</b> ({earn_flag['description']}). Anticipate elevated implied volatility and catalyst price swings.
+    </div>
+    """, unsafe_allow_html=True)
+
 col1, col2, col3, col4, col5, col6 = st.columns([2.8, 1, 1, 1, 1, 1.4])
 with col1:
+    earn_sub = f" • <span style='color:#eab308;font-weight:600;'>{earn_flag['badge_text']}</span>" if earn_flag else ""
     st.title(f"{selected_symbol} — {stock_name}")
-    st.caption(f"📂 {stock_sector} | 📊 {stock_tier.upper()} Cap | NSE")
+    st.markdown(f"📂 {stock_sector} | 📊 {stock_tier.upper()} Cap | NSE{earn_sub}", unsafe_allow_html=True)
+
 with col2:
     current_price = sig.get("current_price") or (df["close"].iloc[-1] if len(df) > 0 else 0)
     day_ret = None
@@ -474,6 +489,90 @@ with col6:
         st.caption("Advisory Report ready on page load")
 
 st.markdown("---")
+
+# ── Signal & Trade History Audit Trail (Item 3.2) ─────────────────────────────
+with st.expander("📋 Signal & Trade History (Audit Trail)", expanded=False):
+    audit_sess = get_session(engine)
+    try:
+        audit_rows = audit_sess.execute(text("""
+            SELECT signal_date, signal, entry_price, target_1, target_2, stop_loss,
+                   status, realized_gain_pct, days_to_outcome, trailing_stop,
+                   max_price_reached, risk_level
+            FROM signal_audit_log
+            WHERE symbol = :s
+            ORDER BY signal_date DESC
+            LIMIT 12
+        """), {"s": selected_symbol}).fetchall()
+    except Exception:
+        audit_rows = []
+    finally:
+        audit_sess.close()
+
+    if audit_rows:
+        status_icons = {
+            "PENDING": "⏳", "T1_HIT": "🎯", "T2_HIT": "🎯🎯", "T3_HIT": "🎯🎯🎯",
+            "SL_HIT": "🛑", "TRAILING_SL_HIT": "🔒", "EXPIRED": "⌛"
+        }
+        status_colors = {
+            "PENDING": "#5c7080", "T1_HIT": "#00c875", "T2_HIT": "#00e5a0",
+            "T3_HIT": "#00ffc8", "SL_HIT": "#e04b4b", "TRAILING_SL_HIT": "#80c4ff", "EXPIRED": "#aaa"
+        }
+        sig_icons = {"BUY": "🟢", "SELL": "🔴", "WATCH": "🟡"}
+
+        audit_df = pd.DataFrame(audit_rows, columns=[
+            "Date", "Signal", "Entry", "T1", "T2", "SL",
+            "Status", "Gain %", "Days", "Trail SL", "Max Price", "Risk"
+        ])
+
+        # Summary stats at top
+        resolved = audit_df[audit_df["Status"] != "PENDING"]
+        if not resolved.empty:
+            wins = resolved[resolved["Gain %"] > 0]
+            losses = resolved[resolved["Gain %"] <= 0]
+            wr = len(wins) / len(resolved) if len(resolved) > 0 else 0
+            avg_gain = resolved["Gain %"].mean()
+            avg_gain_str = f"{avg_gain:+.2f}%" if pd.notna(avg_gain) else "—"
+            mcol1, mcol2, mcol3, mcol4 = st.columns(4)
+            mcol1.metric("Resolved Trades", len(resolved))
+            mcol2.metric("Win Rate", f"{wr:.0%}")
+            mcol3.metric("Avg Gain", avg_gain_str,
+                         delta_color="normal" if (pd.notna(avg_gain) and avg_gain >= 0) else "inverse")
+            mcol4.metric("Pending", len(audit_df[audit_df["Status"] == "PENDING"]))
+            st.markdown("")
+
+        # Trade history rows
+        for _, arow in audit_df.iterrows():
+            status = str(arow["Status"]) if pd.notna(arow["Status"]) else "PENDING"
+            gain = arow["Gain %"]
+            sc = status_colors.get(status, "#888")
+            si = status_icons.get(status, "?")
+            gain_str = f"{gain:+.2f}%" if pd.notna(gain) else "—"
+            days_val = arow["Days"]
+            days_str = f"{int(days_val)}d" if (pd.notna(days_val) and not np.isnan(days_val)) else "—"
+            entry_val = arow["Entry"]
+            entry_str = f"₹{entry_val:,.2f}" if (pd.notna(entry_val) and not np.isnan(entry_val)) else "—"
+            t1_val = arow["T1"]
+            t1_str = f"₹{t1_val:,.2f}" if (pd.notna(t1_val) and not np.isnan(t1_val)) else "—"
+            sl_val = arow["SL"]
+            sl_str = f"₹{sl_val:,.2f}" if (pd.notna(sl_val) and not np.isnan(sl_val)) else "—"
+
+            ratchet = ""
+            if status in ("T2_HIT", "T3_HIT"):
+                ratchet = " 🔒 T2 locked"
+            elif status == "T1_HIT":
+                ratchet = " 🔒 BE locked"
+            st.markdown(
+                f'<div style="background:#1a2233;border-left:3px solid {sc};padding:6px 12px;'
+                f'border-radius:4px;margin-bottom:5px;font-size:0.88em;">'
+                f'<b>{arow["Date"]}</b> &nbsp; {sig_icons.get(arow["Signal"],"?")} {arow["Signal"]} '
+                f'@ {entry_str} → T1 {t1_str} | SL {sl_str} &nbsp;&nbsp;'
+                f'<span style="color:{sc};font-weight:700;">{si} {status}</span>'
+                f' &nbsp; <b>{gain_str}</b> in {days_str}{ratchet}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+    else:
+        st.info(f"No audit history found for {selected_symbol}. Signals must complete their evaluation window first.")
 
 # ── Trend Pattern ──────────────────────────────────────────────────────────────
 trend_pattern = ind.get("trend_pattern", "—")

@@ -60,7 +60,8 @@ backtest_tabs = st.tabs([
     "📈 Single Asset Strategy Backtest",
     "🛠️ No-Code Visual Quantitative Strategy Builder",
     "🔬 Overfitting Audit & Deflated Sharpe (DSR)",
-    "🧬 Genetic Algorithm Evolutionary Optimizer"
+    "🧬 Genetic Algorithm Evolutionary Optimizer",
+    "🔄 Walk-Forward Rolling Analysis (Out-of-Sample)",
 ])
 
 with backtest_tabs[0]:
@@ -291,7 +292,7 @@ with backtest_tabs[1]:
 
     with b_col2:
         st.markdown("#### 📊 Strategy Performance & Universe Backtest Results")
-        
+
         active_rules = {
             "rsi_min": float(c_rsi_min),
             "rsi_max": float(c_rsi_max),
@@ -301,62 +302,74 @@ with backtest_tabs[1]:
             "above_ema_50": c_above_50,
         }
 
-        session_sb = get_session(engine)
-        builder_results = evaluate_custom_strategy(
-            session_sb,
-            active_rules,
-            holding_period_days=hold_days,
-            take_profit_pct=tp_pct,
-            stop_loss_pct=sl_pct,
-            max_stocks_to_test=max_stocks
-        )
-        session_sb.close()
-
-        # Scorecard Metrics
-        sm1, sm2, sm3, sm4, sm5 = st.columns(5)
-        with sm1:
-            st.metric("Total Trades", builder_results["total_trades"])
-        with sm2:
-            st.metric("Win Rate", f"{builder_results['win_rate_pct']:.1f}%", "Profitable" if builder_results['win_rate_pct'] >= 50 else "Sub-50%")
-        with sm3:
-            st.metric("Profit Factor", f"{builder_results['profit_factor']:.2f}", "Elite" if builder_results['profit_factor'] >= 1.5 else "Moderate")
-        with sm4:
-            st.metric("Max Drawdown", f"-{builder_results['max_drawdown_pct']:.1f}%")
-        with sm5:
-            st.metric("Portfolio Return", f"{builder_results['total_return_pct']:+.1f}%")
-
-        # Equity Curve Chart
-        st.markdown("##### 📈 Strategy Cumulative Equity Growth (Initial: ₹100,000)")
-        df_builder_eq = pd.DataFrame({"Trade #": list(range(len(builder_results["equity_curve"]))), "Equity (₹)": builder_results["equity_curve"]})
-        fig_b_eq = go.Figure()
-        fig_b_eq.add_trace(go.Scatter(x=df_builder_eq["Trade #"], y=df_builder_eq["Equity (₹)"], mode="lines", line=dict(color="#00c875", width=2), name="Strategy Equity"))
-        fig_b_eq.add_hline(y=100000.0, line_dash="dash", line_color="#718096", annotation_text="Breakeven ₹100,000")
-        fig_b_eq.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
-        st.plotly_chart(fig_b_eq, use_container_width=True)
-
-        # Recent Trades Log
-        with st.expander("📋 Sample Execution Log (First 50 Trades)", expanded=False):
-            if builder_results["trade_log"]:
-                df_tlog = pd.DataFrame(builder_results["trade_log"])
-                st.dataframe(
-                    df_tlog.rename(columns={
-                        "symbol": "Symbol",
-                        "entry_date": "Entry Date",
-                        "entry_price": "Entry Price (₹)",
-                        "exit_date": "Exit Date",
-                        "return_pct": "Return %",
-                        "exit_reason": "Exit Reason"
-                    }).style.format({
-                        "Entry Price (₹)": "₹{:,.2f}",
-                        "Return %": "{:+.2f}%"
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
+        if run_builder or "builder_results" in st.session_state:
+            if run_builder:
+                with st.spinner("Executing vectorized multi-stock backtest across universe..."):
+                    session_sb = get_session(engine)
+                    try:
+                        builder_results = evaluate_custom_strategy(
+                            session_sb,
+                            active_rules,
+                            holding_period_days=hold_days,
+                            take_profit_pct=tp_pct,
+                            stop_loss_pct=sl_pct,
+                            max_stocks_to_test=max_stocks
+                        )
+                        st.session_state["builder_results"] = builder_results
+                    finally:
+                        session_sb.close()
             else:
-                st.info("No trades matched the selected filters.")
+                builder_results = st.session_state.get("builder_results")
 
-# Tab 3: Overfitting Audit & Deflated Sharpe Ratio (DSR)
+            if builder_results:
+                # Scorecard Metrics
+                sm1, sm2, sm3, sm4, sm5 = st.columns(5)
+                with sm1:
+                    st.metric("Total Trades", builder_results["total_trades"])
+                with sm2:
+                    st.metric("Win Rate", f"{builder_results['win_rate_pct']:.1f}%", "Profitable" if builder_results['win_rate_pct'] >= 50 else "Sub-50%")
+                with sm3:
+                    st.metric("Profit Factor", f"{builder_results['profit_factor']:.2f}", "Elite" if builder_results['profit_factor'] >= 1.5 else "Moderate")
+                with sm4:
+                    st.metric("Max Drawdown", f"-{builder_results['max_drawdown_pct']:.1f}%")
+                with sm5:
+                    st.metric("Portfolio Return", f"{builder_results['total_return_pct']:+.1f}%")
+
+                # Equity Curve Chart
+                st.markdown("##### 📈 Strategy Cumulative Equity Growth (Initial: ₹100,000)")
+                df_builder_eq = pd.DataFrame({"Trade #": list(range(len(builder_results["equity_curve"]))), "Equity (₹)": builder_results["equity_curve"]})
+                fig_b_eq = go.Figure()
+                fig_b_eq.add_trace(go.Scatter(x=df_builder_eq["Trade #"], y=df_builder_eq["Equity (₹)"], mode="lines", line=dict(color="#00c875", width=2), name="Strategy Equity"))
+                fig_b_eq.add_hline(y=100000.0, line_dash="dash", line_color="#718096", annotation_text="Breakeven ₹100,000")
+                fig_b_eq.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+                st.plotly_chart(fig_b_eq, use_container_width=True)
+
+                # Recent Trades Log
+                with st.expander("📋 Sample Execution Log (First 50 Trades)", expanded=False):
+                    if builder_results["trade_log"]:
+                        df_tlog = pd.DataFrame(builder_results["trade_log"])
+                        st.dataframe(
+                            df_tlog.rename(columns={
+                                "symbol": "Symbol",
+                                "entry_date": "Entry Date",
+                                "entry_price": "Entry Price (₹)",
+                                "exit_date": "Exit Date",
+                                "return_pct": "Return %",
+                                "exit_reason": "Exit Reason"
+                            }).style.format({
+                                "Entry Price (₹)": "₹{:,.2f}",
+                                "Return %": "{:+.2f}%"
+                            }),
+                            use_container_width=True,
+                            hide_index=True
+                        )
+                    else:
+                        st.caption("No trades generated matching this confluence setup.")
+        else:
+            st.info("👈 Configure custom indicators and execution rules on the left, then click **Run Vectorized Universe Backtest** to simulate performance across historical data.")
+
+
+# ── Tab 3: Overfitting Audit & Deflated Sharpe Ratio (DSR) ───────────────────
 with backtest_tabs[2]:
     st.subheader("🔬 Combinatorial Purged Cross-Validation & Deflated Sharpe Ratio (DSR)")
     st.caption("Marcos López de Prado: Audits backtest robustness, corrects for selection bias across multiple trials, and calculates Probability of Backtest Overfitting (PBO)")
@@ -369,6 +382,7 @@ with backtest_tabs[2]:
         n_trials = st.slider("Number of Strategy Trials Tested (N)", 5, 100, 30, help="How many parameter combinations or strategy variants have you tested?")
         bm_sharpe = st.number_input("Benchmark Sharpe Ratio (e.g. NIFTY Buy & Hold)", min_value=0.0, max_value=3.0, value=0.65, step=0.05)
         rf_rate_aud = st.number_input("Risk-Free Rate (% p.a.)", min_value=3.0, max_value=10.0, value=6.5, step=0.25) / 100.0
+
 
     with aud_col2:
         st.markdown("#### 📊 Statistical Significance & Overfitting Audit Scorecard")
@@ -448,4 +462,104 @@ with backtest_tabs[3]:
         st.plotly_chart(fig_fit, use_container_width=True)
 
 
+# ── Tab 5: Walk-Forward Rolling Analysis (Item 5.1) ───────────────────────────
+with backtest_tabs[4]:
+    st.subheader("🔄 Walk-Forward Rolling Analysis (Out-of-Sample)")
+    st.caption("Mitigate overfitting by sliding train/test windows across historical data and stitching true out-of-sample forward performance.")
 
+    from core.backtester import run_walk_forward_backtest
+
+    wf_col1, wf_col2 = st.columns([1, 3])
+
+    with wf_col1:
+        st.markdown("**Walk-Forward Settings:**")
+        wf_symbol = st.selectbox("Asset for Walk-Forward", symbols, index=0, key="wf_symbol_select")
+        wf_strat = st.selectbox(
+            "Strategy Algorithm",
+            [
+                "Multi-Engine Confluence",
+                "EMA Golden Cross Trend",
+                "RSI Oversold Mean Reversion",
+                "Volume Breakout Momentum",
+            ],
+            key="wf_strat_select"
+        )
+        wf_train = st.selectbox("In-Sample Train Window", [63, 126, 252], index=1, format_func=lambda x: f"{x} Days (~{x//21}m)", key="wf_train_sel")
+        wf_test = st.selectbox("Out-of-Sample Test Window", [21, 42, 63], index=0, format_func=lambda x: f"{x} Days (~{x//21}m)", key="wf_test_sel")
+        wf_cap = st.number_input("Starting Capital (₹)", value=100000.0, step=10000.0, key="wf_cap_input")
+
+        run_wf_btn = st.button("🚀 Run Walk-Forward Analysis", type="primary", use_container_width=True)
+
+    with wf_col2:
+        if run_wf_btn or "wf_results" in st.session_state:
+            if run_wf_btn:
+                wf_sess = get_session(engine)
+                with st.spinner(f"Computing rolling walk-forward slices for {wf_symbol}..."):
+                    wf_res = run_walk_forward_backtest(
+                        symbol=wf_symbol,
+                        strategy_name=wf_strat,
+                        session=wf_sess,
+                        train_days=wf_train,
+                        test_days=wf_test,
+                        initial_capital=wf_cap,
+                    )
+                wf_sess.close()
+                st.session_state["wf_results"] = wf_res
+
+            wf_res = st.session_state.get("wf_results", {})
+
+            if "error" in wf_res:
+                st.error(wf_res["error"])
+            elif wf_res:
+                # 4 KPI cards
+                wk1, wk2, wk3, wk4 = st.columns(4)
+                ret_color = "normal" if wf_res["total_oos_return_pct"] >= 0 else "inverse"
+                wk1.metric("Total Out-of-Sample Return", f"{wf_res['total_oos_return_pct']:+.2f}%", delta_color=ret_color)
+                wk2.metric("Window Consistency", f"{wf_res['window_consistency_pct']:.1f}%", f"{wf_res['profitable_windows']}/{wf_res['total_windows']} Windows Profitable")
+                wk3.metric("Avg Window Sharpe", f"{wf_res['avg_window_sharpe']:.2f}")
+                wk4.metric("Ending Capital", f"₹{wf_res['final_capital']:,.0f}", f"Initial: ₹{wf_res['initial_capital']:,.0f}")
+
+                st.markdown("---")
+
+                # Stitched Out-of-Sample Equity Curve
+                st.markdown("##### 📈 Stitched Out-of-Sample Equity Curve (Pure Forward Performance)")
+                df_eq = pd.DataFrame({
+                    "Date": wf_res["stitched_dates"],
+                    "Portfolio Value": wf_res["stitched_equity"]
+                })
+                fig_eq = px.line(df_eq, x="Date", y="Portfolio Value", color_discrete_sequence=["#00c875"])
+                fig_eq.update_layout(
+                    height=300,
+                    margin=dict(l=10, r=10, t=20, b=10),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    font=dict(color="#e0e0e0"),
+                    yaxis=dict(gridcolor="#21262d", title="Capital (₹)"),
+                    xaxis=dict(gridcolor="#21262d")
+                )
+                st.plotly_chart(fig_eq, use_container_width=True)
+
+                # Granular Windows Table
+                st.markdown("##### 🔬 Window-by-Window Out-of-Sample Breakdown")
+                df_win = pd.DataFrame(wf_res["windows"])
+                st.dataframe(
+                    df_win.rename(columns={
+                        "window": "Window #",
+                        "test_start": "Test Start",
+                        "test_end": "Test End",
+                        "return_pct": "Return %",
+                        "sharpe": "Sharpe Ratio",
+                        "trades": "Trades",
+                        "win_rate": "Win Rate %",
+                        "end_capital": "Ending Capital (₹)"
+                    }).style.format({
+                        "Return %": "{:+.2f}%",
+                        "Sharpe Ratio": "{:.2f}",
+                        "Win Rate %": "{:.1f}%",
+                        "Ending Capital (₹)": "₹{:,.0f}"
+                    }),
+                    use_container_width=True,
+                    hide_index=True
+                )
+        else:
+            st.info("👈 Configure rolling window parameters on the left and click **Run Walk-Forward Analysis** to test robustness.")

@@ -1,4 +1,4 @@
-﻿"""
+"""
 No-Code Visual Quantitative Strategy Builder & Universe Backtester
 - Rule Composer: Combines multi-factor indicators (RSI, EMAs, Volume, Momentum) on historical daily prices
 - Vectorized Multi-Stock Universe Backtester across active stocks
@@ -102,7 +102,7 @@ def evaluate_custom_strategy(
     Executes a vectorized multi-stock backtest of the composed custom strategy rules
     across the historical universe in SQLite.
     """
-    stocks = session.execute(text("SELECT symbol, name, sector FROM stocks WHERE is_active = 1 LIMIT :lim"), {"lim": max_stocks_to_test}).fetchall()
+    stocks = session.execute(text("SELECT symbol, name, sector FROM stocks WHERE is_active = 1 LIMIT :lim"), {"lim": int(max_stocks_to_test)}).fetchall()
     
     total_trades = 0
     winning_trades = 0
@@ -118,13 +118,18 @@ def evaluate_custom_strategy(
     above_200 = rules.get("above_ema_200", False)
     above_50 = rules.get("above_ema_50", False)
 
-    for sym, name, sec in stocks:
+    for row in stocks:
+        sym = str(row[0]).strip()
+        name = str(row[1]) if len(row) > 1 else sym
+        sec = str(row[2]) if len(row) > 2 else "ALL"
+
         rows = session.execute(text("""
             SELECT date, open, high, low, close, volume
             FROM daily_prices
             WHERE symbol = :sym
             ORDER BY date ASC
         """), {"sym": sym}).fetchall()
+
 
         if len(rows) < 60:
             continue

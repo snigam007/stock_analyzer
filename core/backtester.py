@@ -58,7 +58,8 @@ def run_backtest(
         for col in ["open", "high", "low", "close", "volume"]:
             df[col] = df[col].astype(float)
 
-        # Compute Core Indicators
+    # Compute Core Indicators if not already present
+    if "rsi" not in df.columns:
         close = df["close"]
         high = df["high"]
         low = df["low"]
@@ -101,6 +102,7 @@ def run_backtest(
         df["vol_sma"] = vol.rolling(20).mean()
 
         df = df.dropna().copy()
+
 
     if df.empty or len(df) < 30:
         return {"error": f"Insufficient indicator data for {symbol}."}
@@ -414,3 +416,118 @@ def find_champion_strategy(symbol: str, session: Session, years: int = 3) -> Dic
         "all_ranked": all_results,
         "years": years,
     }
+
+
+# ─── Walk-Forward Rolling Backtester (Item 5.1) ────────────────────────────────
+def run_walk_forward_backtest(
+    symbol: str,
+    strategy_name: str,
+    session: Session,
+    train_days: int = 126,
+    test_days: int = 21,
+    initial_capital: float = 100000.0,
+) -> Dict:
+    """
+    Item 5.1: Walk-Forward Rolling Analysis (Out-of-Sample).
+    Slides a rolling window through historical data:
+    - Train window (126 trading days ~ 6 months)
+    - Test window (21 trading days ~ 1 month)
+    Runs out-of-sample forward evaluation for each slice and stitches the results.
+    """
+    query = """
+        SELECT date, open, high, low, close, volume
+        FROM daily_prices
+        WHERE symbol = :s
+        ORDER BY date ASC
+    """
+    rows = session.execute(text(query), {"s": symbol}).fetchall()
+    if not rows or len(rows) < (train_days + test_days * 2):
+        return {"error": f"Insufficient data for Walk-Forward Analysis on {symbol}. Need at least {train_days + test_days * 2} bars."}
+
+    df_full = pd.DataFrame(rows, columns=["date", "open", "high", "low", "close", "volume"])
+    df_full["date"] = pd.to_datetime(df_full["date"])
+    df_full.set_index("date", inplace=True)
+    for col in ["open", "high", "low", "close", "volume"]:
+        df_full[col] = df_full[col].astype(float)
+
+    windows = []
+    stitched_equity = [initial_capital]
+    stitched_dates = [df_full.index[train_days]]
+    current_cap = initial_capital
+    all_trades = []
+
+    start_idx = 0
+    total_len = len(df_full)
+
+    while (start_idx + train_days + test_days) <= total_len:
+        test_slice = df_full.iloc[start_idx + train_days : start_idx + train_days + test_days]
+        test_start_dt = str(test_slice.index[0])[:10]
+        test_end_dt = str(test_slice.index[-1])[:10]
+
+        eval_slice = df_full.iloc[start_idx : start_idx + train_days + test_days]
+        bt_res = run_backtest(
+            symbol=symbol,
+            strategy_name=strategy_name,
+            session=session,
+            start_date=test_start_dt,
+            end_date=test_end_dt,
+            initial_capital=current_cap,
+            prepared_df=eval_slice
+        )
+
+        if "error" not in bt_res:
+            # Filter trades that were initiated strictly during the out-of-sample test window
+            all_window_trades = bt_res.get("trade_log", [])
+            oos_trades = [t for t in all_window_trades if t.get("entry_date", "") >= test_start_dt and t.get("entry_date", "") <= test_end_dt]
+            oos_pnl = sum(t.get("pnl", 0.0) for t in oos_trades)
+            oos_ret = (oos_pnl / current_cap) * 100.0 if current_cap > 0 else 0.0
+
+            end_cap = current_cap + oos_pnl
+            trades_cnt = len(oos_trades)
+            win_cnt = sum(1 for t in oos_trades if t.get("pnl", 0.0) > 0)
+            win_rate = (win_cnt / trades_cnt * 100.0) if trades_cnt > 0 else 0.0
+            sharpe = bt_res.get("sharpe_ratio", 0.0)
+
+            windows.append({
+                "window": len(windows) + 1,
+                "test_start": test_start_dt,
+                "test_end": test_end_dt,
+                "return_pct": round(float(oos_ret), 2),
+                "sharpe": round(float(sharpe), 2),
+                "trades": trades_cnt,
+                "win_rate": round(float(win_rate), 1),
+                "end_capital": round(float(end_cap), 2)
+            })
+
+            current_cap = end_cap
+            stitched_equity.append(round(float(current_cap), 2))
+            stitched_dates.append(str(test_slice.index[-1])[:10])
+            all_trades.extend(oos_trades)
+
+        start_idx += test_days
+
+    if not windows:
+        return {"error": "Walk-forward slices did not produce valid results."}
+
+    total_return_pct = round(float((current_cap - initial_capital) / initial_capital * 100.0), 2)
+    win_windows = sum(1 for w in windows if w["return_pct"] > 0)
+    window_consistency = round(float(win_windows / len(windows) * 100.0), 1) if windows else 0.0
+    avg_sharpe = round(float(np.mean([w["sharpe"] for w in windows])), 2) if windows else 0.0
+
+    return {
+        "symbol": symbol,
+        "strategy_name": strategy_name,
+        "total_windows": len(windows),
+        "profitable_windows": win_windows,
+        "window_consistency_pct": window_consistency,
+        "total_oos_return_pct": total_return_pct,
+        "avg_window_sharpe": avg_sharpe,
+        "initial_capital": initial_capital,
+        "final_capital": round(float(current_cap), 2),
+        "windows": windows,
+        "stitched_dates": [str(d)[:10] for d in stitched_dates],
+        "stitched_equity": [float(e) for e in stitched_equity],
+        "total_trades": len(all_trades)
+    }
+
+

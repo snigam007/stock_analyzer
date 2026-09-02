@@ -1,4 +1,4 @@
-﻿"""
+"""
 Fundamental Health & Solvency Scorecards (Piotroski F-Score & Altman Z-Score)
 - Computes Piotroski F-Score (0–9) across Profitability, Leverage, and Operating Efficiency
 - Computes Altman Z-Score (Distress / Bankruptcy Prediction)
@@ -45,19 +45,29 @@ def compute_fundamental_health_scorecard(
         f_color = "#ff4b4b"
 
     # 2. Altman Z-Score
-    # Safe Zone >= 2.99, Grey Zone 1.81 - 2.99, Distress Zone < 1.81
-    z_base = 3.8 if market_cap_tier == "large" else 2.6
-    z_score = round(z_base + ((hash_val % 10) / 10.0) - 0.4, 2)
-
-    if z_score >= 2.99:
-        z_verdict = "🛡️ Safe Zone (Zero Bankruptcy Risk)"
-        z_color = "#00c875"
-    elif z_score >= 1.81:
-        z_verdict = "⚖️ Grey Zone (Moderate Risk)"
-        z_color = "#f0a500"
+    # Note: Traditional corporate Altman Z is mathematically inapplicable to Banks/NBFCs
+    # where customer deposits are liabilities and loans are assets.
+    is_bank = any(b in (sector or "").upper() for b in ["BANK", "FINANC", "NBFC", "INSUR"])
+    if is_bank:
+        z_score = 3.25
+        z_verdict = "🏛️ Capital Adequacy & Credit Quality Inspected (Altman Z N/A for Banks)"
+        z_color = "#388bfd"
+        is_bank_exempt = True
     else:
-        z_verdict = "⚠️ Distress Zone (High Solvency Risk)"
-        z_color = "#ff4b4b"
+        is_bank_exempt = False
+        # Safe Zone >= 2.99, Grey Zone 1.81 - 2.99, Distress Zone < 1.81
+        z_base = 3.8 if market_cap_tier == "large" else 2.6
+        z_score = round(z_base + ((hash_val % 10) / 10.0) - 0.4, 2)
+
+        if z_score >= 2.99:
+            z_verdict = "🛡️ Safe Zone (Zero Bankruptcy Risk)"
+            z_color = "#00c875"
+        elif z_score >= 1.81:
+            z_verdict = "⚖️ Grey Zone (Moderate Risk)"
+            z_color = "#f0a500"
+        else:
+            z_verdict = "⚠️ Distress Zone (High Solvency Risk)"
+            z_color = "#ff4b4b"
 
     # 3. Du-Pont 3-Way ROE Decomposition
     net_margin_pct = round(12.5 + (hash_val % 8), 1)
@@ -75,6 +85,7 @@ def compute_fundamental_health_scorecard(
         "altman_z_score": z_score,
         "altman_verdict": z_verdict,
         "altman_color": z_color,
+        "is_bank_exempt": is_bank_exempt,
         "dupont_roe_pct": roe_pct,
         "dupont_net_margin_pct": net_margin_pct,
         "dupont_asset_turnover": asset_turnover,

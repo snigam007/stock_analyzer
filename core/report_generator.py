@@ -1,4 +1,4 @@
-﻿"""
+"""
 1-Click Institutional Stock Teardown & Research Report Generator
 - Self-contained, responsive HTML/PDF report template with institutional styling
 - Covers Executive Signals, CPR Levels, Fundamental Health (Piotroski/Altman/DuPont),
@@ -301,4 +301,203 @@ def generate_stock_teardown_html(
 </body>
 </html>
 """
+    return html
+
+
+def generate_morning_report_html(session) -> str:
+    """
+    Item 4.3: Generates Daily Institutional Morning Briefing HTML report:
+    1. Top 5 BUY Signals table (Entry / T1 / T2 / SL / R:R / Score)
+    2. Active In-Play Positions & Ratchet Status
+    3. Sector Leadership & Breadth Performance
+    4. Empirical Track Record & Profit Factor Summary
+    """
+    from datetime import date
+    from sqlalchemy import text
+    from core.accuracy_tracker import _compute_summary_stats
+    from core.macro_regime import evaluate_macro_regime
+
+    today_str = date.today().strftime("%d %B, %Y")
+    macro = evaluate_macro_regime(session)
+    stats = _compute_summary_stats(session, asset_type="ALL")
+
+    # 1. Top 5 BUY signals
+    sig_date = session.execute(text("SELECT MAX(date) FROM signals")).scalar()
+    top_buys = session.execute(text("""
+        SELECT sig.symbol, s.name, s.sector, sig.current_price,
+               sig.buy_price, sig.target_price_1, sig.target_price_2,
+               sig.stop_loss, sig.risk_reward_ratio, cs.composite_score,
+               sig.risk_level
+        FROM signals sig
+        JOIN stocks s ON sig.symbol = s.symbol
+        JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
+        WHERE sig.date = :d AND sig.signal = 'BUY'
+        ORDER BY cs.composite_score DESC
+        LIMIT 5
+    """), {"d": sig_date}).fetchall()
+
+    # 2. In-Play positions with trailing stops
+    in_play = session.execute(text("""
+        SELECT symbol, signal, entry_price, target_1, stop_loss, trailing_stop,
+               max_price_reached, unrealized_gain_pct, signal_date
+        FROM signal_audit_log
+        WHERE status = 'PENDING'
+        ORDER BY signal_date DESC
+        LIMIT 6
+    """)).fetchall()
+
+    # 3. Sector performance
+    sectors = session.execute(text("""
+        SELECT sector, daily_return_avg, weekly_return, monthly_return,
+               avg_composite_score, buy_signals_count, sector_signal
+        FROM sector_analysis
+        WHERE date = (SELECT MAX(date) FROM sector_analysis)
+        ORDER BY avg_composite_score DESC
+        LIMIT 5
+    """)).fetchall()
+
+    # Build BUY rows
+    buy_rows_html = ""
+    for r in top_buys:
+        sym, name, sec, cp, entry, t1, t2, sl, rr, sc, risk = r
+        buy_rows_html += f"""
+        <tr>
+            <td><b>{sym}</b></td>
+            <td>{name[:22]}</td>
+            <td>{sec[:20]}</td>
+            <td>₹{cp:,.2f}</td>
+            <td><b style="color:#00c875">₹{t1:,.2f}</b></td>
+            <td><b style="color:#00c875">₹{t2:,.2f}</b></td>
+            <td><span style="color:#ff4b4b">₹{sl:,.2f}</span></td>
+            <td>{rr:.1f}x</td>
+            <td><span class="badge" style="background:#00c875">{sc:.0f}/100</span></td>
+            <td>{risk}</td>
+        </tr>"""
+
+    # Build in-play rows
+    in_play_html = ""
+    for r in in_play:
+        sym, sig, entry, t1, orig_sl, trail_sl, max_p, un_pnl, s_dt = r
+        eff_sl = trail_sl or orig_sl
+        pnl_col = "#00c875" if (un_pnl and un_pnl >= 0) else "#ff4b4b"
+        ratchet = "🔒 BE Locked" if (trail_sl and trail_sl > entry) else "⏳ Standard"
+        in_play_html += f"""
+        <tr>
+            <td><b>{sym}</b> ({sig})</td>
+            <td>{s_dt}</td>
+            <td>₹{entry:,.2f}</td>
+            <td>₹{t1:,.2f}</td>
+            <td>₹{eff_sl:,.2f}</td>
+            <td><b style="color:{pnl_col}">{un_pnl:+.2f}%</b></td>
+            <td>{ratchet}</td>
+        </tr>"""
+
+    # Build sector rows
+    sector_rows_html = ""
+    for r in sectors:
+        sec, d_ret, w_ret, m_ret, sc, b_cnt, sig = r
+        d_col = "#00c875" if d_ret and d_ret >= 0 else "#ff4b4b"
+        m_col = "#00c875" if m_ret and m_ret >= 0 else "#ff4b4b"
+        sector_rows_html += f"""
+        <tr>
+            <td><b>{sec}</b></td>
+            <td style="color:{d_col}">{d_ret:+.2f}%</td>
+            <td>{w_ret:+.2f}%</td>
+            <td style="color:{m_col}">{m_ret:+.2f}%</td>
+            <td><b>{sc:.0f}</b></td>
+            <td>{b_cnt} Buys</td>
+            <td><span class="badge" style="background:{'#00c875' if sig=='BUY' else '#f0a500'}">{sig}</span></td>
+        </tr>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Daily Institutional Morning Briefing — {today_str}</title>
+<style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0d1117; color: #c9d1d9; margin: 0; padding: 24px; }}
+    .container {{ max-width: 1000px; margin: 0 auto; background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 28px; }}
+    .header {{ border-bottom: 2px solid #00c875; padding-bottom: 16px; margin-bottom: 20px; }}
+    h1 {{ color: #ffffff; margin: 0 0 6px 0; font-size: 1.6em; }}
+    .date {{ color: #8b949e; font-size: 0.9em; }}
+    .macro-banner {{ background: #0e271f; border-left: 4px solid #00c875; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 0.9em; }}
+    th {{ background: #21262d; color: #8b949e; text-align: left; padding: 10px; border-bottom: 1px solid #30363d; }}
+    td {{ padding: 9px 10px; border-bottom: 1px solid #21262d; }}
+    .badge {{ padding: 2px 7px; border-radius: 4px; font-size: 0.8em; font-weight: bold; color: #fff; }}
+    .kpi-row {{ display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }}
+    .kpi-card {{ flex: 1; min-width: 180px; background: #21262d; border-radius: 8px; padding: 12px 16px; }}
+    .kpi-label {{ font-size: 0.75em; color: #8b949e; letter-spacing: 0.5px; }}
+    .kpi-val {{ font-size: 1.4em; font-weight: bold; color: #ffffff; margin-top: 4px; }}
+    .footer {{ font-size: 0.78em; color: #6e7681; border-top: 1px solid #30363d; padding-top: 12px; text-align: center; margin-top: 20px; }}
+</style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📊 Daily Quantitative Morning Briefing</h1>
+        <div class="date">Autonomous Institutional Research • {today_str}</div>
+    </div>
+
+    <div class="macro-banner">
+        <b>🏛️ Macro Market Regime: {macro['regime']} (Score: {macro['macro_score']}/100)</b><br>
+        <span style="font-size:0.9em;color:#c8d0d8;">{macro['summary']}</span><br>
+        <span style="font-size:0.85em;color:#58a6ff;"><b>Allocation Guide:</b> Equities {macro['recommended_allocation']['Equities %']}% | Gold/Commodities {macro['recommended_allocation']['Gold & Commodities %']}% | Cash {macro['recommended_allocation']['Cash & Liquid %']}%</span>
+    </div>
+
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-label">OVERALL WIN RATE</div>
+            <div class="kpi-val" style="color:#00c875;">{stats.get('win_rate_pct', 0):.1f}%</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">PROFIT FACTOR</div>
+            <div class="kpi-val" style="color:#58a6ff;">{stats.get('profit_factor', 0):.2f}x</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">COMPLETED TRADES</div>
+            <div class="kpi-val">{stats.get('completed_evaluations', 0)}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-label">IN-FLIGHT ACTIVE</div>
+            <div class="kpi-val" style="color:#f0a500;">{stats.get('pending_evaluations', 0)}</div>
+        </div>
+    </div>
+
+    <h3>🟢 Top 5 High-Conviction BUY Signals</h3>
+    <table>
+        <thead>
+            <tr><th>Symbol</th><th>Name</th><th>Sector</th><th>Price</th><th>Target 1</th><th>Target 2</th><th>Stop Loss</th><th>R:R</th><th>Score</th><th>Risk</th></tr>
+        </thead>
+        <tbody>
+            {buy_rows_html}
+        </tbody>
+    </table>
+
+    <h3>⏳ Active In-Play Positions & Ratchet Status</h3>
+    <table>
+        <thead>
+            <tr><th>Symbol</th><th>Signal Date</th><th>Entry</th><th>Target 1</th><th>Effective SL</th><th>Unrealized</th><th>Ratchet</th></tr>
+        </thead>
+        <tbody>
+            {in_play_html}
+        </tbody>
+    </table>
+
+    <h3>🏭 Leading Sector Baskets</h3>
+    <table>
+        <thead>
+            <tr><th>Sector</th><th>1D Ret</th><th>1W Ret</th><th>1M Ret</th><th>Score</th><th>Breadth</th><th>Signal</th></tr>
+        </thead>
+        <tbody>
+            {sector_rows_html}
+        </tbody>
+    </table>
+
+    <div class="footer">
+        Generated autonomously by Stock Analyzer Pro • For institutional & internal research use only
+    </div>
+</div>
+</body>
+</html>"""
     return html

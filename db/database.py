@@ -591,20 +591,33 @@ class EconomicEvent(Base):
 
 
 # ─── Engine & Session Setup ───────────────────────────────────────────────────
+from sqlalchemy.pool import QueuePool
+from sqlalchemy import event
+
 def get_engine(db_url: str = DB_URL):
     engine = create_engine(
         db_url,
-        connect_args={"check_same_thread": False, "timeout": 30},
-        poolclass=StaticPool,
+        connect_args={"check_same_thread": False, "timeout": 60},
+        poolclass=QueuePool,
+        pool_size=15,
+        max_overflow=30,
     )
-    # Enable WAL mode for better concurrent read performance
-    with engine.connect() as conn:
-        conn.execute(__import__("sqlalchemy").text("PRAGMA journal_mode=WAL"))
-        conn.execute(__import__("sqlalchemy").text("PRAGMA synchronous=NORMAL"))
-        conn.execute(__import__("sqlalchemy").text("PRAGMA cache_size=10000"))
-        conn.execute(__import__("sqlalchemy").text("PRAGMA temp_store=MEMORY"))
-        conn.commit()
+    # Enable WAL mode and performance pragmas on every connection
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=10000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
+            cursor.execute("PRAGMA busy_timeout=60000")
+            cursor.close()
+        except Exception:
+            pass
+
     return engine
+
 
 
 def create_all_tables(engine=None):

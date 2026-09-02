@@ -31,6 +31,7 @@ from core.cpr_vsa_scanner import analyze_wyckoff_vsa
 from core.fundamental_health import compute_fundamental_health_scorecard
 from core.options_analytics import fetch_option_chain_analytics
 from core.news_sentiment import get_asset_specific_news_sentiment
+from core.sector_clusters import get_sector_cluster, get_cluster_pillar_weights, get_tier_parameters
 
 logger = logging.getLogger(__name__)
 RISK_FREE_RATE_ANNUAL = 0.065
@@ -127,8 +128,21 @@ def compute_apex_multi_factor_score(
     close = indicators.get("close") or 100.0
     bb_width = indicators.get("bb_width")
 
-    # 1. Technical Pillar (30% weight) with Candlestick & VCP Integration
-    t_rsi = score_rsi(indicators.get("rsi_14"))
+    # Identify Sector Cluster Archetype (BFSI, CYCLICAL, DEFENSIVE, CAPEX_MOMENTUM)
+    cluster = get_sector_cluster(sector)
+
+    # 1. Technical Pillar (30% base weight) with Candlestick, VCP & Cyclical Adaptations
+    rsi_val = indicators.get("rsi_14")
+    t_rsi = score_rsi(rsi_val)
+    
+    # Cyclical contrarian modulation: penalize buying overbought commodity peaks, reward oversold reversals
+    if cluster == "CYCLICAL":
+        vol_r = indicators.get("volume_ratio") or 1.0
+        if rsi_val is not None and rsi_val > 66.0 and vol_r < 1.75:
+            t_rsi = min(t_rsi, 45.0)  # Cyclical overbought peak dampener
+        elif rsi_val is not None and 30.0 <= rsi_val <= 44.0:
+            t_rsi = max(t_rsi, 65.0)  # Cyclical early accumulation bounce bonus
+
     t_macd = score_macd(indicators.get("macd"), indicators.get("macd_signal"), indicators.get("macd_hist"))
     t_bb = score_bollinger(indicators.get("bb_pct"))
     t_ema = score_ema(close, indicators.get("ema_9"), indicators.get("ema_21"), indicators.get("ema_50"), indicators.get("ema_200"))
@@ -158,7 +172,7 @@ def compute_apex_multi_factor_score(
     )
     score_technical = float(np.clip(score_technical + candlestick_bonus * 0.25, 10.0, 95.0))
 
-    # 2. Smart Money & Wyckoff VSA Pillar (25% weight)
+    # 2. Smart Money & Wyckoff VSA Pillar (Adaptive weight)
     score_smart_money = 50.0
     if price_df is not None and not price_df.empty and len(price_df) >= 15:
         sm = calculate_smart_money_metrics(price_df)
@@ -176,16 +190,20 @@ def compute_apex_multi_factor_score(
             
         score_smart_money = float(np.clip(base_sm + vsa_bonus, 10.0, 95.0))
 
-    # 3. Fundamental & Solvency Fortress Pillar (15% weight)
+    # 3. Fundamental & Solvency Fortress Pillar (Adaptive weight)
     fh = compute_fundamental_health_scorecard(symbol, name, sector, tier)
     pio_score = (fh.get("piotroski_f_score", 5) / 9.0) * 100.0
     alt_z = fh.get("altman_z_score", 3.0)
+    is_bank_exempt = fh.get("is_bank_exempt", False) or cluster == "BFSI"
     
-    # Financial Distress Penalty
-    z_penalty = -25.0 if alt_z < 1.81 else (+10.0 if alt_z > 2.99 else 0.0)
+    # Financial Distress Penalty (Exempt for Banks/NBFCs where working capital ratios are inapplicable)
+    if is_bank_exempt:
+        z_penalty = 0.0
+    else:
+        z_penalty = -25.0 if alt_z < 1.81 else (+10.0 if alt_z > 2.99 else 0.0)
     score_fundamental = float(np.clip(pio_score + z_penalty, 10.0, 95.0))
 
-    # 4. F&O Derivatives & Gamma Exposure Pillar (15% base weight)
+    # 4. F&O Derivatives & Gamma Exposure Pillar (Adaptive weight)
     opt = fetch_option_chain_analytics(symbol, close)
     pcr = opt.get("pcr", 1.0)
     max_pain = opt.get("max_pain_strike", close)
@@ -199,7 +217,7 @@ def compute_apex_multi_factor_score(
     elif close < max_pain * 0.96: score_derivatives -= 10.0
     score_derivatives = float(np.clip(score_derivatives, 15.0, 90.0))
 
-    # 5. AI Ensemble & News Sentiment Velocity (15% base weight)
+    # 5. AI Ensemble & News Sentiment Velocity (Adaptive weight)
     news = get_asset_specific_news_sentiment(symbol, name)
     news_feed = news.get("news_feed", [])
     has_news = len(news_feed) > 0
@@ -208,33 +226,27 @@ def compute_apex_multi_factor_score(
     news_scaled = (news.get("sentiment_score", 0.0) + 100.0) / 2.0 # 0 to 100
     score_ai_news = (ml_forecast_score * 0.6) + (news_scaled * 0.4)
 
-    # ── Dynamic Pillar Weight Redistribution ──────────────────────────────────
-    # If a stock is non-F&O or lacks live news, redistribute weight into Technical & Smart Money
-    w_tech = 0.30
-    w_sm = 0.25
-    w_fund = 0.15
-    w_deriv = 0.15 if has_fno else 0.0
-    w_ai = 0.15 if (has_news or has_ml) else 0.0
+    # ── Sector-Cluster Adaptive Pillar Weight Redistribution ──────────────────
+    cluster_weights = get_cluster_pillar_weights(cluster, has_fno=has_fno, has_news=(has_news or has_ml))
+    w_tech = cluster_weights["w_tech"]
+    w_sm = cluster_weights["w_sm"]
+    w_fund = cluster_weights["w_fund"]
+    w_deriv = cluster_weights["w_deriv"]
+    w_ai = cluster_weights["w_ai"]
 
-    missing_weight = (0.15 if not has_fno else 0.0) + (0.15 if not (has_news or has_ml) else 0.0)
-    if missing_weight > 0:
-        w_tech += missing_weight * 0.50   # 50% to Technical momentum
-        w_sm += missing_weight * 0.35     # 35% to Smart Money & Volume
-        w_fund += missing_weight * 0.15   # 15% to Fundamental health
-
-    tot_w = max(0.01, w_tech + w_sm + w_fund + w_deriv + w_ai)
     composite = (
         score_technical * w_tech +
         score_smart_money * w_sm +
         score_fundamental * w_fund +
         score_derivatives * w_deriv +
         score_ai_news * w_ai
-    ) / tot_w
+    )
     composite = round(float(np.clip(composite, 0.0, 100.0)), 2)
 
     components = {
         "rsi": t_rsi, "macd": t_macd, "bb": t_bb, "ema": t_ema, "volume": t_vol,
         "adx": t_adx, "stoch": t_stoch, "cci": t_cci, "obv": t_obv, "ml": ml_forecast_score,
+        "sector_cluster": cluster,
         "pillar_technical": round(score_technical, 2),
         "pillar_smart_money": round(score_smart_money, 2),
         "pillar_fundamental": round(score_fundamental, 2),
@@ -242,8 +254,11 @@ def compute_apex_multi_factor_score(
         "pillar_ai_news": round(score_ai_news, 2),
         "has_fno": has_fno,
         "has_news": has_news,
-        "w_technical": round(w_tech / tot_w, 2),
-        "w_smart_money": round(w_sm / tot_w, 2),
+        "w_technical": round(w_tech, 2),
+        "w_smart_money": round(w_sm, 2),
+        "w_fundamental": round(w_fund, 2),
+        "w_derivatives": round(w_deriv, 2),
+        "w_ai_news": round(w_ai, 2),
     }
 
     return composite, components

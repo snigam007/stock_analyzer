@@ -43,6 +43,109 @@ session_macro.close()
 st.title("📈 Market Dashboard & Institutional Overview")
 st.caption(f"Multi-Asset Macro Regime, Global Equities, Breadth, and Sector Leadership")
 
+# ── Live Market Pulse Breadth Bar ─────────────────────────────────────────────
+@st.cache_data(ttl=60)
+def get_market_pulse():
+    sess = get_session(engine)
+    try:
+        # Nifty 50 + Bank Nifty
+        def get_idx(sym):
+            rows = sess.execute(text(
+                "SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 2"
+            ), {"s": sym}).fetchall()
+            if len(rows) >= 2:
+                curr, prev = float(rows[0][0]), float(rows[1][0])
+                return curr, (curr - prev) / prev * 100
+            return None, None
+
+        nifty_lvl, nifty_chg   = get_idx("^NSEI")
+        bnifty_lvl, bnifty_chg = get_idx("^NSEBANK")
+        vix_lvl, _              = get_idx("^INDIAVIX")
+        if vix_lvl is None:
+            vix_row = sess.execute(text(
+                "SELECT close FROM index_prices WHERE symbol LIKE '%VIX%' ORDER BY date DESC LIMIT 1"
+            )).scalar()
+            vix_lvl = float(vix_row) if vix_row else None
+
+        # Market breadth from daily_prices today
+        latest_date = sess.execute(text("SELECT MAX(date) FROM daily_prices")).scalar()
+        breadth = sess.execute(text("""
+            SELECT
+              SUM(CASE WHEN close > open THEN 1 ELSE 0 END) as adv,
+              SUM(CASE WHEN close <= open THEN 1 ELSE 0 END) as dec
+            FROM daily_prices WHERE date = :d
+        """), {"d": latest_date}).fetchone()
+        adv, dec = (int(breadth[0] or 0), int(breadth[1] or 0)) if breadth else (0, 0)
+
+        # BUY signals today
+        sig_date = sess.execute(text("SELECT MAX(date) FROM signals")).scalar()
+        buy_cnt = sess.execute(text(
+            "SELECT COUNT(*) FROM signals WHERE date=:d AND signal='BUY'"
+        ), {"d": sig_date}).scalar() or 0
+        sell_cnt = sess.execute(text(
+            "SELECT COUNT(*) FROM signals WHERE date=:d AND signal='SELL'"
+        ), {"d": sig_date}).scalar() or 0
+
+        return {
+            "nifty_lvl": nifty_lvl, "nifty_chg": nifty_chg,
+            "bnifty_lvl": bnifty_lvl, "bnifty_chg": bnifty_chg,
+            "vix_lvl": vix_lvl, "adv": adv, "dec": dec,
+            "buy_cnt": buy_cnt, "sell_cnt": sell_cnt,
+            "ad_ratio": adv / max(1, adv + dec),
+        }
+    except Exception:
+        return {}
+    finally:
+        sess.close()
+
+pulse = get_market_pulse()
+
+def _delta_color(chg):
+    if chg is None: return "#888"
+    return "#00c875" if chg >= 0 else "#ff4b4b"
+
+def _arrow(chg):
+    if chg is None: return ""
+    return "▲" if chg >= 0 else "▼"
+
+if pulse:
+    vix = pulse.get("vix_lvl")
+    vix_color = "#ff4b4b" if (vix and vix > 22) else ("#f0c040" if (vix and vix > 15) else "#00c875")
+    ad = pulse.get("ad_ratio", 0.5)
+    ad_color = "#00c875" if ad >= 0.55 else ("#ff4b4b" if ad < 0.40 else "#f0c040")
+    nc, bc = _delta_color(pulse.get("nifty_chg")), _delta_color(pulse.get("bnifty_chg"))
+    na, ba = _arrow(pulse.get("nifty_chg")), _arrow(pulse.get("bnifty_chg"))
+
+    st.markdown(f"""
+<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+  <div style="flex:1;min-width:130px;background:#0d1f2d;border:1px solid #1e3a52;border-radius:8px;padding:10px 14px;text-align:center;">
+    <div style="color:#8ab4d0;font-size:0.75em;font-weight:600;letter-spacing:1px;">NIFTY 50</div>
+    <div style="color:#e8f0f8;font-size:1.3em;font-weight:700;">{f'{pulse["nifty_lvl"]:,.0f}' if pulse.get("nifty_lvl") else '—'}</div>
+    <div style="color:{nc};font-size:0.85em;font-weight:600;">{na} {f'{pulse["nifty_chg"]:+.2f}%' if pulse.get("nifty_chg") is not None else '—'}</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:#0d1f2d;border:1px solid #1e3a52;border-radius:8px;padding:10px 14px;text-align:center;">
+    <div style="color:#8ab4d0;font-size:0.75em;font-weight:600;letter-spacing:1px;">BANK NIFTY</div>
+    <div style="color:#e8f0f8;font-size:1.3em;font-weight:700;">{f'{pulse["bnifty_lvl"]:,.0f}' if pulse.get("bnifty_lvl") else '—'}</div>
+    <div style="color:{bc};font-size:0.85em;font-weight:600;">{ba} {f'{pulse["bnifty_chg"]:+.2f}%' if pulse.get("bnifty_chg") is not None else '—'}</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:#0d1f2d;border:1px solid #1e3a52;border-radius:8px;padding:10px 14px;text-align:center;">
+    <div style="color:#8ab4d0;font-size:0.75em;font-weight:600;letter-spacing:1px;">INDIA VIX</div>
+    <div style="color:{vix_color};font-size:1.3em;font-weight:700;">{f'{vix:.2f}' if vix else '—'}</div>
+    <div style="color:{vix_color};font-size:0.82em;">{'⚠️ High Fear' if vix and vix > 22 else ('🟡 Elevated' if vix and vix > 15 else '🟢 Calm')}</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:#0d1f2d;border:1px solid #1e3a52;border-radius:8px;padding:10px 14px;text-align:center;">
+    <div style="color:#8ab4d0;font-size:0.75em;font-weight:600;letter-spacing:1px;">ADVANCE / DECLINE</div>
+    <div style="color:{ad_color};font-size:1.3em;font-weight:700;">{pulse.get("adv",0)}↑ / {pulse.get("dec",0)}↓</div>
+    <div style="color:{ad_color};font-size:0.82em;">A/D Ratio: {ad:.0%}</div>
+  </div>
+  <div style="flex:1;min-width:130px;background:#0d1f2d;border:1px solid #1e3a52;border-radius:8px;padding:10px 14px;text-align:center;">
+    <div style="color:#8ab4d0;font-size:0.75em;font-weight:600;letter-spacing:1px;">TODAY'S SIGNALS</div>
+    <div style="color:#e8f0f8;font-size:1.3em;font-weight:700;">🟢 {pulse.get("buy_cnt",0)} BUY</div>
+    <div style="color:#ff4b4b;font-size:0.85em;font-weight:600;">🔴 {pulse.get("sell_cnt",0)} SELL</div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
 st.markdown(f"""
 <div style="background: linear-gradient(90deg, #102130, #0c1822); border-left: 5px solid #00a8ff; padding: 12px 18px; border-radius: 6px; margin-bottom: 12px;">
     <span style="font-size: 1.1em; font-weight: bold; color: #00a8ff;">🏛️ Macro Market Regime: {macro_dash['regime']} (Macro Score: {macro_dash['macro_score']}/100)</span><br>

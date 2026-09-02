@@ -178,7 +178,7 @@ def run_complete_analysis_refresh(launch: bool = True):
     from core.sector_analysis import compute_and_save_sector_analysis
     from core.strategies import save_all_strategies
     from core.ml_models import run_forecasts_for_top_stocks
-    from core.accuracy_tracker import log_current_signals_to_audit, evaluate_signal_audit_track_record
+    from core.accuracy_tracker import log_all_multi_asset_signals_to_audit, evaluate_signal_audit_track_record
 
     engine = get_global_engine()
     session = get_session(engine)
@@ -200,11 +200,11 @@ def run_complete_analysis_refresh(launch: bool = True):
     except Exception as e:
         logger.warning(f"ML forecast notice: {e}")
 
-    logger.info("🎯 Step 5/5: Updating Prediction Audit Log...")
+    logger.info("🎯 Step 5/5: Updating Multi-Asset Prediction Audit Log...")
     try:
-        logged = log_current_signals_to_audit(session)
-        evaluate_signal_audit_track_record(session)
-        logger.info(f"✅ Audit updated: {logged} signals recorded.")
+        logged_res = log_all_multi_asset_signals_to_audit(session)
+        evaluate_signal_audit_track_record(session, asset_type="ALL")
+        logger.info(f"✅ Audit updated: {logged_res['total_logged']} multi-asset signals recorded.")
     except Exception as e:
         logger.warning(f"Audit log notice: {e}")
 

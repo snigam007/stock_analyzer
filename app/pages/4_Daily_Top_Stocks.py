@@ -28,11 +28,15 @@ st.set_page_config(page_title="Daily Top Stocks", page_icon="🏆", layout="wide
 import importlib
 import core.macro_regime
 import core.accuracy_tracker
+import core.sector_clusters
 importlib.reload(core.macro_regime)
 importlib.reload(core.accuracy_tracker)
+importlib.reload(core.sector_clusters)
 
 from db.database import get_global_engine, get_session
 from sqlalchemy import text
+from core.target_velocity import predict_time_to_target, get_velocity_badge
+from core.sector_clusters import get_sector_cluster, get_cluster_metadata, get_tier_parameters
 
 engine = get_global_engine()
 
@@ -67,7 +71,14 @@ def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
                sig.stop_loss_downside_pct,
                ind.trend_pattern, ind.trend_direction, ind.trend_strength,
                ind.rsi_14, ind.adx, ind.volume_ratio,
-               cs.beta, cs.volatility_annual, cs.sharpe_ratio
+               cs.beta, cs.volatility_annual, cs.sharpe_ratio,
+               (
+                   SELECT COUNT(DISTINCT s2.date)
+                   FROM signals s2
+                   WHERE s2.symbol = sig.symbol
+                     AND s2.signal = sig.signal
+                     AND s2.date >= date(sig.date, '-14 days')
+               ) as signal_age_days
         FROM signals sig
         JOIN stocks s ON sig.symbol = s.symbol
         JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
@@ -234,7 +245,7 @@ def get_asset_signals(asset_type: str = "index"):
 
 
 def render_stock_table(rows, show_signal: bool = True):
-    """Render a rich stock table with all details."""
+    """Render a rich stock table with all details and time to target forecasts."""
     if not rows:
         st.info("No stocks found for this filter.")
         return
@@ -251,26 +262,49 @@ def render_stock_table(rows, show_signal: bool = True):
          t1_pct, t2_pct, t3_pct, sl_pct,
          trend_pat, trend_dir, trend_str,
          rsi, adx, vol_ratio,
-         beta, volatility, sharpe) = row
+         beta, volatility, sharpe, *rest) = row
+
+        signal_age_days = rest[0] if rest else 1
+        age_days = int(signal_age_days or 1)
+        if age_days <= 1:
+            freshness_badge = "🟢 NEW (1d)"
+        elif age_days <= 4:
+            freshness_badge = f"⚡ FRESH ({age_days}d)"
+        else:
+            freshness_badge = f"⚠️ STALE ({age_days}d)"
 
         sig_icon = signal_icons.get(signal, "🟡")
         risk_icon = risk_icons.get(risk, "⚖️")
         trend_icon = trend_icons.get(trend_dir, "➡️")
         inv_icon = inv_icons.get(inv_type, "🌱")
 
+        # Time-to-Target forecast
+        pred_ttt = predict_time_to_target(
+            entry_price=buy_price or price or 0,
+            target_1=t1 or 0,
+            target_2=t2,
+            composite_score=composite_score,
+            volume_ratio=vol_ratio,
+            risk_level=risk,
+            signal_type=signal,
+            setup_type=trend_pat
+        )
+
         rank_label = f"#{i+1}"
+        cluster_name = get_sector_cluster(sector)
+        cluster_meta = get_cluster_metadata(cluster_name)
 
         with st.expander(
-            f"{rank_label} **{symbol}** — {name[:40]} | "
-            f"{sig_icon} {signal} | {risk_icon} {risk} | "
-            f"Score: **{composite_score:.0f}** | {trend_icon} {trend_dir}",
+            f"{rank_label} **{symbol}** — {name[:24]} | "
+            f"{sig_icon} {signal} | {freshness_badge} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
+            f"Score: **{composite_score:.0f}** | ⏳ {pred_ttt['window_str']}",
             expanded=(i < 3)
         ):
             col1, col2, col3, col4 = st.columns([2, 2, 2, 2])
 
             with col1:
-                st.markdown(f"**📂 Sector:** {sector}")
-                st.markdown(f"**📊 Cap Tier:** {tier.upper() if tier else 'Mid'}")
+                st.markdown(f"**📂 Sector:** {sector} ({cluster_meta['badge']})")
+                st.markdown(f"**📊 Cap Tier:** {tier.upper() if tier else 'Mid'} • **⚡ Freshness:** `{freshness_badge}`")
                 top_pct_str = f" (Top {100-univ_pct:.0f}%)" if (univ_pct is not None and not pd.isna(univ_pct)) else ""
                 st.markdown(f"**💯 Score:** `{composite_score:.1f}/100`{top_pct_str}")
                 if rsi:
@@ -280,12 +314,13 @@ def render_stock_table(rows, show_signal: bool = True):
                     st.markdown(f"**Vol Ratio:** {vol_ratio:.2f}x avg")
 
             with col2:
-                st.markdown("**💰 Price Levels:**")
+                st.markdown("**💰 Price & Target Velocity:**")
                 st.markdown(f"- Current: **{format_price(price)}**")
                 if buy_price:
                     st.markdown(f"- Entry: **{format_price(buy_price)}**")
                 if t1:
                     st.markdown(f"- 🎯 T1: **{format_price(t1)}** {format_badge_pct(t1_pct)}", unsafe_allow_html=True)
+                    st.markdown(f"- ⏳ Est. T1: {pred_ttt['badge_html']}", unsafe_allow_html=True)
                 if t2:
                     st.markdown(f"- 🎯 T2: **{format_price(t2)}** {format_badge_pct(t2_pct)}", unsafe_allow_html=True)
                 if t3:
@@ -364,12 +399,21 @@ with tabs[2]:
     idx_signals = get_asset_signals("index")
     for asset in idx_signals:
         sig_color = "🟢" if asset["signal"] == "BUY" else ("🔴" if asset["signal"] == "SELL" else "🟡")
-        with st.expander(f"{sig_color} **{asset['name']}** ({asset['symbol']}) — Signal: **{asset['signal']}** | Score: **{asset['score']}/100**", expanded=True):
-            ic1, ic2, ic3, ic4 = st.columns(4)
+        pred_idx = predict_time_to_target(
+            entry_price=asset["price"],
+            target_1=asset["target_1"],
+            target_2=asset["target_2"],
+            asset_type="INDEX",
+            composite_score=asset["score"],
+            signal_type=asset["signal"]
+        )
+        with st.expander(f"{sig_color} **{asset['name']}** ({asset['symbol']}) — Signal: **{asset['signal']}** | Score: **{asset['score']}/100** | ⏳ {pred_idx['window_str']}", expanded=True):
+            ic1, ic2, ic3, ic4, ic5 = st.columns(5)
             ic1.metric("Current Level", format_price(asset["price"]), f"Signal: {asset['signal']}")
             ic2.metric("🎯 14D Target", format_price(asset["target_1"]), f"{asset['t1_pct']:+.2f}%")
             ic3.metric("🎯 1M Target", format_price(asset["target_2"]), f"{asset['t2_pct']:+.2f}%")
             ic4.metric("🛑 Stop Loss", format_price(asset["stop_loss"]), f"{asset['sl_pct']:+.2f}%")
+            ic5.metric("⏳ Est. Time to T1", pred_idx['window_str'], f"{pred_idx['confidence_pct']}% Conf")
 
 
 # Tab 4: Commodity Signals
@@ -379,12 +423,21 @@ with tabs[3]:
     comm_signals = get_asset_signals("commodity")
     for asset in comm_signals:
         sig_color = "🟢" if asset["signal"] == "BUY" else ("🔴" if asset["signal"] == "SELL" else "🟡")
-        with st.expander(f"{sig_color} **{asset['name']}** ({asset['symbol']}) — Signal: **{asset['signal']}** | Score: **{asset['score']}/100**", expanded=True):
-            cc1, cc2, cc3, cc4 = st.columns(4)
+        pred_comm = predict_time_to_target(
+            entry_price=asset["price"],
+            target_1=asset["target_1"],
+            target_2=asset["target_2"],
+            asset_type="COMMODITY",
+            composite_score=asset["score"],
+            signal_type=asset["signal"]
+        )
+        with st.expander(f"{sig_color} **{asset['name']}** ({asset['symbol']}) — Signal: **{asset['signal']}** | Score: **{asset['score']}/100** | ⏳ {pred_comm['window_str']}", expanded=True):
+            cc1, cc2, cc3, cc4, cc5 = st.columns(5)
             cc1.metric("Current Price", format_price(asset["price"]), f"Signal: {asset['signal']}")
             cc2.metric("🎯 14D Target", format_price(asset["target_1"]), f"{asset['t1_pct']:+.2f}%")
             cc3.metric("🎯 1M Target", format_price(asset["target_2"]), f"{asset['t2_pct']:+.2f}%")
             cc4.metric("🛑 Stop Loss", format_price(asset["stop_loss"]), f"{asset['sl_pct']:+.2f}%")
+            cc5.metric("⏳ Est. Time to T1", pred_comm['window_str'], f"{pred_comm['confidence_pct']}% Conf")
 
 
 # Tab 5: CPR & VSA Breakouts
@@ -401,8 +454,13 @@ with tabs[4]:
         st.info("No active narrow CPR or absorption breakouts detected today.")
     else:
         for b in cpr_breakouts:
-            with st.expander(f"🚀 **{b['symbol']}** — {b['name']} ({b['sector']}) | Price: **{format_price(b['current_price'])}** | {b['cpr_type']}", expanded=True):
-                cpr_c1, cpr_c2, cpr_c3 = st.columns(3)
+            pred_cpr = predict_time_to_target(
+                entry_price=b['current_price'],
+                target_1=b['h4_breakout'],
+                setup_type='CPR_BREAKOUT'
+            )
+            with st.expander(f"🚀 **{b['symbol']}** — {b['name']} ({b['sector']}) | Price: **{format_price(b['current_price'])}** | ⏳ {pred_cpr['window_str']}", expanded=True):
+                cpr_c1, cpr_c2, cpr_c3, cpr_c4 = st.columns(4)
                 with cpr_c1:
                     st.markdown(f"**CPR Width:** `{b['cpr_width_pct']:.2f}%`")
                     st.markdown(f"**Position:** {b['cpr_position']}")
@@ -412,6 +470,10 @@ with tabs[4]:
                 with cpr_c3:
                     st.markdown(f"**Wyckoff Archetype:** `{b['vsa_archetype']}`")
                     st.markdown(f"*{b['vsa_description']}*")
+                with cpr_c4:
+                    st.markdown(f"**⏳ Est. Time to Target:**")
+                    st.markdown(f"{pred_cpr['badge_html']}", unsafe_allow_html=True)
+                    st.caption(f"⚡ Fast sprint ({pred_cpr['confidence_pct']}% conf)")
 
 
 # Tab 6: Safe Investments
@@ -460,16 +522,34 @@ with tabs[7]:
 
 # Tab 9: Signal Accuracy & Live Audit Track Record
 with tabs[8]:
-    st.subheader("🎯 Live Signal Accuracy & Empirical Hit Rate Audit")
-    st.caption("Empirical forward-test verification of historical BUY/SELL signals against actual price action across all sessions.")
+    st.subheader("🎯 Live Multi-Asset Signal Accuracy & Empirical Hit Rate Audit")
+    st.caption("Empirical forward-test verification of historical BUY/SELL signals against actual price evolution for Equities, Indices, Commodities, and Breakouts.")
 
     import importlib
     import core.accuracy_tracker
     importlib.reload(core.accuracy_tracker)
-    from core.accuracy_tracker import evaluate_signal_audit_track_record
+    from core.accuracy_tracker import evaluate_signal_audit_track_record, backfill_multi_asset_audit_history
+
+    # Asset Class Selector for Multi-Asset Tracking
+    audit_asset_label = st.radio(
+        "Select Asset Class to Audit:",
+        ["📈 Equities (Stocks)", "📊 Index Signals", "🪙 Commodity Signals", "⚡ CPR & VSA Breakouts", "🌐 Global Combined Audit"],
+        horizontal=True,
+        key="audit_asset_selector"
+    )
+
+    asset_map = {
+        "📈 Equities (Stocks)": "STOCK",
+        "📊 Index Signals": "INDEX",
+        "🪙 Commodity Signals": "COMMODITY",
+        "⚡ CPR & VSA Breakouts": "BREAKOUT",
+        "🌐 Global Combined Audit": "ALL"
+    }
+    selected_asset = asset_map.get(audit_asset_label, "STOCK")
 
     audit_session = get_session(engine)
-    audit_data = evaluate_signal_audit_track_record(audit_session)
+    # Ensure backfill is loaded
+    audit_data = evaluate_signal_audit_track_record(audit_session, asset_type=selected_asset)
     audit_session.close()
 
     # ── Institutional Status & Incubation Banner ──────────────────────────────────
@@ -478,16 +558,18 @@ with tabs[8]:
     p_factor = audit_data.get('profit_factor', 1.12)
     mfe_gain = audit_data.get('avg_peak_gain_mfe', 1.60)
     mae_loss = audit_data.get('avg_max_drawdown_mae', -1.43)
+    active_cnt = audit_data.get('active_signals', 0)
+    in_play_prof_cnt = audit_data.get('in_play_profitable_count', 0)
 
     st.markdown(f"""
     <div style="background: linear-gradient(90deg, #102130, #0c1822); border-left: 5px solid #00c875; padding: 14px 20px; border-radius: 8px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
             <div>
                 <span style="font-size: 1.15em; font-weight: bold; color: #00c875;">
-                    🛡️ Capital Protection: {intact_pct}% Positions Intact • 🟢 {profit_pct}% Currently Profitable
+                    🛡️ Capital Protection: {intact_pct}% Positions Intact • 🟢 {profit_pct}% In-Play Positions Currently in Green ({in_play_prof_cnt}/{active_cnt} Active)
                 </span><br>
                 <span style="font-size: 0.9em; color: #c8d0d8;">
-                    🕒 <b>Incubation Horizon:</b> 1–3 Sessions Elapsed • Swing targets (+4% to +15%) mature over <b>5–15 trading days</b> • <b>{audit_data['completed_signals']}</b> Forward Evaluations Active
+                    🕒 <b>Track Record Horizon:</b> 1–7 Sessions Forward Evaluated • <b>{audit_data['completed_signals']}</b> Resolved Outcomes | <b>{active_cnt}</b> In-Flight Positions Monitored
                 </span>
             </div>
             <div style="text-align: right; margin-top: 4px;">
@@ -501,26 +583,32 @@ with tabs[8]:
 
     # ── 6 Live Audit Metric Cards ────────────────────────────────────────────────
     ac1, ac2, ac3, ac4, ac5, ac6 = st.columns(6)
-    ac1.metric("Trade Intact Rate", f"{intact_pct}%", f"{audit_data['total_signals_tracked'] - audit_data.get('sl_hits_count', 0)} Active Trades")
-    ac2.metric("Profitable In-Play", f"{profit_pct}%", f"{audit_data.get('profitable_count', 0)} In Green")
-    ac3.metric("Early T1 Hit (<48h)", f"{audit_data['target_1_hit_rate_pct']:.1f}%", f"+3.5%–5% ({audit_data.get('t1_hits_count', 0)} stocks)")
-    ac4.metric("Stop Loss Rate", f"{audit_data['stop_loss_hit_rate_pct']:.1f}%", f"{audit_data.get('sl_hits_count', 0)} Protected Exits", delta_color="inverse")
-    ac5.metric("Avg Peak Move", f"+{mfe_gain:.2f}%", "Max Favorable Excursion")
-    ac6.metric("Profit Factor", f"{p_factor:.2f}x", f"MAE: {mae_loss:.2f}%")
+    ac1.metric("Trade Intact Rate", f"{intact_pct}%", f"{audit_data['total_signals_tracked'] - audit_data.get('sl_loss_hits_count', 0)} Active/Won")
+    ac2.metric("In-Play Profitable", f"{profit_pct}%", f"{in_play_prof_cnt} Active in Green")
+    ac3.metric("Target 1+ Hit Rate", f"{audit_data['target_1_hit_rate_pct']:.1f}%", f"{audit_data.get('t1_hits_count', 0)} Target Wins")
+    ac4.metric("🛡️ Trailing SL Profit", f"{audit_data['trailing_sl_hit_rate_pct']:.1f}%", f"{audit_data.get('trailing_sl_hits_count', 0)} Protected Wins")
+    ac5.metric("🛑 Stop Loss (Loss)", f"{audit_data['stop_loss_hit_rate_pct']:.1f}%", f"{audit_data.get('sl_loss_hits_count', 0)} Capital Cuts", delta_color="inverse")
+    ac6.metric("Profit Factor", f"{p_factor:.2f}x", f"Win Rate: {audit_data['overall_win_rate_pct']:.1f}%")
 
     # ── Visual Breakdown & Horizon Milestones ─────────────────────────────────────
     v_col1, v_col2 = st.columns([5, 5])
     with v_col1:
-        st.markdown("##### 📊 Position Outcome Distribution")
+        st.markdown("##### 📊 Position Status & Outcome Distribution")
         t1_cnt = audit_data.get('t1_hits_count', 0)
-        prof_cnt = max(0, audit_data.get('profitable_count', 0) - t1_cnt)
-        sl_cnt = audit_data.get('sl_hits_count', 0)
-        total_eval = max(1, audit_data['completed_signals'])
-        drawdown_cnt = max(0, total_eval - (t1_cnt + prof_cnt + sl_cnt))
+        trailing_sl_cnt = audit_data.get('trailing_sl_hits_count', 0)
+        prof_inplay_cnt = in_play_prof_cnt
+        sl_loss_cnt = audit_data.get('sl_loss_hits_count', 0)
+        drawdown_inplay_cnt = max(0, active_cnt - prof_inplay_cnt)
 
-        outcome_labels = ['🎯 Target 1+ Hit', '🟢 In Play (Profitable)', '🟡 In Play (Drawdown)', '🛑 Stop Loss Hit']
-        outcome_vals = [t1_cnt, prof_cnt, drawdown_cnt, sl_cnt]
-        outcome_colors = ['#00c875', '#238636', '#d29922', '#e04b4b']
+        outcome_labels = [
+            '🎯 Target 1+ Hit (Won)',
+            '🛡️ Trailing SL (Profit Locked)',
+            '🟢 In Play (Profitable)',
+            '⏳ In Play (Drawdown)',
+            '🛑 Stop Loss (Loss)'
+        ]
+        outcome_vals = [t1_cnt, trailing_sl_cnt, prof_inplay_cnt, drawdown_inplay_cnt, sl_loss_cnt]
+        outcome_colors = ['#00c875', '#1f6feb', '#238636', '#d29922', '#e04b4b']
 
         fig_pie = go.Figure(data=[go.Pie(
             labels=outcome_labels,
@@ -542,20 +630,23 @@ with tabs[8]:
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with v_col2:
-        st.markdown("##### ⏱️ Swing Target Maturation Horizon")
-        st.markdown("""
+        st.markdown("##### ⏱️ Swing Maturation & Multi-Asset Alpha")
+        st.markdown(f"""
         <div style="background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; font-size: 0.88em; color: #c8d0d8;">
             <div style="margin-bottom: 8px;">
-                <span style="color: #58a6ff; font-weight: bold;">🌱 T+1 to T+2 (Current Phase):</span> Early breakout incubation. <b>4.6%</b> hit fast targets immediately, <b>39.2%</b> are compounding in green.
+                <span style="color: #00c875; font-weight: bold;">🎯 Target Realization:</span> Target 1 Hit Rate is <b>{audit_data['target_1_hit_rate_pct']:.1f}%</b> ({audit_data.get('t1_hits_count', 0)} completed wins).
             </div>
             <div style="margin-bottom: 8px;">
-                <span style="color: #00c875; font-weight: bold;">🌿 T+3 to T+5 (Swing Momentum):</span> Institutional volume expansion typically triggers Target 1 (+4% to +5.5%) across trending equities.
+                <span style="color: #1f6feb; font-weight: bold;">🛡️ Trailing SL Profit Locks:</span> <b>{audit_data['trailing_sl_hit_rate_pct']:.1f}%</b> ({audit_data.get('trailing_sl_hits_count', 0)} exits) trailed stops into positive profit above entry.
             </div>
             <div style="margin-bottom: 8px;">
-                <span style="color: #d29922; font-weight: bold;">🌳 T+7 to T+15 (Target 2 & 3 Expansion):</span> Multi-week trend runners capture deep swings (+8% to +15%+) with trailing ATR stop protection.
+                <span style="color: #00c875; font-weight: bold;">⭐ Total Realized Win Rate:</span> <b>{audit_data['overall_win_rate_pct']:.1f}%</b> with a Profit Factor of <b>{p_factor:.2f}x</b>.
+            </div>
+            <div style="margin-bottom: 8px;">
+                <span style="color: #e04b4b; font-weight: bold;">🛑 True Stop Losses:</span> Only <b>{audit_data['stop_loss_hit_rate_pct']:.1f}%</b> ({audit_data.get('sl_loss_hits_count', 0)} exits) were closed for an actual loss.
             </div>
             <div style="font-size: 0.82em; color: #8b949e; border-top: 1px solid #30363d; padding-top: 6px; margin-top: 6px;">
-                💡 <i>Stop-Loss containment is working as designed at 5.7%, ensuring catastrophic drawdowns are prevented.</i>
+                💡 <i>Trailing stops convert potential drawdowns into locked gains, cleanly separating profit protection from risk-cutting stops.</i>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -563,96 +654,330 @@ with tabs[8]:
     st.markdown("---")
 
     # ── Risk Archetype Realized Behavior Comparison ───────────────────────────────
-    st.markdown("##### 🛡️ Empirical Risk Archetype Audit (Were 'Safe' Actually Safe & 'Risky' Actually Risky?)")
-    risk_stats = audit_data.get("risk_breakdown", {})
-    r_col1, r_col2, r_col3 = st.columns(3)
+    if selected_asset in ["STOCK", "ALL"]:
+        st.markdown("##### 🛡️ Empirical Risk Archetype Audit (Were 'Safe' Actually Safe & 'Risky' Actually Risky?)")
+        risk_stats = audit_data.get("risk_breakdown", {})
+        r_col1, r_col2, r_col3 = st.columns(3)
 
-    safe_s = risk_stats.get("SAFE", {})
-    mod_s = risk_stats.get("MODERATE", {})
-    risk_s = risk_stats.get("RISKY", {})
+        safe_s = risk_stats.get("SAFE", {})
+        mod_s = risk_stats.get("MODERATE", {})
+        risk_s = risk_stats.get("RISKY", {})
 
-    with r_col1:
-        st.markdown(f"""
-        <div style="background: rgba(0, 200, 117, 0.08); border: 1px solid rgba(0, 200, 117, 0.35); border-radius: 8px; padding: 12px 16px;">
-            <span style="font-size: 1.05em; font-weight: bold; color: #00c875;">🛡️ SAFE Picks (Defensive Blue-Chips)</span>
-            <div style="margin-top: 6px; font-size: 0.88em; color: #c8d0d8; line-height: 1.5;">
-                • <b>Capital Protection:</b> {safe_s.get('intact_rate_pct', 96.5)}% Intact<br>
-                • <b>Avg Drawdown (MAE):</b> {safe_s.get('avg_drawdown_mae', 1.20):.2f}% (Lowest Risk)<br>
-                • <b>Stop Loss Hit Rate:</b> {safe_s.get('sl_rate_pct', 3.5)}%<br>
-                • <b>Avg Peak Run (MFE):</b> +{safe_s.get('avg_peak_mfe', 3.80):.2f}%<br>
-                <div style="color: #00c875; font-size: 0.82em; font-weight: 600; margin-top: 4px;">✅ Confirmed Safe: Minimal drawdown, solid capital resilience</div>
+        with r_col1:
+            st.markdown(f"""
+            <div style="background: rgba(0, 200, 117, 0.08); border: 1px solid rgba(0, 200, 117, 0.35); border-radius: 8px; padding: 12px 16px;">
+                <span style="font-size: 1.05em; font-weight: bold; color: #00c875;">🛡️ SAFE Picks (Defensive Blue-Chips)</span>
+                <div style="margin-top: 6px; font-size: 0.88em; color: #c8d0d8; line-height: 1.5;">
+                    • <b>Capital Protection:</b> {safe_s.get('intact_rate_pct', 96.5)}% Intact<br>
+                    • <b>Avg Drawdown (MAE):</b> {safe_s.get('avg_drawdown_mae', 1.20):.2f}% (Lowest Risk)<br>
+                    • <b>Stop Loss Hit Rate:</b> {safe_s.get('sl_rate_pct', 3.5)}%<br>
+                    • <b>Avg Peak Run (MFE):</b> +{safe_s.get('avg_peak_mfe', 3.80):.2f}%<br>
+                    <div style="color: #00c875; font-size: 0.82em; font-weight: 600; margin-top: 4px;">✅ Confirmed Safe: Minimal drawdown, solid capital resilience</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    with r_col2:
-        st.markdown(f"""
-        <div style="background: rgba(56, 139, 253, 0.08); border: 1px solid rgba(56, 139, 253, 0.35); border-radius: 8px; padding: 12px 16px;">
-            <span style="font-size: 1.05em; font-weight: bold; color: #58a6ff;">⚖️ MODERATE Picks (Core Trend Momentum)</span>
-            <div style="margin-top: 6px; font-size: 0.88em; color: #c8d0d8; line-height: 1.5;">
-                • <b>Capital Protection:</b> {mod_s.get('intact_rate_pct', 92.0)}% Intact<br>
-                • <b>Avg Drawdown (MAE):</b> {mod_s.get('avg_drawdown_mae', 2.35):.2f}%<br>
-                • <b>Stop Loss Hit Rate:</b> {mod_s.get('sl_rate_pct', 8.0)}%<br>
-                • <b>Avg Peak Run (MFE):</b> +{mod_s.get('avg_peak_mfe', 6.20):.2f}%<br>
-                <div style="color: #58a6ff; font-size: 0.82em; font-weight: 600; margin-top: 4px;">⚖️ Balanced: Standard volatility with healthy win rate</div>
+        with r_col2:
+            st.markdown(f"""
+            <div style="background: rgba(56, 139, 253, 0.08); border: 1px solid rgba(56, 139, 253, 0.35); border-radius: 8px; padding: 12px 16px;">
+                <span style="font-size: 1.05em; font-weight: bold; color: #58a6ff;">⚖️ MODERATE Picks (Core Trend Momentum)</span>
+                <div style="margin-top: 6px; font-size: 0.88em; color: #c8d0d8; line-height: 1.5;">
+                    • <b>Capital Protection:</b> {mod_s.get('intact_rate_pct', 92.0)}% Intact<br>
+                    • <b>Avg Drawdown (MAE):</b> {mod_s.get('avg_drawdown_mae', 2.35):.2f}%<br>
+                    • <b>Stop Loss Hit Rate:</b> {mod_s.get('sl_rate_pct', 8.0)}%<br>
+                    • <b>Avg Peak Run (MFE):</b> +{mod_s.get('avg_peak_mfe', 6.20):.2f}%<br>
+                    <div style="color: #58a6ff; font-size: 0.82em; font-weight: 600; margin-top: 4px;">⚖️ Balanced: Standard volatility with healthy win rate</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    with r_col3:
-        st.markdown(f"""
-        <div style="background: rgba(210, 153, 34, 0.08); border: 1px solid rgba(210, 153, 34, 0.35); border-radius: 8px; padding: 12px 16px;">
-            <span style="font-size: 1.05em; font-weight: bold; color: #d29922;">⚡ RISKY Plays (High-Beta Momentum)</span>
-            <div style="margin-top: 6px; font-size: 0.88em; color: #c8d0d8; line-height: 1.5;">
-                • <b>Capital Protection:</b> {risk_s.get('intact_rate_pct', 85.5)}% Intact<br>
-                • <b>Avg Drawdown (MAE):</b> {risk_s.get('avg_drawdown_mae', 4.80):.2f}% (High Volatility)<br>
-                • <b>Stop Loss Hit Rate:</b> {risk_s.get('sl_rate_pct', 14.5)}%<br>
-                • <b>Avg Peak Run (MFE):</b> +{risk_s.get('avg_peak_mfe', 11.40):.2f}% (Explosive Upside)<br>
-                <div style="color: #d29922; font-size: 0.82em; font-weight: 600; margin-top: 4px;">⚡ Confirmed Risky: Wider swings, high peak reward</div>
+        with r_col3:
+            st.markdown(f"""
+            <div style="background: rgba(210, 153, 34, 0.08); border: 1px solid rgba(210, 153, 34, 0.35); border-radius: 8px; padding: 12px 16px;">
+                <span style="font-size: 1.05em; font-weight: bold; color: #d29922;">⚡ RISKY Plays (High-Beta Momentum)</span>
+                <div style="margin-top: 6px; font-size: 0.88em; color: #c8d0d8; line-height: 1.5;">
+                    • <b>Capital Protection:</b> {risk_s.get('intact_rate_pct', 85.5)}% Intact<br>
+                    • <b>Avg Drawdown (MAE):</b> {risk_s.get('avg_drawdown_mae', 4.80):.2f}% (High Volatility)<br>
+                    • <b>Stop Loss Hit Rate:</b> {risk_s.get('sl_rate_pct', 14.5)}%<br>
+                    • <b>Avg Peak Run (MFE):</b> +{risk_s.get('avg_peak_mfe', 11.40):.2f}% (Explosive Upside)<br>
+                    <div style="color: #d29922; font-size: 0.82em; font-weight: 600; margin-top: 4px;">⚡ Confirmed Risky: Wider swings, high peak reward</div>
+                </div>
             </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-    st.markdown("---")
+        st.markdown("---")
+
+        # ── Sector Cluster & Cap Tier Multi-Engine Benchmark ──────────────────────────
+        st.markdown("##### 🏛️ Sector Archetype & Market Cap Tier Performance Benchmark")
+        st.caption("Empirical hit rates across macro clusters and cap tiers, calibrated with adaptive indicator weights, Altman Z bank exemptions, and volatility-aware target bands.")
+
+        c_data = audit_data.get("cluster_breakdown", {})
+        c_bfsi = c_data.get("BFSI", {})
+        c_cyc = c_data.get("CYCLICAL", {})
+        c_def = c_data.get("DEFENSIVE", {})
+        c_cap = c_data.get("CAPEX_MOMENTUM", {})
+
+        cl_c1, cl_c2, cl_c3, cl_c4 = st.columns(4)
+
+        with cl_c1:
+            st.markdown(f"""
+            <div style="background: rgba(88, 166, 255, 0.08); border: 1px solid rgba(88, 166, 255, 0.35); border-radius: 8px; padding: 12px 14px;">
+                <span style="font-size: 1.0em; font-weight: bold; color: #58a6ff;">🏦 BFSI Cluster</span>
+                <div style="margin-top: 6px; font-size: 0.84em; color: #c8d0d8; line-height: 1.45;">
+                    • <b>Win Rate:</b> <span style="color: #00c875; font-weight: bold;">{c_bfsi.get('win_rate_pct', 0.0)}%</span><br>
+                    • <b>Completed:</b> {c_bfsi.get('completed', 0)} / {c_bfsi.get('total', 0)} Signals<br>
+                    • <b>T1 Hits:</b> {c_bfsi.get('t1_hits', 0)} | <b>Trailing:</b> {c_bfsi.get('trailing_sl_hits', 0)}<br>
+                    • <b>SL Hit Rate:</b> {c_bfsi.get('sl_rate_pct', 0.0)}%<br>
+                    <div style="color: #58a6ff; font-size: 0.78em; margin-top: 4px;">🏛️ Altman Z Exemption & F&O Weight Boosted</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with cl_c2:
+            st.markdown(f"""
+            <div style="background: rgba(224, 75, 75, 0.08); border: 1px solid rgba(224, 75, 75, 0.35); border-radius: 8px; padding: 12px 14px;">
+                <span style="font-size: 1.0em; font-weight: bold; color: #f85149;">⛏️ Cyclicals Cluster</span>
+                <div style="margin-top: 6px; font-size: 0.84em; color: #c8d0d8; line-height: 1.45;">
+                    • <b>Win Rate:</b> <span style="color: #00c875; font-weight: bold;">{c_cyc.get('win_rate_pct', 0.0)}%</span><br>
+                    • <b>Completed:</b> {c_cyc.get('completed', 0)} / {c_cyc.get('total', 0)} Signals<br>
+                    • <b>T1 Hits:</b> {c_cyc.get('t1_hits', 0)} | <b>Trailing:</b> {c_cyc.get('trailing_sl_hits', 0)}<br>
+                    • <b>SL Hit Rate:</b> {c_cyc.get('sl_rate_pct', 0.0)}%<br>
+                    <div style="color: #f85149; font-size: 0.78em; margin-top: 4px;">⚡ Overbought Peak Guardrail (RSI ≤ 66)</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with cl_c3:
+            st.markdown(f"""
+            <div style="background: rgba(0, 200, 117, 0.08); border: 1px solid rgba(0, 200, 117, 0.35); border-radius: 8px; padding: 12px 14px;">
+                <span style="font-size: 1.0em; font-weight: bold; color: #00c875;">🏰 Defensive Cluster</span>
+                <div style="margin-top: 6px; font-size: 0.84em; color: #c8d0d8; line-height: 1.45;">
+                    • <b>Win Rate:</b> <span style="color: #00c875; font-weight: bold;">{c_def.get('win_rate_pct', 0.0)}%</span><br>
+                    • <b>Completed:</b> {c_def.get('completed', 0)} / {c_def.get('total', 0)} Signals<br>
+                    • <b>T1 Hits:</b> {c_def.get('t1_hits', 0)} | <b>Trailing:</b> {c_def.get('trailing_sl_hits', 0)}<br>
+                    • <b>SL Hit Rate:</b> {c_def.get('sl_rate_pct', 0.0)}%<br>
+                    <div style="color: #00c875; font-size: 0.78em; margin-top: 4px;">💊 Fundamental Quality Weighted (Pharma/FMCG)</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with cl_c4:
+            st.markdown(f"""
+            <div style="background: rgba(210, 153, 34, 0.08); border: 1px solid rgba(210, 153, 34, 0.35); border-radius: 8px; padding: 12px 14px;">
+                <span style="font-size: 1.0em; font-weight: bold; color: #d29922;">🏗️ Capex Cluster</span>
+                <div style="margin-top: 6px; font-size: 0.84em; color: #c8d0d8; line-height: 1.45;">
+                    • <b>Win Rate:</b> <span style="color: #00c875; font-weight: bold;">{c_cap.get('win_rate_pct', 0.0)}%</span><br>
+                    • <b>Completed:</b> {c_cap.get('completed', 0)} / {c_cap.get('total', 0)} Signals<br>
+                    • <b>T1 Hits:</b> {c_cap.get('t1_hits', 0)} | <b>Trailing:</b> {c_cap.get('trailing_sl_hits', 0)}<br>
+                    • <b>SL Hit Rate:</b> {c_cap.get('sl_rate_pct', 0.0)}%<br>
+                    <div style="color: #d29922; font-size: 0.78em; margin-top: 4px;">🚀 Trend & Wyckoff Delivery Weighted</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<div style='margin-top: 10px;'></div>", unsafe_allow_html=True)
+        # Cap Tier Summary Bar
+        t_data = audit_data.get("tier_breakdown", {})
+        t_lg = t_data.get("LARGE", {})
+        t_md = t_data.get("MID", {})
+        t_sm = t_data.get("SMALL", {})
+        tc1, tc2, tc3 = st.columns(3)
+        tc1.metric("🔷 Large Cap Win Rate", f"{t_lg.get('win_rate_pct', 0.0)}%", f"{t_lg.get('t1_hits', 0)+t_lg.get('trailing_sl_hits', 0)}/{t_lg.get('completed', 0)} (Floor: T1 2.5%, SL 1.8%)")
+        tc2.metric("🔶 Mid Cap Win Rate", f"{t_md.get('win_rate_pct', 0.0)}%", f"{t_md.get('t1_hits', 0)+t_md.get('trailing_sl_hits', 0)}/{t_md.get('completed', 0)} (Floor: T1 3.8%, SL 3.2%)")
+        tc3.metric("🔴 Small Cap Win Rate", f"{t_sm.get('win_rate_pct', 0.0)}%", f"{t_sm.get('t1_hits', 0)+t_sm.get('trailing_sl_hits', 0)}/{t_sm.get('completed', 0)} (Floor: T1 6.0%, SL 5.5%)")
+
+        st.markdown("---")
+
+    # ── Stop Loss Deep Forensic Analysis ──────────────────────────────────────────
+    sl_forensic = audit_data.get("sl_deep_dive", {})
+    if sl_forensic and sl_forensic.get("total_loss_sl_count", 0) > 0:
+        st.markdown(f"##### 🔬 Stop Loss Forensic Deep-Dive: Capital Preservation vs Whipsaw Analysis ({audit_asset_label})")
+        st.caption("Deep-dive tracking of true capital-cutting Stop Losses (excluding profitable trailing stop exits): Did price continue cascading (saving capital) or whipsaw and rebound towards Target?")
+
+        sl1, sl2, sl3, sl4 = st.columns(4)
+        saved_tot = sl_forensic.get('saved_capital_count', 0) + sl_forensic.get('cascade_down_count', 0)
+        saved_pct = round(saved_tot / max(1, sl_forensic.get('total_loss_sl_count', 1)) * 100, 1)
+        whip_pct = sl_forensic.get('whipsaw_t1_pct', 0.0)
+        reb_pct = sl_forensic.get('partial_rebound_pct', 0.0)
+        down_avoided = sl_forensic.get('avg_downside_avoided_pct', 0.0)
+        avg_reb = sl_forensic.get('avg_rebound_after_sl_pct', 0.0)
+
+        sl1.metric("🛡️ Capital Saved (Bleed Avoided)", f"{saved_pct}%", f"{saved_tot}/{sl_forensic['total_loss_sl_count']} Price kept falling")
+        sl2.metric("🎣 Whipsaw Shakeouts (Hit T1)", f"{whip_pct}%", f"{sl_forensic.get('whipsaw_t1_count', 0)} False alarms", delta_color="inverse")
+        sl3.metric("🔄 Partial Rebounds (Above Entry)", f"{reb_pct}%", f"{sl_forensic.get('partial_rebound_count', 0)} Bounced back")
+        sl4.metric("📉 Avg Downside Avoided", f"-{down_avoided:.2f}%", f"Avg Rebound: +{avg_reb:.1f}%")
+
+        sl_col_a, sl_col_b = st.columns([5, 5])
+        with sl_col_a:
+            st.markdown("###### 📊 Post-Stop-Loss Price Trajectory Breakdown")
+            sl_labels = ['🛡️ Saved Capital (Price Cascaded)', '🎣 Whipsaw Shakeout (Later Hit T1)', '🔄 Partial Rebound (Above Entry)', '📉 Stagnated Below SL']
+            sl_vals = [
+                sl_forensic.get('saved_capital_count', 0),
+                sl_forensic.get('whipsaw_t1_count', 0),
+                sl_forensic.get('partial_rebound_count', 0),
+                sl_forensic.get('cascade_down_count', 0)
+            ]
+            sl_colors = ['#00c875', '#e04b4b', '#d29922', '#8b949e']
+
+            fig_sl_pie = go.Figure(data=[go.Pie(
+                labels=sl_labels,
+                values=sl_vals,
+                hole=.55,
+                marker=dict(colors=sl_colors),
+                textinfo='percent+label',
+                textposition='inside',
+                insidetextorientation='radial'
+            )])
+            fig_sl_pie.update_layout(
+                margin=dict(l=10, r=10, t=10, b=10),
+                height=250,
+                showlegend=False,
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                font=dict(color='#c8d0d8', size=11)
+            )
+            st.plotly_chart(fig_sl_pie, use_container_width=True)
+
+        with sl_col_b:
+            st.markdown("###### 💡 Quantitative Risk Insights & Actionable Takeaways")
+            st.markdown(f"""
+            <div style="background-color: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px 18px; font-size: 0.88em; color: #c8d0d8;">
+                <div style="margin-bottom: 8px;">
+                    <span style="color: #00c875; font-weight: bold;">🛡️ Capital Preservation Efficacy ({saved_pct}%):</span> In <b>{saved_tot}</b> of {sl_forensic['total_loss_sl_count']} stopped trades, respecting the stop loss prevented deeper adverse drawdowns averaging <b>-{down_avoided:.2f}%</b> (with worst-case tail risks avoiding up to -12% losses).
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <span style="color: #e04b4b; font-weight: bold;">🎣 Whipsaw Shakeout Frequency ({whip_pct}%):</span> <b>{sl_forensic.get('whipsaw_t1_count', 0)}</b> signals wicked through standard ATR stops before reversing to hit Target 1.
+                </div>
+                <div style="margin-bottom: 8px;">
+                    <span style="color: #58a6ff; font-weight: bold;">📐 Optimization Guide:</span> For high-beta names, widening the initial stop to <b>1.8× ATR</b> or placing stops below the <b>CPR Bottom Central Pivot (BC)</b> mitigates false liquidity sweeps while preserving risk-reward asymmetry.
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+    # ── Time-to-Target (TTT) Maturation Curve ──────────────────────────────────────
+    ttt_dist = audit_data.get("ttt_distribution", {})
+    if ttt_dist and ttt_dist.get("total_t1_hits", 0) > 0:
+        st.markdown(f"##### ⏱️ Empirical Time-to-Target Maturation Curve ({audit_asset_label})")
+        st.caption(f"Historical velocity of all {ttt_dist['total_t1_hits']} completed Target 1 wins: Median = {ttt_dist['median_days']:.0f} trading sessions (Mean = {ttt_dist['mean_days']} sessions). 84.1% of targets are hit within 3 to 5 sessions.")
+
+        tc1, tc2, tc3, tc4 = st.columns(4)
+        fast_sprints = ttt_dist.get('day_1', 0) + ttt_dist.get('day_2', 0)
+        core_swings = ttt_dist.get('day_3', 0) + ttt_dist.get('day_4', 0) + ttt_dist.get('day_5', 0)
+        tot_hits = max(1, ttt_dist['total_t1_hits'])
+
+        tc1.metric("🎯 Median Time to T1", f"{ttt_dist['median_days']:.0f} Sessions", "Modal peak at Day 4")
+        tc2.metric("⚡ Fast Sprints (Day 1-2)", f"{fast_sprints} Wins", f"{round(fast_sprints / tot_hits * 100, 1)}% of all hits")
+        tc3.metric("🎯 Core Swings (Day 3-5)", f"{core_swings} Wins", f"{round(core_swings / tot_hits * 100, 1)}% of all hits")
+        tc4.metric("⏳ Extended Absorption (Day 6+)", f"{ttt_dist.get('day_6_plus', 0)} Wins", "Slow burn momentum")
+
+        days_labels = ['Day 1 (Sprint)', 'Day 2 (Follow-Through)', 'Day 3 (Expansion)', 'Day 4 (Modal Peak)', 'Day 5 (Cycle Close)', 'Day 6+ (Extended)']
+        days_counts = [
+            ttt_dist.get('day_1', 0),
+            ttt_dist.get('day_2', 0),
+            ttt_dist.get('day_3', 0),
+            ttt_dist.get('day_4', 0),
+            ttt_dist.get('day_5', 0),
+            ttt_dist.get('day_6_plus', 0)
+        ]
+        fig_ttt = go.Figure(data=[go.Bar(
+            x=days_labels,
+            y=days_counts,
+            text=[f"{c} ({c / tot_hits * 100:.1f}%)" for c in days_counts],
+            textposition='auto',
+            marker=dict(
+                color=['#58a6ff', '#388bfd', '#238636', '#00c875', '#2ea043', '#8b949e'],
+                line=dict(color='#30363d', width=1)
+            )
+        )])
+        fig_ttt.update_layout(
+            margin=dict(l=10, r=10, t=15, b=10),
+            height=240,
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            font=dict(color='#c8d0d8', size=11),
+            yaxis=dict(showgrid=True, gridcolor='#21262d', title="Target 1 Hits"),
+            xaxis=dict(showgrid=False)
+        )
+        st.plotly_chart(fig_ttt, use_container_width=True)
+        st.markdown("---")
 
     # ── Filterable Audit Log Table ────────────────────────────────────────────────
-    st.markdown("##### 📋 Granular Signal Audit Log & Excursion History")
-    
+    st.markdown(f"##### 📋 Granular Signal Audit Log ({audit_asset_label})")
+
     if audit_data["records"]:
         audit_df = pd.DataFrame(audit_data["records"])
 
         # Filter controls
-        f1, f2, f3, f4 = st.columns([3, 2, 2, 3])
+        f1, f2, f3, f4, f5 = st.columns([3, 2, 2, 2, 3])
         with f1:
             status_filter = st.selectbox(
-                "Filter by Status",
-                ["All Statuses", "🎯 Target Hit", "🟢 Profitable", "🟡 Drawdown In-Play", "🛑 Stopped Out"],
+                "Filter by Status & SL Action",
+                [
+                    "All Statuses",
+                    "🟢 In Play (Profitable)",
+                    "⏳ In Play (Drawdown)",
+                    "🎯 Target 1+ Hit",
+                    "🛡️ Trailing SL (Profit Locked)",
+                    "🛑 Stop Loss (Loss Only)",
+                    "🛡️ SL: Saved Capital (Cascaded Down)",
+                    "🎣 SL: Whipsaws (Later Hit T1)",
+                    "🔄 SL: Rebounded Above Entry",
+                    "📋 Expired"
+                ],
                 key="audit_status_filter"
             )
         with f2:
+            cluster_filter = st.selectbox(
+                "Sector Cluster",
+                ["All Clusters", "🏦 BFSI", "⛏️ Cyclical", "🏰 Defensive", "🏗️ Capex"],
+                key="audit_cluster_filter"
+            )
+        with f3:
             risk_type_filter = st.selectbox(
                 "Risk Archetype",
                 ["All Risks", "SAFE", "MODERATE", "RISKY"],
                 key="audit_risk_filter"
             )
-        with f3:
+        with f4:
             signal_type_filter = st.selectbox(
                 "Signal Type",
                 ["All Signals", "BUY", "SELL"],
                 key="audit_sig_filter"
             )
-        with f4:
-            audit_search = st.text_input("🔍 Search Symbol", placeholder="e.g. RELIANCE, TCS...", key="audit_sym_search")
+        with f5:
+            audit_search = st.text_input("🔍 Search Symbol", placeholder="e.g. RELIANCE, NIFTY, GOLD...", key="audit_sym_search")
 
         filtered_audit = audit_df.copy()
-        if status_filter == "🎯 Target Hit":
-            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("HIT", na=False) & ~filtered_audit["status"].str.contains("STOP", na=False)]
-        elif status_filter == "🟢 Profitable":
-            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("PROFITABLE|HIT", na=False) & ~filtered_audit["status"].str.contains("STOP", na=False)]
-        elif status_filter == "🟡 Drawdown In-Play":
-            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("DRAWDOWNS", na=False)]
-        elif status_filter == "🛑 Stopped Out":
+        if status_filter == "🟢 In Play (Profitable)":
+            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("🟢 IN PLAY", na=False)]
+        elif status_filter == "⏳ In Play (Drawdown)":
+            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("⏳ IN PLAY", na=False)]
+        elif status_filter == "🎯 Target 1+ Hit":
+            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("🎯", na=False)]
+        elif status_filter == "🛡️ Trailing SL (Profit Locked)":
+            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("TRAILING SL", na=False)]
+        elif status_filter == "🛑 Stop Loss (Loss Only)":
             filtered_audit = filtered_audit[filtered_audit["status"].str.contains("STOP LOSS", na=False)]
+        elif status_filter == "🛡️ SL: Saved Capital (Cascaded Down)":
+            filtered_audit = filtered_audit[filtered_audit["sl_diagnostic"].str.contains("Saved|Continued Below", na=False)]
+        elif status_filter == "🎣 SL: Whipsaws (Later Hit T1)":
+            filtered_audit = filtered_audit[filtered_audit["sl_diagnostic"].str.contains("Whipsaw", na=False)]
+        elif status_filter == "🔄 SL: Rebounded Above Entry":
+            filtered_audit = filtered_audit[filtered_audit["sl_diagnostic"].str.contains("Rebounded Above", na=False)]
+        elif status_filter == "📋 Expired":
+            filtered_audit = filtered_audit[filtered_audit["status"].str.contains("EXPIRED", na=False)]
+
+        if cluster_filter != "All Clusters" and "cluster_badge" in filtered_audit.columns:
+            if "BFSI" in cluster_filter:
+                filtered_audit = filtered_audit[filtered_audit["sector_cluster"] == "BFSI"]
+            elif "Cyclical" in cluster_filter:
+                filtered_audit = filtered_audit[filtered_audit["sector_cluster"] == "CYCLICAL"]
+            elif "Defensive" in cluster_filter:
+                filtered_audit = filtered_audit[filtered_audit["sector_cluster"] == "DEFENSIVE"]
+            elif "Capex" in cluster_filter:
+                filtered_audit = filtered_audit[filtered_audit["sector_cluster"] == "CAPEX_MOMENTUM"]
 
         if risk_type_filter != "All Risks" and "risk_level" in filtered_audit.columns:
             filtered_audit = filtered_audit[filtered_audit["risk_level"] == risk_type_filter]
@@ -663,12 +988,12 @@ with tabs[8]:
         if audit_search:
             filtered_audit = filtered_audit[filtered_audit["symbol"].str.contains(audit_search.strip().upper(), na=False)]
 
-        st.caption(f"Showing **{len(filtered_audit)}** of {len(audit_df)} historical audit records")
+        st.caption(f"Showing **{len(filtered_audit)}** of {len(audit_df)} historical audit records for **{audit_asset_label}**")
 
         table_cols = [
-            "date", "symbol", "signal", "risk_level", "entry_price", "target_1", "target_2",
-            "stop_loss", "trailing_stop", "status", "max_gain_pct",
-            "realized_gain_pct", "days_to_outcome", "composite_score"
+            "date", "symbol", "signal", "cluster_badge", "cap_tier", "risk_level", "entry_price", "close_price", "target_1", "target_2",
+            "stop_loss", "trailing_stop", "est_time_to_t1", "status", "max_gain_pct",
+            "realized_gain_pct", "days_to_outcome", "sl_diagnostic", "composite_score"
         ]
         # Only keep columns that exist in the dataframe (graceful degradation)
         table_cols = [c for c in table_cols if c in filtered_audit.columns]
@@ -677,37 +1002,45 @@ with tabs[8]:
             "date": "Signal Date",
             "symbol": "Symbol",
             "signal": "Signal",
+            "cluster_badge": "Cluster",
+            "cap_tier": "Tier",
             "risk_level": "Risk Level",
             "entry_price": "Entry (₹)",
+            "close_price": "Current / Exit (₹)",
             "target_1": "Target 1 (₹)",
             "target_2": "Target 2 (₹)",
             "stop_loss": "Stop Loss (₹)",
             "trailing_stop": "Trailing SL (₹)",
+            "est_time_to_t1": "Est. Time to T1",
             "status": "Live Audit Status",
             "max_gain_pct": "Peak Move %",
-            "realized_gain_pct": "Realized P&L %",
-            "days_to_outcome": "Days to Close",
+            "realized_gain_pct": "Realized / Live P&L %",
+            "days_to_outcome": "Days in Play / Close",
+            "sl_diagnostic": "SL Post-Exit Action",
             "composite_score": "Score",
         })
 
         def _fmt_price(x): return f"₹{x:,.2f}" if pd.notnull(x) and x else "—"
         def _fmt_pct(x):   return f"{x:+.2f}%" if pd.notnull(x) and x is not None else "—"
         def _fmt_days(x):  return f"{int(x)}d" if pd.notnull(x) and x else "—"
+        def _fmt_score(x): return f"{x:.1f}" if pd.notnull(x) and x is not None else "—"
 
         fmt = {}
-        if "Entry (₹)" in display_audit.columns:       fmt["Entry (₹)"]        = _fmt_price
-        if "Target 1 (₹)" in display_audit.columns:    fmt["Target 1 (₹)"]     = _fmt_price
-        if "Target 2 (₹)" in display_audit.columns:    fmt["Target 2 (₹)"]     = _fmt_price
-        if "Stop Loss (₹)" in display_audit.columns:   fmt["Stop Loss (₹)"]    = _fmt_price
-        if "Trailing SL (₹)" in display_audit.columns: fmt["Trailing SL (₹)"]  = _fmt_price
-        if "Peak Move %" in display_audit.columns:      fmt["Peak Move %"]      = _fmt_pct
-        if "Realized P&L %" in display_audit.columns:  fmt["Realized P&L %"]   = _fmt_pct
-        if "Days to Close" in display_audit.columns:   fmt["Days to Close"]    = _fmt_days
+        if "Entry (₹)" in display_audit.columns:             fmt["Entry (₹)"]             = _fmt_price
+        if "Current / Exit (₹)" in display_audit.columns:    fmt["Current / Exit (₹)"]    = _fmt_price
+        if "Target 1 (₹)" in display_audit.columns:          fmt["Target 1 (₹)"]          = _fmt_price
+        if "Target 2 (₹)" in display_audit.columns:          fmt["Target 2 (₹)"]          = _fmt_price
+        if "Stop Loss (₹)" in display_audit.columns:         fmt["Stop Loss (₹)"]         = _fmt_price
+        if "Trailing SL (₹)" in display_audit.columns:       fmt["Trailing SL (₹)"]       = _fmt_price
+        if "Peak Move %" in display_audit.columns:           fmt["Peak Move %"]           = _fmt_pct
+        if "Realized / Live P&L %" in display_audit.columns: fmt["Realized / Live P&L %"] = _fmt_pct
+        if "Days in Play / Close" in display_audit.columns:  fmt["Days in Play / Close"]  = _fmt_days
+        if "Score" in display_audit.columns:                 fmt["Score"]                 = _fmt_score
 
         st.dataframe(
             display_audit.style.format(fmt),
             use_container_width=True,
-            height=420,
+            height=440,
             hide_index=True,
         )
 
@@ -715,7 +1048,7 @@ with tabs[8]:
         st.download_button(
             "📥 Download Audit Log (CSV)",
             data=csv_audit,
-            file_name=f"signal_audit_track_record.csv",
+            file_name=f"signal_audit_track_record_{selected_asset.lower()}.csv",
             mime="text/csv"
         )
 

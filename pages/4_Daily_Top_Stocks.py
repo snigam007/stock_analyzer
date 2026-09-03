@@ -549,10 +549,7 @@ def render_stock_table(rows, show_signal: bool = True):
                 atr=daily_atr
             )
             if tranche_plan and tranche_plan.get("blueprint_html"):
-                if hasattr(st, "html"):
-                    st.html(tranche_plan["blueprint_html"])
-                else:
-                    st.markdown(tranche_plan["blueprint_html"], unsafe_allow_html=True)
+                st.markdown(tranche_plan["blueprint_html"], unsafe_allow_html=True)
 
 
 # Tab 1: Top BUY

@@ -978,10 +978,7 @@ with st.expander("🛠️ **Trade Sizing & Execution Optimizer (Click to customi
             atr=u_atr
         )
         if c_plan and c_plan.get("blueprint_html"):
-            if hasattr(st, "html"):
-                st.html(c_plan["blueprint_html"])
-            else:
-                st.markdown(c_plan["blueprint_html"], unsafe_allow_html=True)
+            st.markdown(c_plan["blueprint_html"], unsafe_allow_html=True)
 
 st.markdown("---")
 

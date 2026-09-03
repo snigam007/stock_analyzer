@@ -571,48 +571,54 @@ def update_trailing_stops(session: Session) -> int:
             max_h = max(max_h, max(float(p[0] or entry) for p in fwd))
             min_l = min(min_l, min(float(p[1] or entry) for p in fwd))
 
-        new_trailing = trailing_sl or orig_sl
+        # Volatility & Morning Noise Buffer
+        atr_val = entry * 0.018
+        if fwd and len(fwd) >= 2:
+            highs = [float(p[0] or entry) for p in fwd]
+            lows = [float(p[1] or entry) for p in fwd]
+            diffs = [h - l for h, l in zip(highs, lows) if h >= l]
+            if diffs:
+                atr_val = float(np.mean(diffs))
+        morning_buffer = round(0.45 * atr_val, 2)
+        retest_buffer = round(0.35 * atr_val, 2)
+
+        new_trailing = orig_sl
 
         if sig == 'BUY':
             peak_pct = (max_h - entry) / entry * 100.0
             if t3 and max_h >= float(t3) and t2:
-                new_trailing = max(new_trailing, float(t2) * 0.995)
+                new_trailing = max(new_trailing, float(t2) - retest_buffer)
             elif t2 and max_h >= float(t2) and t1:
-                new_trailing = max(new_trailing, float(t1) * 0.995)
+                new_trailing = max(new_trailing, float(t1) - retest_buffer)
             elif t1 and max_h >= float(t1):
-                new_trailing = max(new_trailing, entry * 1.01)
+                new_trailing = max(new_trailing, entry - morning_buffer)
             elif peak_pct >= 3.0:
-                # Lock in 50% of the peak profit
-                lock_p = entry + (max_h - entry) * 0.50
+                lock_p = entry + (max_h - entry) * 0.50 - morning_buffer
                 new_trailing = max(new_trailing, lock_p)
             elif peak_pct >= 1.5:
-                # Trail to breakeven
-                new_trailing = max(new_trailing, entry * 1.002)
+                new_trailing = max(new_trailing, entry - morning_buffer)
 
         elif sig == 'SELL':
             peak_drop = (entry - min_l) / entry * 100.0
             if t3 and min_l <= float(t3) and t2:
-                new_trailing = min(new_trailing, float(t2) * 1.005)
+                new_trailing = min(new_trailing, float(t2) + retest_buffer)
             elif t2 and min_l <= float(t2) and t1:
-                new_trailing = min(new_trailing, float(t1) * 1.005)
+                new_trailing = min(new_trailing, float(t1) + retest_buffer)
             elif t1 and min_l <= float(t1):
-                new_trailing = min(new_trailing, entry * 0.99)
+                new_trailing = min(new_trailing, entry + morning_buffer)
             elif peak_drop >= 3.0:
-                lock_p = entry - (entry - min_l) * 0.50
+                lock_p = entry - (entry - min_l) * 0.50 + morning_buffer
                 new_trailing = min(new_trailing, lock_p)
             elif peak_drop >= 1.5:
-                new_trailing = min(new_trailing, entry * 0.998)
+                new_trailing = min(new_trailing, entry + morning_buffer)
 
-        if new_trailing is not None and trailing_sl is not None:
-            if sig == 'BUY' and new_trailing > trailing_sl:
+        if new_trailing is not None:
+            curr_ts = round(float(trailing_sl), 2) if trailing_sl is not None else None
+            calc_ts = round(float(new_trailing), 2)
+            if curr_ts != calc_ts or (max_h != float(db_max_h or 0)) or (min_l != float(db_min_l or 0)):
                 session.execute(text(
                     "UPDATE signal_audit_log SET trailing_stop = :ts, max_price_reached = :mx, min_price_reached = :mn WHERE id = :id"
-                ), {'ts': round(new_trailing, 2), 'mx': round(max_h, 2), 'mn': round(min_l, 2), 'id': row_id})
-                updated += 1
-            elif sig == 'SELL' and new_trailing < trailing_sl:
-                session.execute(text(
-                    "UPDATE signal_audit_log SET trailing_stop = :ts, max_price_reached = :mx, min_price_reached = :mn WHERE id = :id"
-                ), {'ts': round(new_trailing, 2), 'mx': round(max_h, 2), 'mn': round(min_l, 2), 'id': row_id})
+                ), {'ts': calc_ts, 'mx': round(max_h, 2), 'mn': round(min_l, 2), 'id': row_id})
                 updated += 1
 
     session.commit()
@@ -671,7 +677,9 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
         days_to_outcome = len(fwd_prices)
         max_high = float(entry)
         min_low = float(entry)
-        realized_gain_pct = None
+        sim_atr = entry * 0.018
+        sim_morning_buf = round(0.45 * sim_atr, 2)
+        sim_retest_buf = round(0.35 * sim_atr, 2)
 
         for day_idx, p in enumerate(fwd_prices):
             p_date = str(p[0])
@@ -691,25 +699,25 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                     break
                 if t3 and h >= float(t3):
                     hit_t3 = True
-                    if t2 and (not effective_sl or float(effective_sl) < float(t2) * 0.995):
-                        effective_sl = float(t2) * 0.995
+                    if t2 and (not effective_sl or float(effective_sl) < float(t2) - sim_retest_buf):
+                        effective_sl = float(t2) - sim_retest_buf
                 elif t2 and h >= float(t2):
                     hit_t2 = True
-                    if t1 and (not effective_sl or float(effective_sl) < float(t1) * 0.995):
-                        effective_sl = float(t1) * 0.995
+                    if t1 and (not effective_sl or float(effective_sl) < float(t1) - sim_retest_buf):
+                        effective_sl = float(t1) - sim_retest_buf
                 elif t1 and h >= float(t1):
                     hit_t1 = True
-                    be = entry * 1.01
+                    be = entry - sim_morning_buf
                     if not effective_sl or effective_sl < be:
                         effective_sl = be
                 else:
                     peak_pct = (max_high - entry) / entry * 100.0
                     if peak_pct >= 3.0:
-                        lock_p = entry + (max_high - entry) * 0.50
+                        lock_p = entry + (max_high - entry) * 0.50 - sim_morning_buf
                         if not effective_sl or effective_sl < lock_p:
                             effective_sl = lock_p
                     elif peak_pct >= 1.5:
-                        be = entry * 1.002
+                        be = entry - sim_morning_buf
                         if not effective_sl or effective_sl < be:
                             effective_sl = be
             elif sig_type == 'SELL':
@@ -722,25 +730,25 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                     break
                 if t3 and l <= float(t3):
                     hit_t3 = True
-                    if t2 and (not effective_sl or float(effective_sl) > float(t2) * 1.005):
-                        effective_sl = float(t2) * 1.005
+                    if t2 and (not effective_sl or float(effective_sl) > float(t2) + sim_retest_buf):
+                        effective_sl = float(t2) + sim_retest_buf
                 elif t2 and l <= float(t2):
                     hit_t2 = True
-                    if t1 and (not effective_sl or float(effective_sl) > float(t1) * 1.005):
-                        effective_sl = float(t1) * 1.005
+                    if t1 and (not effective_sl or float(effective_sl) > float(t1) + sim_retest_buf):
+                        effective_sl = float(t1) + sim_retest_buf
                 elif t1 and l <= float(t1):
                     hit_t1 = True
-                    be = entry * 0.99
+                    be = entry + sim_morning_buf
                     if not effective_sl or effective_sl > be:
                         effective_sl = be
                 else:
                     peak_drop = (entry - min_low) / entry * 100.0
                     if peak_drop >= 3.0:
-                        lock_p = entry - (entry - min_low) * 0.50
+                        lock_p = entry - (entry - min_low) * 0.50 + sim_morning_buf
                         if not effective_sl or effective_sl > lock_p:
                             effective_sl = lock_p
                     elif peak_drop >= 1.5:
-                        be = entry * 0.998
+                        be = entry + sim_morning_buf
                         if not effective_sl or effective_sl > be:
                             effective_sl = be
 
@@ -1253,9 +1261,9 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
             'close_price': round(close_price, 2) if close_price else None,
             'target_1': round(t1, 2) if t1 else None,
             'target_2': round(t2, 2) if t2 else None,
-            'target_3': round(t3, 2) if t3 else None,
             'stop_loss': round(sl, 2) if sl else None,
-            'trailing_stop': round(trailing, 2) if trailing else None,
+            'trailing_stop': round(trailing, 2) if trailing else (round(sl, 2) if sl else None),
+            'is_trailing_ratcheted': bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05),
             'composite_score': round(score, 1) if score else None,
             'status': display_status,
             'raw_status': 'TRAILING_SL_HIT' if is_trailing_win else status,

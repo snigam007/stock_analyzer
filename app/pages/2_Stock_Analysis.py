@@ -959,10 +959,23 @@ with st.expander("🛠️ **Trade Sizing & Execution Optimizer (Click to customi
         u_t3 = float(sig.get("target_price_3") or u_entry * 1.10)
         u_sl = float(sig.get("stop_loss") or u_entry * 0.97)
 
+        # Compute 14-period ATR if price data available
+        u_atr = None
+        if df is not None and len(df) >= 14 and 'high' in df.columns and 'low' in df.columns and 'close' in df.columns:
+            try:
+                tr1 = df['high'] - df['low']
+                tr2 = (df['high'] - df['close'].shift()).abs()
+                tr3 = (df['low'] - df['close'].shift()).abs()
+                tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+                u_atr = float(tr.rolling(14).mean().iloc[-1])
+            except Exception:
+                u_atr = None
+
         c_plan = calculate_tranche_execution_plan(
             entry_price=u_entry, t1=u_t1, t2=u_t2, t3=u_t3, sl=u_sl,
             account_capital=u_cap, risk_pct=u_risk,
-            signal=sig.get("signal", "BUY")
+            signal=sig.get("signal", "BUY"),
+            atr=u_atr
         )
         if c_plan and c_plan.get("blueprint_html"):
             if hasattr(st, "html"):

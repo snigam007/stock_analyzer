@@ -538,13 +538,15 @@ def render_stock_table(rows, show_signal: bool = True):
                     unsafe_allow_html=True
                 )
 
-            # Full-width 3-Stage Profit Tranche Blueprint
+            # Full-width 3-Stage Profit Tranche Blueprint (with Morning Shakeout Buffers)
+            daily_atr = (float(volatility) / 15.874 * float(buy_price or price or 100.0)) if (volatility and float(volatility) > 0) else None
             tranche_plan = calculate_tranche_execution_plan(
                 entry_price=buy_price or price or 0,
                 t1=t1, t2=t2, t3=t3, sl=sl,
                 account_capital=tranche_capital,
                 risk_pct=tranche_risk_pct,
-                signal=signal
+                signal=signal,
+                atr=daily_atr
             )
             if tranche_plan and tranche_plan.get("blueprint_html"):
                 if hasattr(st, "html"):

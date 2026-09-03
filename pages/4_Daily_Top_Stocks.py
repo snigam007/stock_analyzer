@@ -112,6 +112,19 @@ def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
 
 
 @st.cache_data(ttl=30)
+def get_cached_inception_map():
+    session = get_session(engine)
+    try:
+        from core.accuracy_tracker import get_active_signal_inception_map
+        return get_active_signal_inception_map(session, "STOCK")
+    except Exception as e:
+        logger.warning(f"Error fetching inception map: {e}")
+        return {}
+    finally:
+        session.close()
+
+
+@st.cache_data(ttl=30)
 def get_sectors():
     session = get_session(engine)
     result = session.execute(text("SELECT DISTINCT sector FROM stocks ORDER BY sector")).scalars().all()
@@ -255,6 +268,8 @@ def render_stock_table(rows, show_signal: bool = True):
     trend_icons = {"UP": "📈", "DOWN": "📉", "SIDEWAYS": "➡️"}
     inv_icons = {"Momentum": "🚀", "Value": "💎", "Growth": "🌱", "Defensive": "🏰", "Speculative": "🎲"}
 
+    inception_map = get_cached_inception_map()
+
     for i, row in enumerate(rows):
         (symbol, name, sector, tier, composite_score, univ_pct,
          signal, strength, price, buy_price, t1, t2, t3,
@@ -264,14 +279,26 @@ def render_stock_table(rows, show_signal: bool = True):
          rsi, adx, vol_ratio,
          beta, volatility, sharpe, *rest) = row
 
-        signal_age_days = rest[0] if rest else 1
-        age_days = int(signal_age_days or 1)
-        if age_days <= 1:
+        inc = inception_map.get(symbol, {})
+        streak_days = inc.get("streak_days", int(rest[0] if rest and rest[0] else 1))
+        inception_date = inc.get("inception_date", "")
+        inception_price = inc.get("inception_price", price)
+        ret_since_inc = inc.get("return_since_inception_pct", 0.0)
+        peak_gain = inc.get("peak_gain_pct", 0.0)
+        max_dd = inc.get("max_drawdown_pct", 0.0)
+        milestone = inc.get("milestone_status", "")
+        max_h = inc.get("max_high_since_inception", price)
+        min_l = inc.get("min_low_since_inception", price)
+
+        if streak_days <= 1:
             freshness_badge = "🟢 NEW (1d)"
-        elif age_days <= 4:
-            freshness_badge = f"⚡ FRESH ({age_days}d)"
+            freshness_header = "🟢 NEW (1d)"
+        elif streak_days <= 4:
+            freshness_badge = f"⚡ FRESH ({streak_days}d)"
+            freshness_header = f"⚡ FRESH ({streak_days}d • {ret_since_inc:+.1f}%)"
         else:
-            freshness_badge = f"⚠️ STALE ({age_days}d)"
+            freshness_badge = f"⚠️ STALE ({streak_days}d)"
+            freshness_header = f"⚠️ STALE ({streak_days}d • {ret_since_inc:+.1f}%)"
 
         sig_icon = signal_icons.get(signal, "🟡")
         risk_icon = risk_icons.get(risk, "⚖️")
@@ -296,7 +323,7 @@ def render_stock_table(rows, show_signal: bool = True):
 
         with st.expander(
             f"{rank_label} **{symbol}** — {name[:24]} | "
-            f"{sig_icon} {signal} | {freshness_badge} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
+            f"{sig_icon} {signal} | {freshness_header} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
             f"Score: **{composite_score:.0f}** | ⏳ {pred_ttt['window_str']}",
             expanded=(i < 3)
         ):
@@ -305,6 +332,11 @@ def render_stock_table(rows, show_signal: bool = True):
             with col1:
                 st.markdown(f"**📂 Sector:** {sector} ({cluster_meta['badge']})")
                 st.markdown(f"**📊 Cap Tier:** {tier.upper() if tier else 'Mid'} • **⚡ Freshness:** `{freshness_badge}`")
+                if streak_days > 1 and inception_date:
+                    st.markdown(f"**📅 Inception:** `{inception_date}` ({streak_days}d streak)")
+                    st.markdown(f"**🎯 Milestone:** `{milestone}`")
+                else:
+                    st.markdown(f"**📅 Inception:** `Today` (Brand New Signal)")
                 top_pct_str = f" (Top {100-univ_pct:.0f}%)" if (univ_pct is not None and not pd.isna(univ_pct)) else ""
                 st.markdown(f"**💯 Score:** `{composite_score:.1f}/100`{top_pct_str}")
                 if rsi:
@@ -314,10 +346,31 @@ def render_stock_table(rows, show_signal: bool = True):
                     st.markdown(f"**Vol Ratio:** {vol_ratio:.2f}x avg")
 
             with col2:
-                st.markdown("**💰 Price & Target Velocity:**")
+                if streak_days > 1 and inception_date:
+                    ret_color = "#00c875" if ret_since_inc >= 0 else "#ff4b4b"
+                    ret_bg = "rgba(0, 200, 117, 0.12)" if ret_since_inc >= 0 else "rgba(255, 75, 75, 0.12)"
+                    st.markdown(f"""
+                    <div style="background: #161b22; border: 1px solid #30363d; border-left: 3px solid {ret_color}; padding: 7px 10px; border-radius: 6px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 0.8em; color: #8b949e; font-weight: 600; text-transform: uppercase;">Since Inception ({inception_date})</span>
+                            <span style="color: {ret_color}; background: {ret_bg}; padding: 1px 6px; border-radius: 4px; font-weight: 700; font-size: 0.88em;">{ret_since_inc:+.2f}%</span>
+                        </div>
+                        <div style="font-size: 0.85em; color: #c8d0d8; margin-top: 3px;">
+                            Entry: <b>{format_price(inception_price)}</b> &nbsp;•&nbsp; Peak: <b style="color: #00c875;">+{peak_gain:.1f}%</b> ({format_price(max_h)})
+                        </div>
+                        <div style="font-size: 0.8em; color: #8b949e; margin-top: 2px;">
+                            Pullback: <b style="color: #ff4b4b;">{max_dd:+.1f}%</b> &nbsp;•&nbsp; Status: <span style="color: #58a6ff; font-weight: 600;">{milestone}</span>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.markdown("**💰 Current & Re-entry Targets:**")
+                else:
+                    st.markdown("**💰 Price & Target Velocity:**")
+
                 st.markdown(f"- Current: **{format_price(price)}**")
                 if buy_price:
-                    st.markdown(f"- Entry: **{format_price(buy_price)}**")
+                    label_entry = "Re-entry Level" if streak_days > 1 else "Entry"
+                    st.markdown(f"- {label_entry}: **{format_price(buy_price)}**")
                 if t1:
                     st.markdown(f"- 🎯 T1: **{format_price(t1)}** {format_badge_pct(t1_pct)}", unsafe_allow_html=True)
                     st.markdown(f"- ⏳ Est. T1: {pred_ttt['badge_html']}", unsafe_allow_html=True)

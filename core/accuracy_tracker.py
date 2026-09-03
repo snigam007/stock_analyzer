@@ -88,15 +88,17 @@ def log_current_signals_to_audit(session: Session) -> int:
     rows = session.execute(text(query)).fetchall()
     logged = 0
     for r in rows:
+        sym = str(r[1])
+        sig = str(r[2])
         try:
             session.execute(text("""
-                INSERT OR REPLACE INTO signal_audit_log (
+                INSERT OR IGNORE INTO signal_audit_log (
                     signal_date, symbol, signal, entry_price,
                     target_1, target_2, target_3, stop_loss,
                     composite_score, status, trailing_stop, risk_level, asset_type
                 ) VALUES (:dt, :sym, :sig, :price, :t1, :t2, :t3, :sl, :score, 'PENDING', :sl, :risk, 'STOCK')
             """), {
-                'dt': str(r[0]), 'sym': str(r[1]), 'sig': str(r[2]), 'price': float(r[3]),
+                'dt': str(r[0]), 'sym': sym, 'sig': sig, 'price': float(r[3]),
                 't1': float(r[4]) if r[4] else None,
                 't2': float(r[5]) if r[5] else None,
                 't3': float(r[6]) if r[6] else None,
@@ -372,6 +374,164 @@ def log_all_multi_asset_signals_to_audit(session: Session) -> dict:
         "breakouts_logged": cpr_cnt,
         "total_logged": stk_cnt + idx_cnt + com_cnt + cpr_cnt
     }
+
+
+# --- Continuous Signal Inception & Multi-Day Performance -----------------------
+def get_active_signal_inception_map(session: Session, asset_type: str = "STOCK") -> Dict[str, dict]:
+    """
+    Computes continuous signal inception metrics across all active assets.
+    Identifies the exact date when the continuous streak of the current signal started,
+    the entry price on inception date, cumulative return %, peak move (MFE) %,
+    maximum adverse excursion (MAE) %, and milestone achievement (T1/T2/T3/SL).
+    """
+    tbl_prices = "index_prices" if asset_type == "INDEX" else ("commodity_prices" if asset_type == "COMMODITY" else "daily_prices")
+
+    query = f"""
+        WITH signal_changes AS (
+            SELECT
+                symbol, date, signal, current_price, buy_price, target_price_1, target_price_2, target_price_3, stop_loss,
+                CASE WHEN LAG(signal) OVER (PARTITION BY symbol ORDER BY date ASC) = signal THEN 0 ELSE 1 END as is_new_streak
+            FROM signals
+        ),
+        signal_streaks AS (
+            SELECT
+                symbol, date, signal, current_price, buy_price, target_price_1, target_price_2, target_price_3, stop_loss,
+                SUM(is_new_streak) OVER (PARTITION BY symbol ORDER BY date ASC) as streak_id
+            FROM signal_changes
+        ),
+        latest_streak_meta AS (
+            SELECT
+                symbol, streak_id, signal,
+                MIN(date) as inception_date,
+                MAX(date) as latest_date,
+                COUNT(*) as streak_days
+            FROM signal_streaks
+            GROUP BY symbol, streak_id, signal
+        ),
+        latest_signals AS (
+            SELECT ss.*, lsm.inception_date, lsm.streak_days,
+                   first_val.current_price as inception_price,
+                   first_val.buy_price as inception_buy_price,
+                   first_val.target_price_1 as inception_target_1,
+                   first_val.target_price_2 as inception_target_2,
+                   first_val.target_price_3 as inception_target_3,
+                   first_val.stop_loss as inception_stop_loss
+            FROM signal_streaks ss
+            JOIN latest_streak_meta lsm ON ss.symbol = lsm.symbol AND ss.streak_id = lsm.streak_id
+            JOIN signal_streaks first_val ON first_val.symbol = ss.symbol AND first_val.date = lsm.inception_date
+            WHERE ss.date = (SELECT MAX(date) FROM signals)
+        )
+        SELECT ls.symbol, ls.signal, ls.streak_days, ls.inception_date,
+               ls.inception_price, ls.inception_buy_price,
+               ls.inception_target_1, ls.inception_target_2, ls.inception_target_3, ls.inception_stop_loss,
+               ls.current_price,
+               MAX(dp.high) as max_high_since_inception,
+               MIN(dp.low) as min_low_since_inception
+        FROM latest_signals ls
+        LEFT JOIN {tbl_prices} dp ON dp.symbol = ls.symbol AND dp.date >= ls.inception_date
+        GROUP BY ls.symbol
+    """
+
+    try:
+        rows = session.execute(text(query)).fetchall()
+    except Exception as e:
+        logger.warning(f"Failed to query signal inception map: {e}")
+        return {}
+
+    inception_map = {}
+    for r in rows:
+        sym, sig, days, inc_dt, inc_close, inc_buy, t1, t2, t3, sl, curr_p, max_h, min_l = r
+        sym = str(sym)
+        sig = str(sig)
+        streak_days = int(days or 1)
+        inc_date = str(inc_dt) if inc_dt else ""
+        inc_close = float(inc_close or curr_p or 0)
+        inc_buy = float(inc_buy or inc_close)
+        curr_price = float(curr_p or inc_close)
+        t1_val = float(t1) if t1 is not None else None
+        t2_val = float(t2) if t2 is not None else None
+        t3_val = float(t3) if t3 is not None else None
+        sl_val = float(sl) if sl is not None else None
+        max_high = float(max_h or curr_price)
+        min_low = float(min_l or curr_price)
+
+        # Baseline entry price: use inception close (or buy_price if available)
+        base_entry = inc_close if inc_close > 0 else inc_buy
+
+        if base_entry > 0:
+            if sig == "BUY":
+                ret_pct = round((curr_price - base_entry) / base_entry * 100.0, 2)
+                peak_gain = round((max_high - base_entry) / base_entry * 100.0, 2)
+                max_drawdown = round((min_low - base_entry) / base_entry * 100.0, 2)
+                if t3_val and max_high >= t3_val:
+                    milestone = f"🎯 T3 Hit ({peak_gain:+.1f}%)"
+                elif t2_val and max_high >= t2_val:
+                    milestone = f"🎯 T2 Hit ({peak_gain:+.1f}%)"
+                elif t1_val and max_high >= t1_val:
+                    milestone = f"🎯 T1 Hit ({peak_gain:+.1f}%)"
+                elif sl_val and min_low <= sl_val:
+                    milestone = f"🛑 SL Breached ({max_drawdown:+.1f}%)"
+                elif ret_pct >= 0:
+                    milestone = f"🟢 In Play ({ret_pct:+.1f}%)"
+                else:
+                    milestone = f"⏳ In Pullback ({ret_pct:+.1f}%)"
+            elif sig == "SELL":
+                ret_pct = round((base_entry - curr_price) / base_entry * 100.0, 2)
+                peak_gain = round((base_entry - min_low) / base_entry * 100.0, 2)
+                max_drawdown = round((base_entry - max_high) / base_entry * 100.0, 2)
+                if t3_val and min_low <= t3_val:
+                    milestone = f"🎯 T3 Hit ({peak_gain:+.1f}%)"
+                elif t2_val and min_low <= t2_val:
+                    milestone = f"🎯 T2 Hit ({peak_gain:+.1f}%)"
+                elif t1_val and min_low <= t1_val:
+                    milestone = f"🎯 T1 Hit ({peak_gain:+.1f}%)"
+                elif sl_val and max_high >= sl_val:
+                    milestone = f"🛑 SL Breached ({max_drawdown:+.1f}%)"
+                elif ret_pct >= 0:
+                    milestone = f"🔴 In Play ({ret_pct:+.1f}%)"
+                else:
+                    milestone = f"⏳ In Drawdown ({ret_pct:+.1f}%)"
+            else:
+                ret_pct = round((curr_price - base_entry) / base_entry * 100.0, 2)
+                peak_gain = round((max_high - base_entry) / base_entry * 100.0, 2)
+                max_drawdown = round((min_low - base_entry) / base_entry * 100.0, 2)
+                milestone = f"🟡 Consolidation ({ret_pct:+.1f}%)"
+        else:
+            ret_pct = 0.0
+            peak_gain = 0.0
+            max_drawdown = 0.0
+            milestone = "—"
+
+        if streak_days <= 1:
+            freshness_badge = "🟢 NEW (1d)"
+        elif streak_days <= 4:
+            freshness_badge = f"⚡ FRESH ({streak_days}d)"
+        else:
+            freshness_badge = f"⚠️ STALE ({streak_days}d)"
+
+        inception_map[sym] = {
+            "symbol": sym,
+            "signal": sig,
+            "streak_days": streak_days,
+            "inception_date": inc_date,
+            "inception_price": inc_close,
+            "inception_buy_price": inc_buy,
+            "inception_target_1": t1_val,
+            "inception_target_2": t2_val,
+            "inception_target_3": t3_val,
+            "inception_stop_loss": sl_val,
+            "current_price": curr_price,
+            "return_since_inception_pct": ret_pct,
+            "max_high_since_inception": max_high,
+            "min_low_since_inception": min_low,
+            "peak_gain_pct": peak_gain,
+            "max_drawdown_pct": max_drawdown,
+            "milestone_status": milestone,
+            "freshness_badge": freshness_badge,
+            "is_new": streak_days <= 1
+        }
+
+    return inception_map
 
 
 # --- Update Trailing Stops ----------------------------------------------------

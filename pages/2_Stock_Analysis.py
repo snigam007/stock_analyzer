@@ -265,10 +265,24 @@ def get_stock_data(symbol: str, asset_type: str, days: int):
 
 
 def format_price(p): return f"₹{p:,.2f}" if p else "—"
-def format_pct(p, suffix="%"):
-    if p is None: return "—"
+def format_delta(p, suffix="%"):
+    if p is None or pd.isna(p):
+        return "—"
     color = "🟢" if p > 0 else "🔴"
     return f"{color} {p:+.2f}{suffix}"
+
+
+@st.cache_data(ttl=30)
+def get_cached_stock_inception(symbol: str):
+    sess = get_session(engine)
+    try:
+        from core.accuracy_tracker import get_active_signal_inception_map
+        inc_map = get_active_signal_inception_map(sess, "STOCK")
+        return inc_map.get(symbol, {})
+    except Exception:
+        return {}
+    finally:
+        sess.close()
 
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -429,6 +443,18 @@ if earn_flag:
     </div>
     """, unsafe_allow_html=True)
 
+current_price = sig.get("current_price") or (df["close"].iloc[-1] if len(df) > 0 else 0)
+
+sym_inc = get_cached_stock_inception(selected_symbol)
+inc_days = sym_inc.get("streak_days", 1)
+inc_date = sym_inc.get("inception_date", "")
+inc_price = sym_inc.get("inception_price", current_price)
+inc_ret = sym_inc.get("return_since_inception_pct", 0.0)
+inc_peak = sym_inc.get("peak_gain_pct", 0.0)
+inc_dd = sym_inc.get("max_drawdown_pct", 0.0)
+inc_status = sym_inc.get("milestone_status", "")
+max_h = sym_inc.get("max_high_since_inception", current_price)
+
 col1, col2, col3, col4, col5, col6 = st.columns([2.8, 1, 1, 1, 1, 1.4])
 with col1:
     earn_sub = f" • <span style='color:#eab308;font-weight:600;'>{earn_flag['badge_text']}</span>" if earn_flag else ""
@@ -436,7 +462,6 @@ with col1:
     st.markdown(f"📂 {stock_sector} | 📊 {stock_tier.upper()} Cap | NSE{earn_sub}", unsafe_allow_html=True)
 
 with col2:
-    current_price = sig.get("current_price") or (df["close"].iloc[-1] if len(df) > 0 else 0)
     day_ret = None
     if len(df) > 0:
         raw_ret = df["daily_return"].iloc[-1]
@@ -447,7 +472,8 @@ with col2:
             day_ret = f"{calc_ret:+.2f}%"
     st.metric("Current Price", format_price(current_price), day_ret)
 with col3:
-    st.metric("Signal", f"{signal_icons.get(signal,'🟡')} {signal}", sig.get("signal_strength", ""))
+    sig_sub = f"{inc_days}d streak ({inc_ret:+.1f}%)" if inc_days > 1 else (sig.get("signal_strength") or "1d • New")
+    st.metric("Signal", f"{signal_icons.get(signal,'🟡')} {signal}", sig_sub)
 with col4:
     st.metric("Score", f"{composite:.0f}/100")
 with col5:
@@ -681,8 +707,38 @@ else:
 # ── Signal & Targets ──────────────────────────────────────────────────────────
 st.subheader("🚦 Signal Details & Price Targets")
 
+if inc_days > 1 and inc_date:
+    ret_color = "#00c875" if inc_ret >= 0 else "#ff4b4b"
+    ret_bg = "rgba(0, 200, 117, 0.12)" if inc_ret >= 0 else "rgba(255, 75, 75, 0.12)"
+    st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #101923, #0d151e); border-left: 5px solid {ret_color}; padding: 12px 18px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #21262d;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <div>
+                <span style="font-size: 1.05em; font-weight: bold; color: {ret_color};">
+                    ⚡ Active Signal Since Inception: {inc_days} Trading Sessions (since {inc_date})
+                </span><br>
+                <span style="font-size: 0.9em; color: #c8d0d8;">
+                    Inception Entry: <b>{format_price(inc_price)}</b> &nbsp;•&nbsp; 
+                    Current: <b>{format_price(current_price)}</b> &nbsp;•&nbsp; 
+                    Net Return: <span style="color: {ret_color}; background: {ret_bg}; padding: 1px 6px; border-radius: 4px; font-weight: 700;">{inc_ret:+.2f}%</span> &nbsp;•&nbsp; 
+                    Peak Run: <b style="color: #00c875;">+{inc_peak:.1f}%</b> ({format_price(max_h)}) &nbsp;•&nbsp; 
+                    Pullback: <b style="color: #ff4b4b;">{inc_dd:+.1f}%</b>
+                </span>
+            </div>
+            <div style="margin-top: 4px;">
+                <span style="background: #1f6feb; color: white; padding: 4px 10px; border-radius: 12px; font-weight: 600; font-size: 0.82em;">
+                    Milestone: {inc_status}
+                </span>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("📥 Buy Price", format_price(sig.get("buy_price")))
+if inc_days > 1:
+    col1.metric("📥 Inception Entry", format_price(inc_price), f"{inc_ret:+.2f}%")
+else:
+    col1.metric("📥 Buy Price", format_price(sig.get("buy_price")), "Brand New")
 col2.metric("🎯 Target 1", format_price(sig.get("target_price_1")),
             f"{sig.get('target_1_upside_pct', 0):+.1f}%" if sig.get('target_1_upside_pct') else None)
 col3.metric("🎯 Target 2", format_price(sig.get("target_price_2")),

@@ -34,6 +34,9 @@ import core.macro_regime
 import core.fno_analyzer
 import core.global_markets
 import core.pdf_report_generator
+import core.multi_timeframe
+import core.tranche_execution
+import core.earnings_catalysts
 importlib.reload(core.backtester)
 importlib.reload(core.trade_optimizer)
 importlib.reload(core.ml_models)
@@ -42,6 +45,9 @@ importlib.reload(core.macro_regime)
 importlib.reload(core.fno_analyzer)
 importlib.reload(core.global_markets)
 importlib.reload(core.pdf_report_generator)
+importlib.reload(core.multi_timeframe)
+importlib.reload(core.tranche_execution)
+importlib.reload(core.earnings_catalysts)
 
 from db.database import get_global_engine, get_session
 from sqlalchemy import text
@@ -52,6 +58,9 @@ from core.macro_regime import evaluate_macro_regime
 from core.fno_analyzer import analyze_fno_derivatives
 from core.global_markets import analyze_global_market_spillovers
 from core.pdf_report_generator import generate_institutional_advisory_pdf
+from core.multi_timeframe import analyze_multi_timeframe_alignment
+from core.tranche_execution import calculate_tranche_execution_plan
+from core.earnings_catalysts import predict_earnings_sentiment_and_risk
 
 engine = get_global_engine()
 
@@ -752,6 +761,55 @@ rr = sig.get("risk_reward_ratio")
 if rr:
     st.info(f"📐 **Risk-Reward Ratio:** {rr:.2f} | Investment Type: *{sig.get('investment_type', 'Growth')}*")
 
+# ── Multi-Timeframe Trend Confluence Matrix ───────────────────────────────────
+mtf_data = analyze_multi_timeframe_alignment(selected_symbol, df, signal_direction=sig.get("signal", "BUY"))
+
+st.markdown("### 🌊 Multi-Timeframe Trend Confluence Matrix")
+st.markdown(f"""
+<div style="background: {mtf_data.get('badge_bg', '#161b22')}; border-left: 5px solid {mtf_data.get('badge_color', '#58a6ff')}; padding: 10px 16px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #30363d;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+        <span style="font-size: 1.05em; font-weight: bold; color: {mtf_data.get('badge_color', '#58a6ff')};">
+            {mtf_data.get('confluence_badge', 'Confluence')} &nbsp;•&nbsp; {mtf_data.get('confluence_label', '')}
+        </span>
+        <span style="font-weight: 700; color: #e2e8f0; font-size: 0.9em;">
+            Confluence Score: {mtf_data.get('confluence_score', 50):.0f}/100
+        </span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("1️⃣ Short-Term (3–10d)", f"{mtf_data['short_term']['badge']} {mtf_data['short_term']['verdict']}", mtf_data['short_term'].get('desc', ''))
+m2.metric("2️⃣ Core Daily (20–50d)", f"{mtf_data['intermediate']['badge']} {mtf_data['intermediate']['verdict']}", mtf_data['intermediate'].get('desc', ''))
+m3.metric("3️⃣ Weekly Structural", f"{mtf_data['weekly']['badge']} {mtf_data['weekly']['verdict']}", mtf_data['weekly'].get('desc', ''))
+m4.metric("4️⃣ Macro Secular (200 SMA)", f"{mtf_data['macro']['badge']} {mtf_data['macro']['verdict']}", mtf_data['macro'].get('desc', ''))
+
+# ── Upcoming Earnings Event Risk & Expected Sentiment Forecaster ───────────────
+session_earn = get_session(engine)
+earn_sentiment = predict_earnings_sentiment_and_risk(selected_symbol, df, session=session_earn, within_days=14)
+session_earn.close()
+
+if earn_sentiment.get("has_upcoming_earnings"):
+    e_col = earn_sentiment.get("badge_color", "#58a6ff")
+    st.markdown(f"""
+    <div style="background: linear-gradient(90deg, #121e2b, #0d151f); border-left: 5px solid {e_col}; padding: 12px 18px; border-radius: 6px; margin-top: 10px; margin-bottom: 15px; border: 1px solid #233044;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+            <span style="font-size: 1.05em; font-weight: bold; color: {e_col};">
+                {earn_sentiment.get('sentiment_badge')} &nbsp;•&nbsp; Event: {earn_sentiment.get('event_name')} ({earn_sentiment.get('earnings_date')})
+            </span>
+            <span style="font-size: 0.85em; color: #8b949e;">In {earn_sentiment.get('days_until_earnings')} trading sessions</span>
+        </div>
+        <div style="font-size: 0.9em; color: #cbd5e1; margin-top: 4px;">
+            <b>Historical Beat Probability:</b> {earn_sentiment.get('pead_win_rate', 50):.0f}% &nbsp;•&nbsp; 
+            <b>Avg 5-Day Post-Earnings Drift:</b> <span style="color: {e_col}; font-weight: 700;">{earn_sentiment.get('avg_5d_drift', 0):+.2f}%</span> &nbsp;•&nbsp; 
+            <b>Outlook:</b> {earn_sentiment.get('sentiment_label')}
+        </div>
+        <div style="font-size: 0.85em; color: #94a3b8; margin-top: 4px;">
+            💡 <b>Desk Action Advice:</b> <i>{earn_sentiment.get('action_advice')}</i>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
 # ── Trade Execution & Profit Maximization Optimizer ───────────────────────────
 st.subheader("⚡ Trade Execution & Strategy Optimization")
 
@@ -887,6 +945,30 @@ with st.expander("🛠️ **Trade Sizing & Execution Optimizer (Click to customi
         """, unsafe_allow_html=True)
 
     st.caption(f"🏆 **Blended Trade Outcome:** Total Projected Profit = **₹{t_plan['total_projected_profit']:+,.2f}** ({t_plan['blended_gain_pct']:+.2f}% combined gain) with Overall R:R = **{t_plan['overall_risk_reward']:.2f}**")
+
+    with st.expander("⚡ **Custom Capital & Multi-Stage Profit Tranche Calculator ('Let Winners Run')**", expanded=False):
+        c_col1, c_col2 = st.columns([1, 1])
+        with c_col1:
+            u_cap = st.number_input("Account Trading Capital (₹)", value=200000, step=25000, min_value=10000, key=f"sa_cap_{selected_symbol}")
+        with c_col2:
+            u_risk = st.slider("Max Account Risk per Trade (%)", 0.5, 3.0, 1.5, step=0.25, key=f"sa_risk_{selected_symbol}")
+
+        u_entry = float(sig.get("buy_price") or current_price or 0)
+        u_t1 = float(sig.get("target_price_1") or u_entry * 1.03)
+        u_t2 = float(sig.get("target_price_2") or u_entry * 1.06)
+        u_t3 = float(sig.get("target_price_3") or u_entry * 1.10)
+        u_sl = float(sig.get("stop_loss") or u_entry * 0.97)
+
+        c_plan = calculate_tranche_execution_plan(
+            entry_price=u_entry, t1=u_t1, t2=u_t2, t3=u_t3, sl=u_sl,
+            account_capital=u_cap, risk_pct=u_risk,
+            signal=sig.get("signal", "BUY")
+        )
+        if c_plan and c_plan.get("blueprint_html"):
+            if hasattr(st, "html"):
+                st.html(c_plan["blueprint_html"])
+            else:
+                st.markdown(c_plan["blueprint_html"], unsafe_allow_html=True)
 
 st.markdown("---")
 

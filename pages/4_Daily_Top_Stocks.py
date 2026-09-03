@@ -29,14 +29,23 @@ import importlib
 import core.macro_regime
 import core.accuracy_tracker
 import core.sector_clusters
+import core.multi_timeframe
+import core.tranche_execution
+import core.earnings_catalysts
 importlib.reload(core.macro_regime)
 importlib.reload(core.accuracy_tracker)
 importlib.reload(core.sector_clusters)
+importlib.reload(core.multi_timeframe)
+importlib.reload(core.tranche_execution)
+importlib.reload(core.earnings_catalysts)
 
 from db.database import get_global_engine, get_session
 from sqlalchemy import text
 from core.target_velocity import predict_time_to_target, get_velocity_badge
 from core.sector_clusters import get_sector_cluster, get_cluster_metadata, get_tier_parameters
+from core.multi_timeframe import get_all_stocks_mtf_map
+from core.tranche_execution import calculate_tranche_execution_plan
+from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
 
 engine = get_global_engine()
 
@@ -132,10 +141,52 @@ def get_sectors():
     return ["All"] + list(result)
 
 
+@st.cache_data(ttl=30)
+def get_cached_mtf_map():
+    session = get_session(engine)
+    try:
+        from core.multi_timeframe import get_all_stocks_mtf_map
+        return get_all_stocks_mtf_map(session)
+    except Exception as e:
+        return {}
+    finally:
+        session.close()
+
+
+@st.cache_data(ttl=30)
+def get_cached_earnings_sentiment_map():
+    session = get_session(engine)
+    try:
+        from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
+        return get_all_upcoming_earnings_sentiment_map(session, within_days=14)
+    except Exception as e:
+        return {}
+    finally:
+        session.close()
+
+
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
 st.sidebar.title("🏆 Daily Top Stocks")
 sector_filter = st.sidebar.selectbox("Sector", get_sectors())
 top_n = st.sidebar.slider("Show Top N Stocks", 5, 30, 15)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Institutional Filters")
+mtf_filter = st.sidebar.selectbox(
+    "Multi-Timeframe Alignment",
+    ["All Alignments", "⭐⭐⭐ Triple Confluence Only", "⭐⭐ Core Confluence or Better", "Exclude Counter-Trend"],
+    help="Filter stocks by cross-timeframe alignment across Short-Term, Core Daily, Weekly Structural, and Macro trends."
+)
+
+earnings_filter = st.sidebar.selectbox(
+    "Earnings Risk Shield",
+    ["Show All Stocks", "Exclude High Binary Risk Only", "🚀 Bullish Catalysts Only"],
+    help="Filter stocks by predicted earnings surprise sentiment and historical post-earnings drift."
+)
+
+with st.sidebar.expander("⚙️ Tranche & Risk Sizer", expanded=False):
+    tranche_capital = st.number_input("Account Capital (₹)", value=200000, step=50000, min_value=10000)
+    tranche_risk_pct = st.slider("Risk Per Trade (%)", 0.5, 3.0, 1.5, step=0.25)
 
 # ─── Macro Market Regime Banner ───────────────────────────────────────────────
 from core.macro_regime import evaluate_macro_regime
@@ -258,7 +309,7 @@ def get_asset_signals(asset_type: str = "index"):
 
 
 def render_stock_table(rows, show_signal: bool = True):
-    """Render a rich stock table with all details and time to target forecasts."""
+    """Render a rich stock table with MTF confluence, earnings sentiment risk shield, and tranche execution."""
     if not rows:
         st.info("No stocks found for this filter.")
         return
@@ -269,8 +320,37 @@ def render_stock_table(rows, show_signal: bool = True):
     inv_icons = {"Momentum": "🚀", "Value": "💎", "Growth": "🌱", "Defensive": "🏰", "Speculative": "🎲"}
 
     inception_map = get_cached_inception_map()
+    mtf_map = get_cached_mtf_map()
+    earnings_map = get_cached_earnings_sentiment_map()
 
-    for i, row in enumerate(rows):
+    # Apply Institutional Filters (MTF & Earnings Risk Shield)
+    filtered_rows = []
+    for r in rows:
+        sym = r[0]
+        mtf_data = mtf_map.get(sym, {})
+        earn_data = earnings_map.get(sym, {})
+
+        # MTF Filter check
+        if mtf_filter == "⭐⭐⭐ Triple Confluence Only" and not mtf_data.get("is_triple_confluence"):
+            continue
+        elif mtf_filter == "⭐⭐ Core Confluence or Better" and not (mtf_data.get("is_triple_confluence") or mtf_data.get("is_core_aligned")):
+            continue
+        elif mtf_filter == "Exclude Counter-Trend" and mtf_data.get("is_counter_trend"):
+            continue
+
+        # Earnings Filter check
+        if earnings_filter == "Exclude High Binary Risk Only" and earn_data.get("should_filter_out"):
+            continue
+        elif earnings_filter == "🚀 Bullish Catalysts Only" and not earn_data.get("is_bullish_catalyst"):
+            continue
+
+        filtered_rows.append(r)
+
+    if not filtered_rows:
+        st.warning(f"No stocks match the institutional filter criteria (MTF: '{mtf_filter}' | Earnings: '{earnings_filter}').")
+        return
+
+    for i, row in enumerate(filtered_rows):
         (symbol, name, sector, tier, composite_score, univ_pct,
          signal, strength, price, buy_price, t1, t2, t3,
          sl, rr, risk, reason, confidence, inv_type,
@@ -289,6 +369,9 @@ def render_stock_table(rows, show_signal: bool = True):
         milestone = inc.get("milestone_status", "")
         max_h = inc.get("max_high_since_inception", price)
         min_l = inc.get("min_low_since_inception", price)
+
+        mtf = mtf_map.get(symbol, {})
+        earn = earnings_map.get(symbol, {})
 
         if streak_days <= 1:
             freshness_badge = "🟢 NEW (1d)"
@@ -321,9 +404,12 @@ def render_stock_table(rows, show_signal: bool = True):
         cluster_name = get_sector_cluster(sector)
         cluster_meta = get_cluster_metadata(cluster_name)
 
+        mtf_star_tag = f" | {mtf.get('confluence_stars', '')}" if mtf.get('confluence_stars') else ""
+        earn_tag = f" | {earn.get('sentiment_badge')}" if earn.get('has_upcoming_earnings') else ""
+
         with st.expander(
             f"{rank_label} **{symbol}** — {name[:24]} | "
-            f"{sig_icon} {signal} | {freshness_header} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
+            f"{sig_icon} {signal} | {freshness_header}{mtf_star_tag}{earn_tag} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
             f"Score: **{composite_score:.0f}** | ⏳ {pred_ttt['window_str']}",
             expanded=(i < 3)
         ):
@@ -339,13 +425,37 @@ def render_stock_table(rows, show_signal: bool = True):
                     st.markdown(f"**📅 Inception:** `Today` (Brand New Signal)")
                 top_pct_str = f" (Top {100-univ_pct:.0f}%)" if (univ_pct is not None and not pd.isna(univ_pct)) else ""
                 st.markdown(f"**💯 Score:** `{composite_score:.1f}/100`{top_pct_str}")
-                if rsi:
+                
+                # Multi-Timeframe Confluence Ribbon
+                if mtf and mtf.get("ribbon_html"):
+                    st.markdown(mtf["ribbon_html"], unsafe_allow_html=True)
+                    st.caption(f"MTF: {mtf.get('confluence_label', '')}")
+                elif rsi:
                     adx_str = f"{adx:.1f}" if adx else "—"
                     st.markdown(f"**RSI:** {rsi:.1f} | **ADX:** {adx_str}")
+
                 if vol_ratio:
                     st.markdown(f"**Vol Ratio:** {vol_ratio:.2f}x avg")
 
             with col2:
+                # Upcoming Earnings Forecaster Card
+                if earn and earn.get("has_upcoming_earnings"):
+                    e_color = earn.get("badge_color", "#58a6ff")
+                    st.markdown(f"""
+                    <div style="background: #131d27; border: 1px solid #283344; border-left: 3px solid {e_color}; padding: 6px 10px; border-radius: 6px; margin-bottom: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-weight: 700; font-size: 0.82em; color: {e_color};">{earn.get('sentiment_badge')}</span>
+                            <span style="font-size: 0.78em; color: #8b949e;">{earn.get('earnings_date')}</span>
+                        </div>
+                        <div style="font-size: 0.8em; color: #cbd5e1; margin-top: 2px;">
+                            Historical Beat: <b>{earn.get('pead_win_rate', 50):.0f}%</b> &nbsp;•&nbsp; Avg 5d Drift: <b style="color: {e_color};">{earn.get('avg_5d_drift', 0):+.1f}%</b>
+                        </div>
+                        <div style="font-size: 0.76em; color: #94a3b8; margin-top: 2px;">
+                            💡 <i>{earn.get('action_advice')}</i>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
                 if streak_days > 1 and inception_date:
                     ret_color = "#00c875" if ret_since_inc >= 0 else "#ff4b4b"
                     ret_bg = "rgba(0, 200, 117, 0.12)" if ret_since_inc >= 0 else "rgba(255, 75, 75, 0.12)"
@@ -427,6 +537,20 @@ def render_stock_table(rows, show_signal: bool = True):
                     </div>""",
                     unsafe_allow_html=True
                 )
+
+            # Full-width 3-Stage Profit Tranche Blueprint
+            tranche_plan = calculate_tranche_execution_plan(
+                entry_price=buy_price or price or 0,
+                t1=t1, t2=t2, t3=t3, sl=sl,
+                account_capital=tranche_capital,
+                risk_pct=tranche_risk_pct,
+                signal=signal
+            )
+            if tranche_plan and tranche_plan.get("blueprint_html"):
+                if hasattr(st, "html"):
+                    st.html(tranche_plan["blueprint_html"])
+                else:
+                    st.markdown(tranche_plan["blueprint_html"], unsafe_allow_html=True)
 
 
 # Tab 1: Top BUY

@@ -560,9 +560,9 @@ def update_trailing_stops(session: Session) -> int:
             trailing_sl = orig_sl
 
         tbl = "index_prices" if asset_t == "INDEX" else ("commodity_prices" if asset_t == "COMMODITY" else "daily_prices")
-        # Fetch forward prices since signal_date
+        # Fetch forward prices since signal_date (strictly forward: date > signal_date)
         fwd = session.execute(text(f"""
-            SELECT high, low, close FROM {tbl} WHERE symbol=:s AND date >= :d ORDER BY date ASC
+            SELECT high, low, close FROM {tbl} WHERE symbol=:s AND date > :d ORDER BY date ASC
         """), {'s': sym, 'd': s_date}).fetchall()
         
         max_h = float(db_max_h or entry)
@@ -626,27 +626,32 @@ def update_trailing_stops(session: Session) -> int:
 
 
 # --- Evaluate and Persist Outcomes --------------------------------------------
-def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL") -> dict:
+def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL", recalibrate_all: bool = False) -> dict:
     """
-    Evaluate all PENDING signals against actual forward prices and
-    WRITE BACK outcomes to signal_audit_log. Supports multi-asset evaluation.
+    Evaluate signals against actual forward prices and WRITE BACK outcomes to signal_audit_log.
+    Uses strictly causal forward simulation:
+      - Trailing stop starts at initial stop loss (no future lookahead).
+      - Checks prior-day stop breach first.
+      - Targets reached on day t ratchet trailing stop for day t+1.
+      - Same-day stop-out only occurs if candle suffers a severe reversal and closes below newly ratcheted stop.
     """
     init_audit_table(session)
     update_trailing_stops(session)
 
-    pending_rows = session.execute(text("""
+    status_filter = "WHERE 1=1" if recalibrate_all else "WHERE status = 'PENDING'"
+    pending_rows = session.execute(text(f"""
         SELECT id, signal_date, symbol, signal, entry_price,
                target_1, target_2, target_3, stop_loss, trailing_stop, composite_score,
                COALESCE(asset_type, 'STOCK') as asset_type
         FROM signal_audit_log
-        WHERE status = 'PENDING'
+        {status_filter}
         ORDER BY signal_date ASC
     """)).fetchall()
 
     today_str = str(date.today())
 
     for row in pending_rows:
-        row_id, s_date, sym, sig_type, entry, t1, t2, t3, sl, trailing_sl, score, asset_t = row
+        row_id, s_date, sym, sig_type, entry, t1, t2, t3, orig_sl, trailing_sl, score, asset_t = row
         if not entry:
             continue
         try:
@@ -655,7 +660,6 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                 continue
         except (ValueError, TypeError):
             continue
-        effective_sl = trailing_sl if trailing_sl is not None else sl
 
         tbl = "index_prices" if asset_t == "INDEX" else ("commodity_prices" if asset_t == "COMMODITY" else "daily_prices")
         fwd_prices = session.execute(text(f"""
@@ -681,6 +685,10 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
         sim_morning_buf = round(0.45 * sim_atr, 2)
         sim_retest_buf = round(0.35 * sim_atr, 2)
 
+        # Simulation strictly starts at initial stop loss (no lookahead from future days)
+        effective_sl = float(orig_sl) if orig_sl is not None else None
+        realized_gain_pct = None
+
         for day_idx, p in enumerate(fwd_prices):
             p_date = str(p[0])
             c = float(p[3]) if p[3] is not None else float(entry)
@@ -690,6 +698,7 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
             min_low = min(min_low, l)
 
             if sig_type == 'BUY':
+                # 1. Prior session stop breach check (did low/close violate prior stop?)
                 sl_breached = bool(effective_sl and ((c <= float(effective_sl)) or (l <= float(effective_sl) * 0.98)))
                 if sl_breached:
                     hit_sl = True
@@ -697,30 +706,45 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                     days_to_outcome = day_idx + 1
                     realized_gain_pct = round((float(effective_sl) - entry) / entry * 100.0, 2)
                     break
+
+                # 2. Forward target detection & progressive stop ratcheting
+                new_sl = effective_sl
                 if t3 and h >= float(t3):
                     hit_t3 = True
-                    if t2 and (not effective_sl or float(effective_sl) < float(t2) - sim_retest_buf):
-                        effective_sl = float(t2) - sim_retest_buf
+                    if t2:
+                        ratchet_val = float(t2) - sim_retest_buf
+                        new_sl = max(new_sl or 0.0, ratchet_val)
                 elif t2 and h >= float(t2):
                     hit_t2 = True
-                    if t1 and (not effective_sl or float(effective_sl) < float(t1) - sim_retest_buf):
-                        effective_sl = float(t1) - sim_retest_buf
+                    if t1:
+                        ratchet_val = float(t1) - sim_retest_buf
+                        new_sl = max(new_sl or 0.0, ratchet_val)
                 elif t1 and h >= float(t1):
                     hit_t1 = True
-                    be = entry - sim_morning_buf
-                    if not effective_sl or effective_sl < be:
-                        effective_sl = be
+                    ratchet_val = entry - sim_morning_buf
+                    new_sl = max(new_sl or 0.0, ratchet_val)
                 else:
                     peak_pct = (max_high - entry) / entry * 100.0
                     if peak_pct >= 3.0:
                         lock_p = entry + (max_high - entry) * 0.50 - sim_morning_buf
-                        if not effective_sl or effective_sl < lock_p:
-                            effective_sl = lock_p
+                        new_sl = max(new_sl or 0.0, lock_p)
                     elif peak_pct >= 1.5:
-                        be = entry - sim_morning_buf
-                        if not effective_sl or effective_sl < be:
-                            effective_sl = be
+                        lock_p = entry - sim_morning_buf
+                        new_sl = max(new_sl or 0.0, lock_p)
+
+                # 3. Same-day reversal check: only stop out if candle closes below the newly ratcheted stop
+                if new_sl and c <= float(new_sl):
+                    hit_sl = True
+                    exit_date = p_date
+                    days_to_outcome = day_idx + 1
+                    realized_gain_pct = round((float(new_sl) - entry) / entry * 100.0, 2)
+                    effective_sl = new_sl
+                    break
+                else:
+                    effective_sl = new_sl
+
             elif sig_type == 'SELL':
+                # 1. Prior session stop breach check
                 sl_breached = bool(effective_sl and ((c >= float(effective_sl)) or (h >= float(effective_sl) * 1.02)))
                 if sl_breached:
                     hit_sl = True
@@ -728,29 +752,42 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                     days_to_outcome = day_idx + 1
                     realized_gain_pct = round((entry - float(effective_sl)) / entry * 100.0, 2)
                     break
+
+                # 2. Forward target detection & progressive stop ratcheting
+                new_sl = effective_sl
                 if t3 and l <= float(t3):
                     hit_t3 = True
-                    if t2 and (not effective_sl or float(effective_sl) > float(t2) + sim_retest_buf):
-                        effective_sl = float(t2) + sim_retest_buf
+                    if t2:
+                        ratchet_val = float(t2) + sim_retest_buf
+                        new_sl = min(new_sl or 999999.0, ratchet_val)
                 elif t2 and l <= float(t2):
                     hit_t2 = True
-                    if t1 and (not effective_sl or float(effective_sl) > float(t1) + sim_retest_buf):
-                        effective_sl = float(t1) + sim_retest_buf
+                    if t1:
+                        ratchet_val = float(t1) + sim_retest_buf
+                        new_sl = min(new_sl or 999999.0, ratchet_val)
                 elif t1 and l <= float(t1):
                     hit_t1 = True
-                    be = entry + sim_morning_buf
-                    if not effective_sl or effective_sl > be:
-                        effective_sl = be
+                    ratchet_val = entry + sim_morning_buf
+                    new_sl = min(new_sl or 999999.0, ratchet_val)
                 else:
                     peak_drop = (entry - min_low) / entry * 100.0
                     if peak_drop >= 3.0:
                         lock_p = entry - (entry - min_low) * 0.50 + sim_morning_buf
-                        if not effective_sl or effective_sl > lock_p:
-                            effective_sl = lock_p
+                        new_sl = min(new_sl or 999999.0, lock_p)
                     elif peak_drop >= 1.5:
-                        be = entry + sim_morning_buf
-                        if not effective_sl or effective_sl > be:
-                            effective_sl = be
+                        lock_p = entry + sim_morning_buf
+                        new_sl = min(new_sl or 999999.0, lock_p)
+
+                # 3. Same-day reversal check
+                if new_sl and c >= float(new_sl):
+                    hit_sl = True
+                    exit_date = p_date
+                    days_to_outcome = day_idx + 1
+                    realized_gain_pct = round((entry - float(new_sl)) / entry * 100.0, 2)
+                    effective_sl = new_sl
+                    break
+                else:
+                    effective_sl = new_sl
 
         latest_close = float(entry)
         if fwd_prices:
@@ -781,15 +818,15 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
         elif hit_t3:
             final_status = 'T3_HIT'
             exit_date = exit_date or str(fwd_prices[-1][0])
-            realized_gain_pct = realized_gain_pct or round(max_gain_pct, 2)
+            realized_gain_pct = round((float(t3) - entry) / entry * 100.0, 2) if sig_type == 'BUY' else round((entry - float(t3)) / entry * 100.0, 2)
         elif hit_t2:
             final_status = 'T2_HIT'
             exit_date = exit_date or str(fwd_prices[-1][0])
-            realized_gain_pct = realized_gain_pct or round(max_gain_pct, 2)
+            realized_gain_pct = round((float(t2) - entry) / entry * 100.0, 2) if sig_type == 'BUY' else round((entry - float(t2)) / entry * 100.0, 2)
         elif hit_t1:
             final_status = 'T1_HIT'
             exit_date = exit_date or str(fwd_prices[-1][0])
-            realized_gain_pct = realized_gain_pct or round(max_gain_pct, 2)
+            realized_gain_pct = round((float(t1) - entry) / entry * 100.0, 2) if sig_type == 'BUY' else round((entry - float(t1)) / entry * 100.0, 2)
         elif len(fwd_prices) >= 60:
             final_status = 'EXPIRED'
             exit_date = str(fwd_prices[-1][0])
@@ -798,9 +835,10 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
             # Still active / in-play -- update progress & unrealized gain, keep status = PENDING
             session.execute(text("""
                 UPDATE signal_audit_log
-                SET max_price_reached=:mx, min_price_reached=:mn,
+                SET status='PENDING', max_price_reached=:mx, min_price_reached=:mn,
                     trailing_stop=:ts, verified_date=:vd,
-                    days_to_outcome=:days, unrealized_gain_pct=:unr
+                    days_to_outcome=:days, unrealized_gain_pct=:unr,
+                    realized_gain_pct=NULL, exit_date=NULL
                 WHERE id=:id
             """), {
                 'mx': round(max_high, 2), 'mn': round(min_low, 2),
@@ -1178,18 +1216,21 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
             else:
                 close_price = entry
         elif status in ('T1_HIT', 'T2_HIT', 'T3_HIT'):
-            if gain is not None and entry:
-                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
-            elif status == 'T1_HIT' and t1:
+            if status == 'T1_HIT' and t1:
                 close_price = t1
             elif status == 'T2_HIT' and t2:
                 close_price = t2
             elif status == 'T3_HIT' and t3:
                 close_price = t3
-        elif status in ('TRAILING_SL_HIT', 'SL_HIT'):
+            elif gain is not None and entry:
+                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+        elif status == 'TRAILING_SL_HIT':
             if trailing:
                 close_price = trailing
-            elif sl:
+            elif gain is not None and entry:
+                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+        elif status == 'SL_HIT':
+            if sl:
                 close_price = sl
             elif gain is not None and entry:
                 close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
@@ -1249,6 +1290,9 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
         clust = get_sector_cluster(sec)
         clust_meta = get_cluster_metadata(clust)
 
+        is_ratcheted = bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05)
+        disp_trailing = round(trailing, 2) if is_ratcheted else (round(trailing, 2) if (status == 'TRAILING_SL_HIT' and trailing) else None)
+
         records.append({
             'date': s_date, 'symbol': sym, 'signal': sig, 'risk_level': r_lvl,
             'asset_type': a_type,
@@ -1262,8 +1306,8 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
             'target_1': round(t1, 2) if t1 else None,
             'target_2': round(t2, 2) if t2 else None,
             'stop_loss': round(sl, 2) if sl else None,
-            'trailing_stop': round(trailing, 2) if trailing else (round(sl, 2) if sl else None),
-            'is_trailing_ratcheted': bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05),
+            'trailing_stop': disp_trailing,
+            'is_trailing_ratcheted': is_ratcheted,
             'composite_score': round(score, 1) if score else None,
             'status': display_status,
             'raw_status': 'TRAILING_SL_HIT' if is_trailing_win else status,

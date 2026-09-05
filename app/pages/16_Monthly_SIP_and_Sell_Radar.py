@@ -873,26 +873,26 @@ with tab4:
     bt = st.session_state.get("sip_backtest_res")
     if bt and "error" not in bt:
         strat_badge = "💎 100% Direct Stocks Basket" if bt.get("strategy") == "PURE_STOCKS" else "🌐 Multi-Asset Combination (65% Stocks + 20% Nifty Index ETF + 15% Gold ETF)"
-        pyramid_tag = f" &nbsp;|&nbsp; Pyramided: <b style='color: #a855f7;'>{bt.get('pyramided_trades_count', 0)}x</b>" if bt.get('pyramid_winners') else ""
-        hurdle_tag = f" &nbsp;|&nbsp; Hurdle: <b style='color: #22c55e;'>≥+{bt.get('min_momentum_hurdle_pct', 0):.0f}%</b>" if bt.get('min_momentum_hurdle_pct', 0) > 0 else ""
-        cap_tag = f" &nbsp;|&nbsp; 🛡️ Cap Guard: <b style='color: #38bdf8;'>{bt.get('max_position_cap_pct', 0):.0f}%</b>" if bt.get('max_position_cap_pct') else ""
-        dip_tag = f" &nbsp;|&nbsp; ⚡ Dip Buys: <b style='color: #eab308;'>{bt.get('dip_buys_count', 0)} entries</b>" if bt.get('enable_dip_buying') else ""
-        skim_tag = f" &nbsp;|&nbsp; 💰 Skims: <b style='color: #06b6d4;'>{bt.get('skimmed_trades_count', 0)} locked</b>" if bt.get('enable_parabolic_skim') else ""
-        mf_tag = f" &nbsp;|&nbsp; 🏛️ Mutual Funds: <b style='color: #10b981;'>{bt.get('mf_allocation_pct', 0):.0f}% Core</b>" if bt.get("include_mutual_funds") else ""
-        st.markdown(f"""
-        <div style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 6px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 0.9em; color: #cbd5e1;">
-            Asset Strategy: <b style="color: #38bdf8;">{strat_badge}</b> &nbsp;|&nbsp; 
-            Horizon: <b>{bt['months_tested']} Months</b> &nbsp;|&nbsp; 
-            Exit Protocol: <b>{proto_code.replace('_', ' ').title()}</b> &nbsp;|&nbsp; 
-            Step-Up: <b>{'+' + str(int(bt_step_up_val)) + '% / Year' if bt_step_up_val > 0 else 'Flat Monthly SIP'}</b>
-            {mf_tag}
-            {pyramid_tag}
-            {hurdle_tag}
-            {cap_tag}
-            {dip_tag}
-            {skim_tag}
-        </div>
-        """, unsafe_allow_html=True)
+        meta_items = [
+            f"Asset Strategy: <b style='color: #38bdf8;'>{strat_badge}</b>",
+            f"Horizon: <b>{bt['months_tested']} Months</b>",
+            f"Exit Protocol: <b>{proto_code.replace('_', ' ').title()}</b>",
+            f"Step-Up: <b>{'+' + str(int(bt_step_up_val)) + '% / Year' if bt_step_up_val > 0 else 'Flat Monthly SIP'}</b>"
+        ]
+        if bt.get("include_mutual_funds"):
+            meta_items.append(f"🏛️ Mutual Funds: <b style='color: #10b981;'>{bt.get('mf_allocation_pct', 0):.0f}% Core</b>")
+        if bt.get('pyramid_winners'):
+            meta_items.append(f"Pyramided: <b style='color: #a855f7;'>{bt.get('pyramided_trades_count', 0)}x</b>")
+        if bt.get('min_momentum_hurdle_pct', 0) > 0:
+            meta_items.append(f"Hurdle: <b style='color: #22c55e;'>≥+{bt.get('min_momentum_hurdle_pct', 0):.0f}%</b>")
+        if bt.get('max_position_cap_pct'):
+            meta_items.append(f"🛡️ Cap Guard: <b style='color: #38bdf8;'>{bt.get('max_position_cap_pct', 0):.0f}%</b>")
+        if bt.get('enable_dip_buying'):
+            meta_items.append(f"⚡ Dip Buys: <b style='color: #eab308;'>{bt.get('dip_buys_count', 0)} entries</b>")
+        if bt.get('enable_parabolic_skim'):
+            meta_items.append(f"💰 Skims: <b style='color: #06b6d4;'>{bt.get('skimmed_trades_count', 0)} locked</b>")
+        banner_html = " &nbsp;|&nbsp; ".join(meta_items)
+        st.markdown(f'<div style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 8px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 0.9em; color: #cbd5e1; line-height: 1.6;">{banner_html}</div>', unsafe_allow_html=True)
         # Scorecard Row 1: Core Performance Metrics
         bm1, bm2, bm3, bm4, bm5 = st.columns(5)
         with bm1:

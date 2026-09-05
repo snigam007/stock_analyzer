@@ -208,6 +208,7 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
                 key="global_mf_pct",
                 help="Percentage of monthly wallet directed to Core Direct-Growth Mutual Funds (Flexi Cap, Mid Cap, Index, Small Cap)."
             )
+            st.caption("💡 Prefer an independent dedicated MF budget or Quarterly/Yearly SIP? Open **Mutual Funds Radar (Tab 5)**.")
         else:
             global_mf_pct = 0.0
 

@@ -26,6 +26,12 @@ if not hasattr(db.database, "MutualFund"):
 from db.database import get_global_engine, get_session, MutualFund, MutualFundNAV, MutualFundSignal
 from core.mf_signals import generate_daily_mf_signals, audit_mf_signals, compute_mf_rolling_metrics
 from core.mf_fetcher import sync_daily_amfi_nav_feed
+from core.mf_sip_planner import (
+    CURATED_MF_BASKETS,
+    plan_mf_sip_allocation,
+    run_mf_sip_backtest,
+    calculate_mf_sip_accuracy
+)
 
 st.set_page_config(page_title="Mutual Funds Radar & Signals", page_icon="🏛️", layout="wide")
 
@@ -92,11 +98,12 @@ except Exception as e:
     st.error(f"Error checking latest signals: {e}")
 
 # Main Tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Daily MF Buy & Sell Signals",
     "🎯 Signals Accuracy & Audit",
     "📈 3-Year Rolling Return Leaderboard",
-    "🔍 Direct Stock vs MF Overlap Analyzer"
+    "🔍 Direct Stock vs MF Overlap Analyzer",
+    "💡 Dedicated MF SIP Planner & Curated Baskets"
 ])
 
 # ─── TAB 1: Daily MF Buy & Sell Signals ────────────────────────────────────────
@@ -665,7 +672,222 @@ with tab4:
                 st.caption(f"🌟 **Unique Non-Overlapping Direct Stocks ({len(unique_stocks)}):** {', '.join(unique_stocks)}")
         else:
             st.success("✅ Zero Overlap Detected! Your direct stock selection provides 100% unique, non-duplicative diversification.")
-            if unique_stocks:
-                st.caption(f"🌟 **All {len(unique_stocks)} stocks are 100% distinct from this fund:** {', '.join(unique_stocks)}")
+# ─── TAB 5: Dedicated MF SIP Planner & Curated Baskets ─────────────────────────
+with tab5:
+    st.subheader("💡 Dedicated Mutual Fund SIP Planner & Curated Baskets")
+    st.caption("Plan, budget, and backtest institutional-grade Mutual Fund portfolios with independent budgets across Monthly, Quarterly, and Yearly frequencies.")
+
+    c_sip1, c_sip2, c_sip3, c_sip4 = st.columns([1.2, 1.2, 1.8, 1.0])
+    with c_sip1:
+        mf_budget_input = st.number_input(
+            "Dedicated MF Budget (₹)",
+            min_value=1000.0,
+            max_value=5000000.0,
+            value=10000.0,
+            step=2500.0,
+            help="Your committed investment amount per installment for Mutual Funds."
+        )
+
+    with c_sip2:
+        mf_freq_input = st.selectbox(
+            "Investment Frequency",
+            ["Monthly SIP (12x / yr)", "Quarterly SIP (4x / yr)", "Yearly SIP / Lump-Sum (1x / yr)"],
+            index=0,
+            help="Choose how often you deploy capital: Monthly, Quarterly, or Annually."
+        )
+        mf_freq_code = "MONTHLY" if "Monthly" in mf_freq_input else ("QUARTERLY" if "Quarterly" in mf_freq_input else "YEARLY")
+
+    with c_sip3:
+        basket_keys = list(CURATED_MF_BASKETS.keys())
+        basket_labels = [CURATED_MF_BASKETS[k]["title"] for k in basket_keys]
+        basket_choice_idx = st.selectbox(
+            "Curated Institutional Basket",
+            range(len(basket_labels)),
+            format_func=lambda i: basket_labels[i],
+            index=1,
+            help="Select an expert-curated basket tailored to your financial goals and risk tolerance."
+        )
+        selected_basket_key = basket_keys[basket_choice_idx]
+
+    with c_sip4:
+        mf_step_up_choice = st.selectbox(
+            "Annual Step-Up",
+            ["Flat (0%)", "+5% / Year", "+10% / Year", "+15% / Year", "+20% / Year"],
+            index=2,
+            help="Automatically increase your SIP budget each year to beat inflation."
+        )
+        mf_step_up_pct = float(mf_step_up_choice.replace("%", "").replace("+", "").replace("Flat (0)", "0").split("/")[0].strip())
+
+    # Generate Allocation Plan
+    mf_plan = plan_mf_sip_allocation(
+        budget=mf_budget_input,
+        frequency=mf_freq_code,
+        basket_key=selected_basket_key,
+        session=session
+    )
+
+    # Basket Summary Header Card
+    b_info = CURATED_MF_BASKETS[selected_basket_key]
+    st.markdown(f"""
+    <div style="background: #0f172a; border-left: 4px solid #10b981; padding: 14px 20px; border-radius: 8px; margin: 12px 0 18px 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <span style="font-size: 1.25em; font-weight: 800; color: #10b981;">{mf_plan['basket_title']}</span>
+                <div style="color: #94a3b8; font-size: 0.9em; margin-top: 2px;">{mf_plan['basket_tagline']}</div>
+            </div>
+            <div style="text-align: right;">
+                <span style="background: rgba(16, 185, 129, 0.15); color: #10b981; padding: 4px 12px; border-radius: 4px; font-weight: 700; font-size: 0.88em;">Risk: {mf_plan['risk_tier']}</span>
+                <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 4px 12px; border-radius: 4px; font-weight: 700; font-size: 0.88em; margin-left: 6px;">Horizon: {b_info['target_horizon_years']}</span>
+            </div>
+        </div>
+        <div style="display: flex; gap: 24px; margin-top: 14px; font-size: 0.92em; color: #cbd5e1; border-top: 1px solid #1e293b; padding-top: 10px;">
+            <div>Installment Budget: <b style="color: #fff;">₹{mf_plan['installment_budget']:,.2f}</b> <span style="color: #94a3b8;">({mf_plan['frequency']})</span></div>
+            <div>Annual Commitment: <b style="color: #38bdf8;">₹{mf_plan['annual_commitment']:,.2f} / yr</b></div>
+            <div>Weighted Expense Ratio: <b style="color: #eab308;">{mf_plan['weighted_expense_ratio']:.2f}%</b></div>
+            <div>Total Schemes: <b style="color: #a855f7;">{mf_plan['total_funds']}</b></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Fund Breakdown Cards / Table
+    st.markdown("#### 📋 Recommended Scheme Allocations")
+    alloc_display = []
+    for a in mf_plan["allocations"]:
+        sig_badge = "🟢 Buy Dip" if "BUY" in a["latest_signal"] else ("🔵 Accumulate" if "ACCUMULATE" in a["latest_signal"] else "⚪ Hold")
+        alloc_display.append({
+            "Scheme Name": a["scheme_name"],
+            "Category": a["category"],
+            "Weight": f"{a['target_weight_pct']:.1f}%",
+            "Installment Amount": f"₹{a['installment_amount']:,.2f}",
+            "Annual Allocation": f"₹{a['annual_amount']:,.2f}",
+            "Latest NAV": f"₹{a['latest_nav']:.2f}",
+            "Est. Units / Installment": f"{a['est_units_per_installment']:.3f}",
+            "TER": f"{a['expense_ratio']:.2f}%",
+            "CRISIL": "⭐" * int(a["crisil_rating"]),
+            "Signal Status": sig_badge
+        })
+    st.dataframe(pd.DataFrame(alloc_display), use_container_width=True, hide_index=True)
+
+    # Historical Empirical Backtest & Accuracy Section
+    st.markdown("---")
+    st.subheader("🚀 Historical Empirical Backtest & Benchmark Alpha Audit")
+    st.caption("Point-in-time backtesting against continuous daily AMFI NAV history and NIFTY 50 TRI benchmark.")
+
+    bt_c1, bt_c2, bt_c3 = st.columns([1.2, 1.2, 1.6])
+    with bt_c1:
+        bt_horizon = st.selectbox(
+            "Backtest Horizon",
+            ["1 Year (12 Mo)", "3 Years (36 Mo)", "5 Years (60 Mo)", "10 Years (120 Mo)"],
+            index=2,
+            key="mf_bt_horizon_select"
+        )
+        bt_months = 12 if "1 Year" in bt_horizon else (36 if "3 Years" in bt_horizon else (60 if "5 Years" in bt_horizon else 120))
+
+    with bt_c2:
+        st.write("")
+        st.write("")
+        run_bt_btn = st.button("🚀 Run MF SIP Backtest", type="primary", use_container_width=True)
+
+    # Auto run or load from session
+    if run_bt_btn or "mf_sip_backtest_cache" not in st.session_state or st.session_state.get("mf_last_basket") != selected_basket_key:
+        with st.spinner("Simulating Point-in-Time Mutual Fund SIP installments against AMFI NAV database..."):
+            session_bt = get_session(engine)
+            res_bt = run_mf_sip_backtest(
+                session=session_bt,
+                budget=mf_budget_input,
+                frequency=mf_freq_code,
+                basket_key=selected_basket_key,
+                months_lookback=bt_months,
+                annual_step_up_pct=mf_step_up_pct
+            )
+            acc_bt = calculate_mf_sip_accuracy(session_bt, basket_key=selected_basket_key)
+            session_bt.close()
+            st.session_state["mf_sip_backtest_cache"] = res_bt
+            st.session_state["mf_sip_accuracy_cache"] = acc_bt
+            st.session_state["mf_last_basket"] = selected_basket_key
+
+    bt_res = st.session_state.get("mf_sip_backtest_cache", {})
+    acc_res = st.session_state.get("mf_sip_accuracy_cache", {})
+
+    if bt_res and "error" not in bt_res:
+        # Scorecard Row 1
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            alpha_val = bt_res['strategy_alpha']
+            st.metric("Strategy XIRR", f"{bt_res['strategy_xirr']:+.1f}%", f"{alpha_val:+.2f}% vs NIFTY")
+        with m2:
+            st.metric("Benchmark NIFTY XIRR", f"{bt_res['benchmark_xirr']:+.1f}%", f"{bt_res['months_tested']} Mo SIP")
+        with m3:
+            st.metric("Prediction Accuracy", f"{bt_res['accuracy_hit_rate_pct']:.1f}%", "Schemes Beating Benchmark")
+        with m4:
+            st.metric("Max Drawdown", f"{bt_res['max_drawdown']:.1f}%", "Peak-to-Trough")
+
+        # Scorecard Row 2
+        m5, m6, m7, m8 = st.columns(4)
+        with m5:
+            st.metric("Total Invested", f"₹{bt_res['total_invested']:,.0f}", f"{bt_res['total_installments']} Installments")
+        with m6:
+            st.metric("Final Portfolio Value", f"₹{bt_res['final_portfolio_value']:,.0f}", f"Net: +₹{bt_res['net_profit']:,.0f}")
+        with m7:
+            st.metric("Benchmark Value", f"₹{bt_res['final_benchmark_value']:,.0f}", f"Net Alpha: ₹{bt_res['final_portfolio_value'] - bt_res['final_benchmark_value']:,.0f}")
+        with m8:
+            conf_label = acc_res.get("confidence_grade", "A (Consistent Compounder)")
+            st.markdown(f"""
+            <div style="background: #111e2e; border: 1px solid #1e3a5f; padding: 10px 14px; border-radius: 6px; text-align: center;">
+                <div style="font-size: 0.8em; color: #94a3b8;">Statistical Grade</div>
+                <div style="font-size: 0.95em; font-weight: 700; color: #38bdf8; margin-top: 3px;">{conf_label}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # Plotly Valuation Trajectory Chart
+        if bt_res.get("trajectory"):
+            df_traj = pd.DataFrame(bt_res["trajectory"])
+            df_traj["date"] = pd.to_datetime(df_traj["date"])
+            fig_mf = go.Figure()
+            fig_mf.add_trace(go.Scatter(
+                x=df_traj["date"], y=df_traj["portfolio_value"],
+                mode="lines", name="MF Basket Portfolio",
+                line=dict(color="#10b981", width=3),
+                fill="tonexty"
+            ))
+            fig_mf.add_trace(go.Scatter(
+                x=df_traj["date"], y=df_traj["benchmark_value"],
+                mode="lines", name="NIFTY 50 Benchmark",
+                line=dict(color="#38bdf8", width=2, dash="dash")
+            ))
+            fig_mf.add_trace(go.Scatter(
+                x=df_traj["date"], y=df_traj["invested"],
+                mode="lines", name="Capital Invested",
+                line=dict(color="#64748b", width=1.5, dash="dot")
+            ))
+            fig_mf.update_layout(
+                title=f"📈 Wealth Compounding Trajectory: {bt_res['basket_title']} ({bt_res['frequency']} SIP)",
+                template="plotly_dark",
+                height=420,
+                margin=dict(l=20, r=20, t=40, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                yaxis=dict(title="Portfolio Value (₹)", tickprefix="₹", tickformat=","),
+                xaxis=dict(title="Date")
+            )
+            st.plotly_chart(fig_mf, use_container_width=True)
+
+        # Individual Scheme Performance Table
+        st.markdown("#### 🔍 Individual Scheme Backtest Performance")
+        sb_display = []
+        for s in bt_res.get("scheme_breakdown", []):
+            sb_display.append({
+                "Scheme Name": s["scheme_name"],
+                "Category": s["category"],
+                "Total Invested": f"₹{s['total_invested']:,.2f}",
+                "Accumulated Units": f"{s['accumulated_units']:,.3f}",
+                "Final NAV": f"₹{s['final_nav']:.2f}",
+                "Current Value": f"₹{s['current_value']:,.2f}",
+                "Net Profit": f"+₹{s['net_gain']:,.2f}",
+                "Return %": f"+{s['return_pct']:.1f}%",
+                "Individual XIRR": f"{s['individual_xirr']:+.1f}%"
+            })
+        st.dataframe(pd.DataFrame(sb_display), use_container_width=True, hide_index=True)
+    elif bt_res and "error" in bt_res:
+        st.warning(f"Backtest warning: {bt_res['error']}")
 
 session.close()

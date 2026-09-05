@@ -31,6 +31,7 @@ def generate_monthly_sip_basket(
     monthly_wallet: float = 20000.0,
     strategy: str = "PURE_STOCKS",     # PURE_STOCKS or MULTI_ASSET
     include_mutual_funds: bool = False, # Toggle to include Mutual Funds as Core allocation
+    mf_allocation_pct: float = 50.0,    # Core MF allocation % (10% to 90%)
     risk_profile: str = "BALANCED",    # SAFE, BALANCED, RISKY
     target_stock_count: int = 5,
     exit_protocol: str = "ADAPTIVE_STRUCTURAL", # ADAPTIVE_STRUCTURAL, STRUCTURAL_TRAILING, BUY_AND_HOLD, TIGHT_SWING
@@ -80,12 +81,22 @@ def generate_monthly_sip_basket(
 
     # Core Mutual Funds Allocation (when toggle enabled)
     if include_mutual_funds:
-        mf_budget = monthly_wallet * 0.50
+        mf_ratio = max(0.10, min(0.90, float(mf_allocation_pct) / 100.0))
+        mf_budget = round(monthly_wallet * mf_ratio, 2)
         top_mfs = session.query(MutualFund).filter_by(is_active=True).all()
-        fc = next((f for f in top_mfs if f.scheme_code == 122639), top_mfs[0] if top_mfs else None)
-        mc = next((f for f in top_mfs if f.scheme_code == 120823), top_mfs[1] if len(top_mfs) > 1 else None)
-        idx = next((f for f in top_mfs if f.scheme_code == 120716), top_mfs[2] if len(top_mfs) > 2 else None)
-        chosen_mfs = [f for f in [fc, mc, idx] if f]
+        
+        # Select target core schemes based on chosen allocation %
+        if mf_ratio <= 0.30:
+            codes = [122639, 120716]
+        elif mf_ratio <= 0.55:
+            codes = [122639, 118988, 120716]
+        else:
+            codes = [122639, 118988, 120716, 120823]
+
+        chosen_mfs = [next((f for f in top_mfs if f.scheme_code == sc), None) for sc in codes]
+        chosen_mfs = [f for f in chosen_mfs if f is not None]
+        if not chosen_mfs:
+            chosen_mfs = top_mfs[:3]
 
         if chosen_mfs:
             mf_portion = round(mf_budget / len(chosen_mfs), 2)
@@ -115,7 +126,7 @@ def generate_monthly_sip_basket(
                     "rationale": f"Institutional Core {f.sub_category} anchor ({f.fund_house})"
                 })
             equity_budget_pool = max(1000.0, monthly_wallet - (mf_portion * len(chosen_mfs)))
-            target_stocks_to_pick = max(2, target_stock_count - len(chosen_mfs))
+            target_stocks_to_pick = max(2, target_stock_count - (len(chosen_mfs) if target_stock_count <= 5 else 0))
 
     if strategy == "PURE_STOCKS":
         # 100% Direct Equities across distinct sectors

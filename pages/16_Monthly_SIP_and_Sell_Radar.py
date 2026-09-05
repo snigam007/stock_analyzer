@@ -123,7 +123,7 @@ with c4:
         protocol_code = "STRUCTURAL_TRAILING"
 
 with c5:
-    target_stocks = st.slider("Stock Count", 3, 8, 5 if strategy_code == "PURE_STOCKS" else 6)
+    target_stocks = st.slider("Stock Count", 3, 10, 5 if strategy_code == "PURE_STOCKS" else 6)
 
 with c6:
     step_up_choice = st.selectbox(
@@ -193,11 +193,23 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
 
     with b6:
         global_include_mf = st.toggle(
-            "🏛️ Include Mutual Funds (Core 50%)",
+            "🏛️ Include Mutual Funds",
             value=False,
             key="global_include_mf",
-            help="Allocates ~50% to Top Direct-Growth Mutual Funds as institutional core anchor, and remaining 50% to direct stock alpha."
+            help="Allocates chosen % to Top Direct-Growth Mutual Funds as institutional core anchor, and remaining % to direct stocks."
         )
+        if global_include_mf:
+            global_mf_pct = st.slider(
+                "Core MF %",
+                min_value=10,
+                max_value=90,
+                value=50,
+                step=5,
+                key="global_mf_pct",
+                help="Percentage of monthly wallet directed to Core Direct-Growth Mutual Funds (Flexi Cap, Mid Cap, Index, Small Cap)."
+            )
+        else:
+            global_mf_pct = 0.0
 
 # Generate Basket
 session_basket = get_session(engine)
@@ -206,6 +218,7 @@ basket = generate_monthly_sip_basket(
     monthly_wallet=monthly_wallet,
     strategy=strategy_code,
     include_mutual_funds=global_include_mf,
+    mf_allocation_pct=global_mf_pct,
     risk_profile=risk_code,
     target_stock_count=target_stocks,
     exit_protocol=protocol_code,
@@ -795,7 +808,7 @@ with tab4:
             help="Prevents single-stock over-concentration from dominating portfolio drawdowns by diverting fresh cash to the next sector leader once a stock reaches the cap."
         )
 
-    col_opt4, col_opt5 = st.columns([1.2, 1.2])
+    col_opt4, col_opt5, col_opt6 = st.columns([1.1, 1.1, 1.4])
     with col_opt4:
         dip_choice = st.toggle(
             "⚡ Tactical Dip-Buying (Deploy 70% Reserve on ≥4% Dips)",
@@ -810,6 +823,24 @@ with tab4:
             key="bt_skim",
             help="Locks in 15% partial profit at +150% (2.5x) and +250% (3.5x), banking risk-free gains into reserve while letting the remainder ride the calibrated trailing stop."
         )
+    with col_opt6:
+        bt_mf_choice = st.toggle(
+            "🏛️ Include Mutual Funds",
+            value=global_include_mf,
+            key="bt_include_mf",
+            help="Includes Core Direct-Growth Mutual Funds in the backtest simulation."
+        )
+        if bt_mf_choice:
+            bt_mf_pct = st.slider(
+                "Backtest Core MF %",
+                min_value=10,
+                max_value=90,
+                value=int(global_mf_pct if global_include_mf and global_mf_pct > 0 else 50),
+                step=5,
+                key="bt_mf_pct"
+            )
+        else:
+            bt_mf_pct = 0.0
 
     # Initialize or fetch backtest results
     if "sip_backtest_res" not in st.session_state or run_bt_btn:
@@ -832,24 +863,29 @@ with tab4:
                 enable_parabolic_skim=skim_choice,
                 skim_milestone_pct=150.0,
                 skim_ratio_pct=15.0,
-                max_position_cap_pct=45.0 if cap_choice else None
+                max_position_cap_pct=45.0 if cap_choice else None,
+                target_stock_count=target_stocks,
+                include_mutual_funds=bt_mf_choice,
+                mf_allocation_pct=bt_mf_pct
             )
             session_bt.close()
 
     bt = st.session_state.get("sip_backtest_res")
     if bt and "error" not in bt:
-        strat_badge = "💎 100% Direct Stocks Basket (5 Diversified Sectors)" if bt.get("strategy") == "PURE_STOCKS" else "🌐 Multi-Asset Combination (65% Stocks + 20% Nifty Index ETF + 15% Gold ETF)"
+        strat_badge = "💎 100% Direct Stocks Basket" if bt.get("strategy") == "PURE_STOCKS" else "🌐 Multi-Asset Combination (65% Stocks + 20% Nifty Index ETF + 15% Gold ETF)"
         pyramid_tag = f" &nbsp;|&nbsp; Pyramided: <b style='color: #a855f7;'>{bt.get('pyramided_trades_count', 0)}x</b>" if bt.get('pyramid_winners') else ""
         hurdle_tag = f" &nbsp;|&nbsp; Hurdle: <b style='color: #22c55e;'>≥+{bt.get('min_momentum_hurdle_pct', 0):.0f}%</b>" if bt.get('min_momentum_hurdle_pct', 0) > 0 else ""
         cap_tag = f" &nbsp;|&nbsp; 🛡️ Cap Guard: <b style='color: #38bdf8;'>{bt.get('max_position_cap_pct', 0):.0f}%</b>" if bt.get('max_position_cap_pct') else ""
         dip_tag = f" &nbsp;|&nbsp; ⚡ Dip Buys: <b style='color: #eab308;'>{bt.get('dip_buys_count', 0)} entries</b>" if bt.get('enable_dip_buying') else ""
         skim_tag = f" &nbsp;|&nbsp; 💰 Skims: <b style='color: #06b6d4;'>{bt.get('skimmed_trades_count', 0)} locked</b>" if bt.get('enable_parabolic_skim') else ""
+        mf_tag = f" &nbsp;|&nbsp; 🏛️ Mutual Funds: <b style='color: #10b981;'>{bt.get('mf_allocation_pct', 0):.0f}% Core</b>" if bt.get("include_mutual_funds") else ""
         st.markdown(f"""
         <div style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 6px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 0.9em; color: #cbd5e1;">
             Asset Strategy: <b style="color: #38bdf8;">{strat_badge}</b> &nbsp;|&nbsp; 
             Horizon: <b>{bt['months_tested']} Months</b> &nbsp;|&nbsp; 
             Exit Protocol: <b>{proto_code.replace('_', ' ').title()}</b> &nbsp;|&nbsp; 
             Step-Up: <b>{'+' + str(int(bt_step_up_val)) + '% / Year' if bt_step_up_val > 0 else 'Flat Monthly SIP'}</b>
+            {mf_tag}
             {pyramid_tag}
             {hurdle_tag}
             {cap_tag}

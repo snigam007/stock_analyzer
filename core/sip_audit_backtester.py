@@ -101,6 +101,9 @@ def run_monthly_sip_backtest(
     enable_conviction_weighting: bool = False, # Asymmetric rank-based allocation (e.g. 30/25/20/15/10)
     conviction_weights: Optional[List[float]] = None,
     max_position_cap_pct: Optional[float] = 45.0,# Max allowable weight per single stock (prevents over-concentration drawdowns)
+    target_stock_count: int = 5,               # Suggestion count (3 to 10)
+    include_mutual_funds: bool = False,        # Include Mutual Funds in backtest
+    mf_allocation_pct: float = 50.0,           # MF allocation % (10% to 90%)
     **kwargs
 ) -> Dict:
     """
@@ -201,6 +204,44 @@ def run_monthly_sip_backtest(
     combined_prices_df = pd.concat([all_prices_df, etf_prices_df], ignore_index=True)
     price_lookup = combined_prices_df.set_index(["date", "symbol"]).to_dict("index")
 
+    # Pre-load Mutual Fund Daily NAVs if enabled
+    mf_daily_nav_map = {}
+    active_mf_schemes = []
+    mf_names_map = {}
+    if include_mutual_funds:
+        mf_ratio_init = max(0.10, min(0.90, float(mf_allocation_pct) / 100.0))
+        if mf_ratio_init <= 0.30:
+            target_mf_codes = [122639, 120716]
+        elif mf_ratio_init <= 0.55:
+            target_mf_codes = [122639, 118988, 120716]
+        else:
+            target_mf_codes = [122639, 118988, 120716, 120823]
+
+        mf_meta_rows = session.execute(text(f"""
+            SELECT scheme_code, scheme_name, sub_category FROM mutual_funds
+            WHERE scheme_code IN ({','.join(map(str, target_mf_codes))})
+        """)).fetchall()
+        for r in mf_meta_rows:
+            mf_names_map[int(r[0])] = (r[1], r[2])
+            active_mf_schemes.append(int(r[0]))
+
+        if active_mf_schemes:
+            mf_nav_rows = session.execute(text(f"""
+                SELECT date, scheme_code, nav FROM mutual_fund_navs
+                WHERE scheme_code IN ({','.join(map(str, active_mf_schemes))})
+                AND date >= '{monthly_first_days[0]}' AND date <= '{end_dt_str}'
+                ORDER BY date ASC
+            """)).fetchall()
+
+            raw_navs = {(str(r[0]), int(r[1])): float(r[2]) for r in mf_nav_rows}
+            last_known_nav = {}
+            for d_str in all_trading_days:
+                for sc in active_mf_schemes:
+                    if (d_str, sc) in raw_navs:
+                        last_known_nav[sc] = raw_navs[(d_str, sc)]
+                    if sc in last_known_nav:
+                        mf_daily_nav_map[(d_str, sc)] = last_known_nav[sc]
+
     # 4. Step Through Each Month
     for month_idx, sip_date in enumerate(monthly_first_days, start=1):
         sip_dt = datetime.strptime(sip_date, "%Y-%m-%d").date()
@@ -251,10 +292,53 @@ def run_monthly_sip_backtest(
         # Fix 3: This is a rolling value recalculated per-pick inside the loop to prevent stale equity guard bypass
         def _calc_portfolio_equity(sip_d, positions, cash_bal):
             return cash_bal + sum(
-                pos["shares"] * float(price_lookup.get((sip_d, pos["symbol"]), {}).get("close", pos["entry_price"]))
+                pos["shares"] * float(
+                    mf_daily_nav_map.get((sip_d, pos.get("scheme_code")), pos["entry_price"]) if pos.get("is_mf")
+                    else price_lookup.get((sip_d, pos["symbol"]), {}).get("close", pos["entry_price"])
+                )
                 for pos in positions
             )
         current_portfolio_equity = _calc_portfolio_equity(sip_date, active_positions, cash_balance)
+
+        # ── Core Mutual Funds Allocation (when enabled) ─────────────────────
+        if include_mutual_funds and active_mf_schemes:
+            mf_ratio = max(0.10, min(0.90, float(mf_allocation_pct) / 100.0))
+            mf_budget = current_inflow * mf_ratio
+            portion_per_mf = round(mf_budget / len(active_mf_schemes), 2)
+            for sc in active_mf_schemes:
+                nav = mf_daily_nav_map.get((sip_date, sc), 100.0)
+                units = round(portion_per_mf / max(0.01, nav), 4)
+                cost = round(units * nav, 2)
+                if cost <= cash_balance and units > 0:
+                    cash_balance -= cost
+                    matched_mf = next((p for p in active_positions if p.get("is_mf") and p.get("scheme_code") == sc), None)
+                    if matched_mf:
+                        matched_mf["shares"] += units
+                        matched_mf["cost_basis"] = round(matched_mf["cost_basis"] + cost, 2)
+                        matched_mf["entry_price"] = round(matched_mf["cost_basis"] / matched_mf["shares"], 2)
+                        pyramided_trades_count += 1
+                    else:
+                        sc_name, sc_sec = mf_names_map.get(sc, (f"Mutual Fund {sc}", "Mutual Fund Core"))
+                        active_positions.append({
+                            "symbol": f"MF_{sc}",
+                            "name": sc_name,
+                            "sector": sc_sec,
+                            "tier": "FUND",
+                            "entry_date": sip_date,
+                            "entry_price": nav,
+                            "shares": units,
+                            "cost_basis": cost,
+                            "stop_loss": None,
+                            "target_price": round(nav * 2.5, 2),
+                            "month_cohort": sip_date,
+                            "status": "OPEN",
+                            "highest_price": nav,
+                            "lowest_price": nav,
+                            "is_mf": True,
+                            "is_etf": False,
+                            "scheme_code": sc,
+                            "skimmed_tiers": set()
+                        })
 
         # ── Asset Allocation Strategy Execution ──────────────────────────────
         if strategy == "MULTI_ASSET":
@@ -420,12 +504,13 @@ def run_monthly_sip_backtest(
                     })
 
         else:
-            # PURE_STOCKS: 100% Direct Equities across top 5 distinct sectors
+            # PURE_STOCKS: Direct Equities across distinct sectors
             picked_for_month = []
             used_sectors = set()
+            target_eq_picks = max(2, target_stock_count - (len(active_mf_schemes) if include_mutual_funds and target_stock_count <= 5 else 0))
 
             for cr in cand_rows:
-                if len(picked_for_month) >= 5:
+                if len(picked_for_month) >= target_eq_picks:
                     break
                 sym = str(cr[0])
                 ret_6m = float(cr[2]) if len(cr) > 2 and cr[2] is not None else 0.0
@@ -556,7 +641,7 @@ def run_monthly_sip_backtest(
                     if bench_drop_pct >= dip_threshold_pct:
                         active_with_prices = []
                         for pos in active_positions:
-                            if pos.get("is_etf", False):
+                            if pos.get("is_etf", False) or pos.get("is_mf", False):
                                 continue
                             p_info = price_lookup.get((d_str, pos["symbol"]))
                             if p_info:
@@ -569,7 +654,10 @@ def run_monthly_sip_backtest(
                             # Fix 4: Use INVESTED equity only (exclude cash) as denominator for concentration check.
                             # Including cash inflates denominator and lets over-concentrated positions bypass the cap.
                             d_invested_equity = sum(
-                                p["shares"] * float(price_lookup.get((d_str, p["symbol"]), {}).get("close", p["entry_price"]))
+                                p["shares"] * float(
+                                    mf_daily_nav_map.get((d_str, p.get("scheme_code")), p["entry_price"]) if p.get("is_mf")
+                                    else price_lookup.get((d_str, p["symbol"]), {}).get("close", p["entry_price"])
+                                )
                                 for p in active_positions
                             )
                             if d_invested_equity > 0:
@@ -611,7 +699,7 @@ def run_monthly_sip_backtest(
                 pos["lowest_price"] = min(pos["lowest_price"], curr_l)
 
                 # Two-Tier Multi-Bagger Partial Profit Skimming (Trim partial position to de-risk & fund dips)
-                if enable_parabolic_skim and d_str > pos["entry_date"] and not pos.get("is_etf", False) and pos["shares"] >= 4:
+                if enable_parabolic_skim and d_str > pos["entry_date"] and not pos.get("is_etf", False) and not pos.get("is_mf", False) and pos["shares"] >= 4:
                     curr_gain_pct = (curr_p - pos["entry_price"]) / pos["entry_price"] * 100.0
 
                     # Tier 1 Skim (+150% gain)
@@ -650,8 +738,8 @@ def run_monthly_sip_backtest(
                 exit_price = curr_p
 
                 if d_str > pos["entry_date"]:
-                    if pos.get("is_etf", False):
-                        # ETFs (Nifty Index & Gold) are foundational multi-asset anchors held for continuous compounding
+                    if pos.get("is_etf", False) or pos.get("is_mf", False):
+                        # ETFs & Mutual Funds are foundational compounding anchors held for continuous compounding
                         pass
                     elif exit_protocol == "TIGHT_SWING":
                         # Tight swing trading: 7% stop loss and 15% profit cap
@@ -775,7 +863,10 @@ def run_monthly_sip_backtest(
 
             # 2. Record Daily Equity Curve Point
             daily_mkt_val = sum(
-                pos["shares"] * price_lookup.get((d_str, pos["symbol"]), {}).get("close", pos["entry_price"])
+                pos["shares"] * (
+                    mf_daily_nav_map.get((d_str, pos.get("scheme_code")), pos["entry_price"]) if pos.get("is_mf")
+                    else price_lookup.get((d_str, pos["symbol"]), {}).get("close", pos["entry_price"])
+                )
                 for pos in active_positions
             )
             total_strat_equity = round(cash_balance + daily_mkt_val, 2)
@@ -797,7 +888,10 @@ def run_monthly_sip_backtest(
 
     for pos in active_positions:
         sym = pos["symbol"]
-        curr_p = price_lookup.get((final_dt_str, sym), {}).get("close", pos["entry_price"])
+        curr_p = (
+            mf_daily_nav_map.get((final_dt_str, pos.get("scheme_code")), pos["entry_price"]) if pos.get("is_mf")
+            else price_lookup.get((final_dt_str, sym), {}).get("close", pos["entry_price"])
+        )
         mkt_val = round(pos["shares"] * curr_p, 2)
         pnl = round(mkt_val - pos["cost_basis"], 2)
         ret_pct = round((curr_p - pos["entry_price"]) / pos["entry_price"] * 100.0, 2)
@@ -819,7 +913,8 @@ def run_monthly_sip_backtest(
             "exit_reason": "Still Active (Marked-to-Market)",
             "status": "WIN" if pnl >= 0 else "LOSS",
             "capital_preserved": 0.0,
-            "avoided_further_drop": False
+            "avoided_further_drop": False,
+            "is_mf": pos.get("is_mf", False)
         })
 
     # Final Portfolios
@@ -907,6 +1002,9 @@ def run_monthly_sip_backtest(
         "enable_parabolic_skim": enable_parabolic_skim,
         "skimmed_trades_count": skimmed_trades_count,
         "skim_milestone_pct": skim_milestone_pct,
+        "include_mutual_funds": include_mutual_funds,
+        "mf_allocation_pct": mf_allocation_pct if include_mutual_funds else 0.0,
+        "target_stock_count": target_stock_count,
         "equity_curve": equity_curve,
         "trade_log": all_closed_positions
     }

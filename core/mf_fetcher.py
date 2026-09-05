@@ -15,6 +15,10 @@ import pandas as pd
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+import importlib
+import db.database
+if not hasattr(db.database, "MutualFund"):
+    importlib.reload(db.database)
 from db.database import MutualFund, MutualFundNAV, get_global_engine, get_session
 
 logger = logging.getLogger(__name__)

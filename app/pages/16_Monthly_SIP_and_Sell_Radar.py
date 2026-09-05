@@ -27,6 +27,9 @@ if str(BASE_DIR) not in sys.path:
 st.set_page_config(page_title="Monthly SIP & Sell Radar", page_icon="💰", layout="wide")
 
 import importlib
+import db.database
+if not hasattr(db.database, "MutualFund"):
+    importlib.reload(db.database)
 import core.monthly_sip_advisor
 import core.sip_audit_backtester
 importlib.reload(core.monthly_sip_advisor)

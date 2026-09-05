@@ -19,6 +19,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
+import importlib
+import db.database
+if not hasattr(db.database, "MutualFund"):
+    importlib.reload(db.database)
 from db.database import get_global_engine, get_session, MutualFund, MutualFundNAV, MutualFundSignal
 from core.mf_signals import generate_daily_mf_signals, audit_mf_signals, compute_mf_rolling_metrics
 from core.mf_fetcher import sync_daily_amfi_nav_feed

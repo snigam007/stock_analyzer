@@ -16,6 +16,10 @@ import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+import importlib
+import db.database
+if not hasattr(db.database, "MutualFund"):
+    importlib.reload(db.database)
 from db.database import Watchlist, WatchlistItem, Stock, PriceAlert, MutualFund, MutualFundNAV
 
 logger = logging.getLogger(__name__)

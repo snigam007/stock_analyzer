@@ -1291,7 +1291,8 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
         clust_meta = get_cluster_metadata(clust)
 
         is_ratcheted = bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05)
-        disp_trailing = round(trailing, 2) if is_ratcheted else (round(trailing, 2) if (status == 'TRAILING_SL_HIT' and trailing) else None)
+        # Active trailing stop is only displayed for open in-play trades that have ratcheted into profit
+        disp_trailing = round(trailing, 2) if (status == 'PENDING' and is_ratcheted) else None
 
         records.append({
             'date': s_date, 'symbol': sym, 'signal': sig, 'risk_level': r_lvl,

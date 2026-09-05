@@ -1227,10 +1227,10 @@ with tabs[8]:
             "composite_score": "Score",
         })
 
-        def _fmt_price(x): return f"₹{x:,.2f}" if pd.notnull(x) and x else "—"
-        def _fmt_pct(x):   return f"{x:+.2f}%" if pd.notnull(x) and x is not None else "—"
-        def _fmt_days(x):  return f"{int(x)}d" if pd.notnull(x) and x else "—"
-        def _fmt_score(x): return f"{x:.1f}" if pd.notnull(x) and x is not None else "—"
+        def _fmt_price(x): return f"₹{x:,.2f}" if pd.notnull(x) and x is not None and str(x) != 'nan' else "—"
+        def _fmt_pct(x):   return f"{x:+.2f}%" if pd.notnull(x) and x is not None and str(x) != 'nan' else "—"
+        def _fmt_days(x):  return f"{int(x)}d" if pd.notnull(x) and x is not None and str(x) != 'nan' else "—"
+        def _fmt_score(x): return f"{x:.1f}" if pd.notnull(x) and x is not None and str(x) != 'nan' else "—"
 
         fmt = {}
         if "Entry (₹)" in display_audit.columns:             fmt["Entry (₹)"]             = _fmt_price
@@ -1245,7 +1245,7 @@ with tabs[8]:
         if "Score" in display_audit.columns:                 fmt["Score"]                 = _fmt_score
 
         st.dataframe(
-            display_audit.style.format(fmt),
+            display_audit.style.format(fmt, na_rep="—"),
             use_container_width=True,
             height=440,
             hide_index=True,

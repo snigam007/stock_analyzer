@@ -590,6 +590,80 @@ class EconomicEvent(Base):
     description = Column(Text)
 
 
+# ─── Mutual Funds Models ──────────────────────────────────────────────────────
+class MutualFund(Base):
+    __tablename__ = "mutual_funds"
+
+    scheme_code = Column(Integer, primary_key=True)      # AMFI Scheme Code (e.g. 122639)
+    scheme_name = Column(String(200), nullable=False)
+    fund_house = Column(String(100), nullable=False, index=True)
+    category = Column(String(50), nullable=False, index=True)         # Equity / Hybrid / Debt / etc.
+    sub_category = Column(String(80), nullable=False, index=True)     # Flexi Cap Fund / Large Cap Fund / etc.
+    benchmark = Column(String(100))
+    isin_growth = Column(String(30))
+    expense_ratio = Column(Float)
+    crisil_rating = Column(Integer)
+    aum_crores = Column(Float)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    navs = relationship("MutualFundNAV", back_populates="fund", cascade="all, delete-orphan")
+    signals = relationship("MutualFundSignal", back_populates="fund", cascade="all, delete-orphan")
+
+    def __repr__(self):
+        return f"<MutualFund({self.scheme_code}: {self.scheme_name})>"
+
+
+class MutualFundNAV(Base):
+    __tablename__ = "mutual_fund_navs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scheme_code = Column(Integer, ForeignKey("mutual_funds.scheme_code"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    nav = Column(Float, nullable=False)
+    daily_return = Column(Float)
+
+    fund = relationship("MutualFund", back_populates="navs")
+
+    __table_args__ = (
+        UniqueConstraint("scheme_code", "date", name="uq_mf_scheme_date"),
+        Index("ix_mf_nav_scheme_date", "scheme_code", "date"),
+    )
+
+
+class MutualFundSignal(Base):
+    __tablename__ = "mutual_fund_signals"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scheme_code = Column(Integer, ForeignKey("mutual_funds.scheme_code"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    nav = Column(Float, nullable=False)
+    signal = Column(String(30), nullable=False)        # ACCUMULATE / TACTICAL_BUY_DIP / HOLD / TRIM_PROFIT
+    strength_score = Column(Float)                     # 0 - 100
+    ema_20 = Column(Float)
+    ema_50 = Column(Float)
+    ema_200 = Column(Float)
+    rsi_14 = Column(Float)
+    return_1m = Column(Float)
+    return_3m = Column(Float)
+    return_1y = Column(Float)
+    category_rank = Column(Integer)
+    signal_rationale = Column(Text)
+    forward_return_30d = Column(Float)
+    forward_return_90d = Column(Float)
+    benchmark_alpha_30d = Column(Float)
+    is_profitable = Column(Boolean)
+
+    fund = relationship("MutualFund", back_populates="signals")
+
+    __table_args__ = (
+        UniqueConstraint("scheme_code", "date", name="uq_mf_signal_date"),
+        Index("ix_mf_sig_scheme_date", "scheme_code", "date"),
+    )
+
+
 # ─── Engine & Session Setup ───────────────────────────────────────────────────
 from sqlalchemy.pool import QueuePool
 from sqlalchemy import event

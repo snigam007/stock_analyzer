@@ -16,7 +16,7 @@ import numpy as np
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from db.database import Watchlist, WatchlistItem, Stock, PriceAlert
+from db.database import Watchlist, WatchlistItem, Stock, PriceAlert, MutualFund, MutualFundNAV
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ def generate_monthly_sip_basket(
     session: Session,
     monthly_wallet: float = 20000.0,
     strategy: str = "PURE_STOCKS",     # PURE_STOCKS or MULTI_ASSET
+    include_mutual_funds: bool = False, # Toggle to include Mutual Funds as Core allocation
     risk_profile: str = "BALANCED",    # SAFE, BALANCED, RISKY
     target_stock_count: int = 5,
     exit_protocol: str = "ADAPTIVE_STRUCTURAL", # ADAPTIVE_STRUCTURAL, STRUCTURAL_TRAILING, BUY_AND_HOLD, TIGHT_SWING
@@ -70,6 +71,47 @@ def generate_monthly_sip_basket(
         pass
 
     selected_assets = []
+    equity_budget_pool = monthly_wallet
+    target_stocks_to_pick = target_stock_count
+
+    # Core Mutual Funds Allocation (when toggle enabled)
+    if include_mutual_funds:
+        mf_budget = monthly_wallet * 0.50
+        top_mfs = session.query(MutualFund).filter_by(is_active=True).all()
+        fc = next((f for f in top_mfs if f.scheme_code == 122639), top_mfs[0] if top_mfs else None)
+        mc = next((f for f in top_mfs if f.scheme_code == 120823), top_mfs[1] if len(top_mfs) > 1 else None)
+        idx = next((f for f in top_mfs if f.scheme_code == 120716), top_mfs[2] if len(top_mfs) > 2 else None)
+        chosen_mfs = [f for f in [fc, mc, idx] if f]
+
+        if chosen_mfs:
+            mf_portion = round(mf_budget / len(chosen_mfs), 2)
+            for f in chosen_mfs:
+                nav_val = session.execute(
+                    text("SELECT nav FROM mutual_fund_navs WHERE scheme_code = :sc ORDER BY date DESC LIMIT 1"),
+                    {"sc": f.scheme_code}
+                ).scalar() or 100.0
+                units = round(mf_portion / nav_val, 3)
+                selected_assets.append({
+                    "symbol": f"MF_{f.scheme_code}",
+                    "name": f.scheme_name,
+                    "asset_class": "Mutual Fund",
+                    "sector": f.sub_category,
+                    "tier": "Core Compounder",
+                    "current_price": round(nav_val, 2),
+                    "shares_to_buy": units,
+                    "total_cost": mf_portion,
+                    "stop_loss": None,
+                    "target_price": round(nav_val * 1.50, 2),
+                    "composite_score": 85.0,
+                    "signal": "ACCUMULATE",
+                    "risk_level": "SAFE" if "Index" in f.sub_category or "Liquid" in f.sub_category else "MODERATE",
+                    "is_pyramided": False,
+                    "is_mutual_fund": True,
+                    "scheme_code": f.scheme_code,
+                    "rationale": f"Institutional Core {f.sub_category} anchor ({f.fund_house})"
+                })
+            equity_budget_pool = max(1000.0, monthly_wallet - (mf_portion * len(chosen_mfs)))
+            target_stocks_to_pick = max(2, target_stock_count - len(chosen_mfs))
 
     if strategy == "PURE_STOCKS":
         # 100% Direct Equities across distinct sectors
@@ -89,22 +131,19 @@ def generate_monthly_sip_basket(
             WHERE sig.date = :d
             AND s.is_active = 1
             AND sig.current_price > 50.0
-            AND sig.current_price <= (:wallet * 0.40)
+            AND sig.current_price <= (:wallet * 0.45)
             AND sig.signal IN ('BUY', 'STRONG BUY', 'WATCH')
             ORDER BY
-                -- Fix 7: Blend 6M momentum rank with composite quality score so basket
-                -- selection mirrors the backtester's momentum-first logic while retaining
-                -- the quality filter from composite_scores.
                 CASE WHEN sig.signal = 'BUY' THEN 1 WHEN sig.signal = 'STRONG BUY' THEN 1 ELSE 2 END,
                 (
                     COALESCE((sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0), 0.0) * 50.0
                     + cs.composite_score * 0.5
                 ) DESC
         """
-        candidates = session.execute(text(sql), {"d": as_of_date, "wallet": monthly_wallet}).fetchall()
+        candidates = session.execute(text(sql), {"d": as_of_date, "wallet": equity_budget_pool}).fetchall()
 
         # If candidates are too few with price filter, relax price filter
-        if len(candidates) < target_stock_count:
+        if len(candidates) < target_stocks_to_pick:
             sql_fallback = f"""
                 SELECT sig.symbol, s.name, s.sector, s.market_cap_tier, sig.current_price,
                        cs.composite_score, sig.signal, sig.risk_level, sig.stop_loss, sig.target_price_1,
@@ -129,19 +168,18 @@ def generate_monthly_sip_basket(
         picked_stocks = []
 
         for c in candidates:
-            if len(picked_stocks) >= target_stock_count:
+            if len(picked_stocks) >= target_stocks_to_pick:
                 break
             sec = c[2] or "General"
             if sec in chosen_sectors and len(candidates) > 8:
                 continue
 
             # Momentum Hurdle Check
-            if min_momentum_hurdle_pct > 0 and len(candidates) > (target_stock_count + 3):
+            if min_momentum_hurdle_pct > 0 and len(candidates) > (target_stocks_to_pick + 3):
                 ret_6m = float(c[11]) if len(c) > 11 and c[11] is not None else 0.0
                 if ret_6m < (min_momentum_hurdle_pct / 100.0):
                     continue
             elif min_momentum_hurdle_pct == 0:
-                # Even with hurdle disabled, exclude stocks with NO 6M history (new listings)
                 ret_6m_raw = c[11] if len(c) > 11 else None
                 if ret_6m_raw is None:
                     continue
@@ -150,23 +188,20 @@ def generate_monthly_sip_basket(
             r_risk = c[7] or "MODERATE"
             if risk_profile == "SAFE" and r_risk == "RISKY":
                 continue
-            if risk_profile == "RISKY" and r_risk == "SAFE" and len(picked_stocks) < 3:
-                # In risky mode prefer higher beta/growth stocks
-                pass
 
             chosen_sectors.add(sec)
             picked_stocks.append(c)
 
         # In case fewer sectors found, fill from remaining top candidates
-        if len(picked_stocks) < target_stock_count:
+        if len(picked_stocks) < target_stocks_to_pick:
             for c in candidates:
-                if len(picked_stocks) >= target_stock_count:
+                if len(picked_stocks) >= target_stocks_to_pick:
                     break
                 if c[0] not in [x[0] for x in picked_stocks]:
                     picked_stocks.append(c)
 
         # Initial capital per stock
-        target_allocation_per_stock = monthly_wallet / max(1, len(picked_stocks))
+        target_allocation_per_stock = equity_budget_pool / max(1, len(picked_stocks))
         
         # Calculate whole shares
         for c in picked_stocks:
@@ -252,12 +287,12 @@ def generate_monthly_sip_basket(
 
     else:
         # MULTI_ASSET: Equities (65%) + Benchmark Index (20%) + Gold/Commodity (15%)
-        eq_budget = monthly_wallet * 0.65
-        idx_budget = monthly_wallet * 0.20
-        comm_budget = monthly_wallet * 0.15
+        eq_budget = equity_budget_pool * 0.65
+        idx_budget = equity_budget_pool * 0.20
+        comm_budget = equity_budget_pool * 0.15
 
         # 1. Equities
-        eq_target_n = max(2, target_stock_count - 2)
+        eq_target_n = max(2, target_stocks_to_pick - 2)
         eq_per_stock = eq_budget / eq_target_n
         
         sql_eq = """
@@ -349,18 +384,19 @@ def generate_monthly_sip_basket(
         })
 
     # Adjust share counts dynamically to fill leftover wallet
-    # Enforce strict monthly wallet limit
+    # Adjust share counts dynamically to fill leftover wallet
+    # Enforce strict monthly wallet limit (preserving mutual fund core allocations)
     while sum(x["total_cost"] for x in selected_assets) > monthly_wallet:
-        reducible = [x for x in selected_assets if x["shares_to_buy"] > 1]
+        reducible = [x for x in selected_assets if not x.get("is_mutual_fund") and x["shares_to_buy"] > 1]
         if reducible:
             reducible.sort(key=lambda x: x["current_price"], reverse=True)
             reducible[0]["shares_to_buy"] -= 1
             reducible[0]["total_cost"] = round(reducible[0]["shares_to_buy"] * reducible[0]["current_price"], 2)
         else:
-            # If all items have only 1 share, remove the single highest cost item
-            selected_assets.sort(key=lambda x: x["total_cost"], reverse=True)
-            if len(selected_assets) > 1:
-                selected_assets.pop(0)
+            stock_items = [x for x in selected_assets if not x.get("is_mutual_fund")]
+            if len(stock_items) > 1:
+                stock_items.sort(key=lambda x: x["total_cost"], reverse=True)
+                selected_assets.remove(stock_items[0])
             else:
                 break
 
@@ -369,7 +405,7 @@ def generate_monthly_sip_basket(
 
     # Greedily allocate remaining cash into lowest priced high-ranking stocks
     if leftover > 0 and selected_assets:
-        sortable = sorted(selected_assets, key=lambda x: (x["current_price"]))
+        sortable = sorted([x for x in selected_assets if not x.get("is_mutual_fund")], key=lambda x: (x["current_price"]))
         for item in sortable:
             if item["current_price"] <= leftover and item["current_price"] > 0:
                 extra_shares = int(math.floor(leftover / item["current_price"]))
@@ -691,3 +727,85 @@ def evaluate_sell_reminders(
     # Sort critical first, then by composite score ascending (worst first)
     sell_reminders.sort(key=lambda x: (0 if x["severity"] == "CRITICAL" else 1, x["composite_score"]))
     return sell_reminders
+
+
+def scan_tactical_dip_boosters(session: Session, monthly_wallet: float = 20000.0) -> List[Dict]:
+    """
+    Scans active direct stock compounders and curated mutual funds for high-probability
+    technical dip-buying demand zones (pulling back to 50-EMA support with bullish structure).
+    Recommends tactical top-up tranche amounts to lower the long-term rupee-cost average.
+    """
+    dip_alerts = []
+
+    # 1. Stocks dipping into 50-EMA with high composite score
+    sql_stock_dips = """
+        SELECT sig.symbol, s.name, s.sector, sig.current_price, t.ema_50, t.ema_200, t.rsi_14, cs.composite_score
+        FROM signals sig
+        JOIN stocks s ON sig.symbol = s.symbol
+        JOIN technical_indicators t ON sig.symbol = t.symbol AND sig.date = t.date
+        JOIN composite_scores cs ON sig.symbol = cs.symbol AND sig.date = cs.date
+        WHERE sig.date = (SELECT MAX(date) FROM signals)
+        AND s.is_active = 1
+        AND sig.current_price >= t.ema_200
+        AND t.ema_50 IS NOT NULL
+        AND abs(sig.current_price - t.ema_50) / t.ema_50 <= 0.035
+        AND cs.composite_score >= 58.0
+        ORDER BY cs.composite_score DESC
+        LIMIT 6
+    """
+    try:
+        rows = session.execute(text(sql_stock_dips)).fetchall()
+        for r in rows:
+            sym, name, sec, price, ema50, ema200, rsi, score = r
+            tranche_amt = round(min(monthly_wallet * 0.25, max(1500.0, price * 2)), 0)
+            shares = max(1, int(tranche_amt / price))
+            dip_alerts.append({
+                "symbol": sym,
+                "name": name,
+                "asset_type": "Direct Equity",
+                "category": sec,
+                "current_price": round(price, 2),
+                "support_level": round(ema50, 2),
+                "support_type": "50-Day EMA Support",
+                "rsi_14": round(rsi or 45.0, 1),
+                "composite_score": round(score, 1),
+                "recommended_topup_inr": round(shares * price, 2),
+                "shares_to_buy": shares,
+                "advisory": f"Healthy pullback into 50-EMA demand zone (₹{ema50:,.2f}). Deploy tactical tranche of {shares} shares."
+            })
+    except Exception as e:
+        logger.warning(f"Error scanning stock dip boosters: {e}")
+
+    # 2. Mutual funds with TACTICAL_BUY_DIP signals
+    try:
+        mf_rows = session.execute(text("""
+            SELECT m.scheme_code, m.scheme_name, m.sub_category, s.nav, s.ema_50, s.rsi_14, s.strength_score, s.signal_rationale
+            FROM mutual_fund_signals s
+            JOIN mutual_funds m ON s.scheme_code = m.scheme_code
+            WHERE s.date = (SELECT MAX(date) FROM mutual_fund_signals)
+            AND s.signal = 'TACTICAL_BUY_DIP'
+            ORDER BY s.strength_score DESC
+            LIMIT 4
+        """)).fetchall()
+        for mf in mf_rows:
+            sc, name, subcat, nav, ema50, rsi, score, rat = mf
+            topup = round(monthly_wallet * 0.20, 0)
+            dip_alerts.append({
+                "symbol": f"MF_{sc}",
+                "name": name,
+                "asset_type": "Mutual Fund",
+                "category": subcat,
+                "current_price": round(nav, 2),
+                "support_level": round(ema50 or nav, 2),
+                "support_type": "50-Day EMA Support",
+                "rsi_14": round(rsi or 40.0, 1),
+                "composite_score": round(score or 80.0, 1),
+                "recommended_topup_inr": topup,
+                "shares_to_buy": round(topup / nav, 2),
+                "advisory": rat
+            })
+    except Exception as e:
+        logger.warning(f"Error scanning MF dip boosters: {e}")
+
+    return dip_alerts
+

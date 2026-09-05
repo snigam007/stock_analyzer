@@ -37,7 +37,8 @@ from sqlalchemy import text
 from core.monthly_sip_advisor import (
     generate_monthly_sip_basket,
     deploy_sip_basket_to_watchlist,
-    evaluate_sell_reminders
+    evaluate_sell_reminders,
+    scan_tactical_dip_boosters
 )
 from core.sip_tracker import (
     init_sip_log_table,
@@ -133,7 +134,7 @@ with c6:
 # ── Global Strategic 35%+ Performance Boosters Control Bar ────────────────────
 with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active across Suggestions & Backtest)", expanded=True):
     st.caption("These 5 high-conviction quantitative rules optimize stock selection in **This Month's Basket (Tab 1)** and drive multi-year returns in the **Backtest Simulator (Tab 4)**.")
-    b1, b2, b3, b4, b5 = st.columns([1.1, 1.4, 1.3, 1.2, 1.3])
+    b1, b2, b3, b4, b5, b6 = st.columns([1.1, 1.3, 1.2, 1.1, 1.2, 1.4])
     with b1:
         global_pyramid = st.toggle(
             "🚀 Winner Pyramiding",
@@ -187,12 +188,21 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
         else:
             cap_guard_val = None
 
+    with b6:
+        global_include_mf = st.toggle(
+            "🏛️ Include Mutual Funds (Core 50%)",
+            value=False,
+            key="global_include_mf",
+            help="Allocates ~50% to Top Direct-Growth Mutual Funds as institutional core anchor, and remaining 50% to direct stock alpha."
+        )
+
 # Generate Basket
 session_basket = get_session(engine)
 basket = generate_monthly_sip_basket(
     session=session_basket,
     monthly_wallet=monthly_wallet,
     strategy=strategy_code,
+    include_mutual_funds=global_include_mf,
     risk_profile=risk_code,
     target_stock_count=target_stocks,
     exit_protocol=protocol_code,
@@ -268,6 +278,26 @@ with tab1:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+    # Tactical Dip-Booster Radar
+    session_dips = get_session(engine)
+    try:
+        active_dips = scan_tactical_dip_boosters(session_dips, monthly_wallet=monthly_wallet)
+    except Exception:
+        active_dips = []
+    session_dips.close()
+
+    if active_dips:
+        with st.expander(f"🎯 Active Tactical Dip-Buying Opportunities ({len(active_dips)} In Demand Zones)", expanded=False):
+            st.caption("These quality compounders and mutual funds are currently pulling back to within 2.5% of their 50-day EMA support with bullish RSI structure. Deploying extra tactical tranches here lowers your long-term cost basis.")
+            dip_df = pd.DataFrame(active_dips)[[
+                "symbol", "name", "asset_type", "category", "current_price", "support_level", "rsi_14", "recommended_topup_inr", "shares_to_buy", "advisory"
+            ]].rename(columns={
+                "symbol": "Symbol", "name": "Asset Name", "asset_type": "Type", "category": "Sector / Category",
+                "current_price": "Current Price", "support_level": "50-EMA Support", "rsi_14": "RSI",
+                "recommended_topup_inr": "Tranche Size (₹)", "shares_to_buy": "Qty / Units", "advisory": "Tactical Advisory"
+            })
+            st.dataframe(dip_df, use_container_width=True, hide_index=True)
 
     # Action Bar: 1-Click Deploy & Export
     act1, act2, act3 = st.columns([2, 1.5, 1.5])

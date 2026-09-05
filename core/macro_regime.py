@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from typing import Dict
 import pandas as pd
 import numpy as np
@@ -85,10 +85,27 @@ def evaluate_macro_regime(session: Session) -> Dict:
             alloc_cash = 40
             leverage_bias = "Defensive / Cash Preservation"
 
+        # Gatekeeper parameters
+        if regime_code == "RISK_ON":
+            exp_mult = 1.0
+            max_picks = 10
+            gatekeeper = "🟢 EXPANSION (Deploy Full 10 Picks)"
+        elif regime_code == "RISK_NEUTRAL":
+            exp_mult = 0.5
+            max_picks = 5
+            gatekeeper = "🟡 CAUTION / CHOP (Throttle to Top 5 High-Quality Picks)"
+        else:
+            exp_mult = 0.2
+            max_picks = 2
+            gatekeeper = "🔴 CAPITAL LOCK (Restrict to Max 2 Defensive Picks / Hold Cash)"
+
         return {
             "macro_score": round(macro_score, 1),
             "regime": regime,
             "regime_code": regime_code,
+            "regime_gatekeeper_status": gatekeeper,
+            "signal_exposure_multiplier": exp_mult,
+            "max_recommended_picks": max_picks,
             "summary": summary,
             "market_breadth_above_50_ema_pct": round(above_50_pct, 1),
             "market_breadth_above_200_ema_pct": round(above_200_pct, 1),

@@ -1291,8 +1291,15 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
         clust_meta = get_cluster_metadata(clust)
 
         is_ratcheted = bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05)
-        # Active trailing stop is only displayed for open in-play trades that have ratcheted into profit
-        disp_trailing = round(trailing, 2) if (status == 'PENDING' and is_ratcheted) else None
+        # Algorithmic Hardening: Inverse-Volatility Equal Risk Contribution (ERC) quantity for standard ₹2k risk
+        per_share_risk = abs(float(entry) - float(sl)) if (entry and sl) else 0.0
+        qty_erc = max(1, int(2000.0 / per_share_risk)) if per_share_risk > 0.5 else 1
+
+        # Anti-Chasing Retest Trigger (Protect against extended breakout shakeouts)
+        risk_span_pct = (per_share_risk / float(entry) * 100) if (entry and entry > 0) else 4.0
+        is_extended = bool(risk_span_pct > 5.5)
+        entry_mode = "🎯 LIMIT RETEST" if is_extended else "⚡ BREAKOUT"
+        rec_limit = round(entry * 0.985, 2) if (is_extended and entry) else (round(entry, 2) if entry else None)
 
         records.append({
             'date': s_date, 'symbol': sym, 'signal': sig, 'risk_level': r_lvl,
@@ -1309,6 +1316,9 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
             'stop_loss': round(sl, 2) if sl else None,
             'trailing_stop': disp_trailing,
             'is_trailing_ratcheted': is_ratcheted,
+            'erc_qty': qty_erc,
+            'entry_mode': entry_mode,
+            'recommended_limit': rec_limit,
             'composite_score': round(score, 1) if score else None,
             'status': display_status,
             'raw_status': 'TRAILING_SL_HIT' if is_trailing_win else status,

@@ -204,9 +204,14 @@ macro_info = evaluate_macro_regime(macro_session)
 macro_session.close()
 
 st.markdown(f"""
-<div style="background: linear-gradient(90deg, #102130, #0c1822); border-left: 5px solid #00a8ff; padding: 10px 16px; border-radius: 6px; margin-bottom: 12px;">
-    <span style="font-weight: bold; color: #00a8ff;">🏛️ Macro Market Regime: {macro_info['regime']} (Score: {macro_info['macro_score']}/100)</span><br>
-    <span style="font-size: 0.88em; color: #c8d0d8;">{macro_info['summary']} • <b>Advisory Allocation:</b> Equities <b>{macro_info['recommended_allocation']['Equities %']}%</b> | Gold <b>{macro_info['recommended_allocation']['Gold & Commodities %']}%</b> | Cash <b>{macro_info['recommended_allocation']['Cash & Liquid %']}%</b></span>
+<div style="background: linear-gradient(90deg, #102130, #0c1822); border-left: 5px solid #00a8ff; padding: 12px 18px; border-radius: 6px; margin-bottom: 12px;">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-weight: bold; color: #00a8ff; font-size: 1.05em;">🏛️ Macro Market Regime: {macro_info['regime']} (Score: {macro_info['macro_score']}/100)</span>
+        <span style="background: rgba(0, 168, 255, 0.2); color: #38bdf8; font-weight: bold; padding: 3px 10px; border-radius: 4px; font-size: 0.88em;">Gatekeeper: {macro_info.get('regime_gatekeeper_status', '🟢 Normal Deployment')}</span>
+    </div>
+    <div style="font-size: 0.88em; color: #c8d0d8; margin-top: 4px;">
+        {macro_info['summary']} • <b>Signal Exposure Cap:</b> Max <b>{macro_info.get('max_recommended_picks', 10)} Picks</b> ({macro_info.get('signal_exposure_multiplier', 1.0)*100:.0f}% Exposure) • <b>Advisory Allocation:</b> Equities <b>{macro_info['recommended_allocation']['Equities %']}%</b> | Gold <b>{macro_info['recommended_allocation']['Gold & Commodities %']}%</b> | Cash <b>{macro_info['recommended_allocation']['Cash & Liquid %']}%</b>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1198,7 +1203,7 @@ with tabs[8]:
         st.caption(f"Showing **{len(filtered_audit)}** of {len(audit_df)} historical audit records for **{audit_asset_label}**")
 
         table_cols = [
-            "date", "symbol", "signal", "cluster_badge", "cap_tier", "risk_level", "entry_price", "close_price", "target_1", "target_2",
+            "date", "symbol", "signal", "cluster_badge", "cap_tier", "risk_level", "entry_mode", "erc_qty", "entry_price", "close_price", "target_1", "target_2",
             "stop_loss", "trailing_stop", "est_time_to_t1", "status", "max_gain_pct",
             "realized_gain_pct", "days_to_outcome", "sl_diagnostic", "composite_score"
         ]
@@ -1212,6 +1217,8 @@ with tabs[8]:
             "cluster_badge": "Cluster",
             "cap_tier": "Tier",
             "risk_level": "Risk Level",
+            "entry_mode": "Entry Trigger",
+            "erc_qty": "ERC Qty (₹2k Risk)",
             "entry_price": "Entry (₹)",
             "close_price": "Current / Exit (₹)",
             "target_1": "Target 1 (₹)",

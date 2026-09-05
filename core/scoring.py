@@ -61,7 +61,12 @@ def score_macd(macd: float, signal_line: float, hist: float) -> float:
 
 def score_bollinger(bb_pct: float) -> float:
     if bb_pct is None or pd.isna(bb_pct): return 50.0
-    return (1 - bb_pct) * 100
+    # Fix 8: Clip bb_pct to [0, 1] before scoring.
+    # bb_pct can be < 0 (below lower band) or > 1 (above upper band), yielding
+    # scores outside [0, 100]. An unclipped negative score distorts the weighted
+    # composite sum even though the final composite is clipped.
+    bb_pct_clipped = max(0.0, min(1.0, float(bb_pct)))
+    return (1.0 - bb_pct_clipped) * 100.0
 
 
 def score_ema(close: float, ema_9: float, ema_21: float, ema_50: float, ema_200: float) -> float:

@@ -87,7 +87,16 @@ def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
                    WHERE s2.symbol = sig.symbol
                      AND s2.signal = sig.signal
                      AND s2.date >= date(sig.date, '-14 days')
-               ) as signal_age_days
+               ) as signal_age_days,
+               (
+                   SELECT round((sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0, 1)
+                   FROM daily_prices dp_past
+                   WHERE dp_past.symbol = sig.symbol
+                     AND dp_past.date = (
+                         SELECT MIN(date) FROM daily_prices
+                         WHERE symbol = sig.symbol AND date >= date(sig.date, '-180 days')
+                     )
+               ) as momentum_6m_pct
         FROM signals sig
         JOIN stocks s ON sig.symbol = s.symbol
         JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
@@ -361,6 +370,7 @@ def render_stock_table(rows, show_signal: bool = True):
 
         inc = inception_map.get(symbol, {})
         streak_days = inc.get("streak_days", int(rest[0] if rest and rest[0] else 1))
+        mom_6m = float(rest[1]) if len(rest) > 1 and rest[1] is not None else None
         inception_date = inc.get("inception_date", "")
         inception_price = inc.get("inception_price", price)
         ret_since_inc = inc.get("return_since_inception_pct", 0.0)
@@ -388,6 +398,19 @@ def render_stock_table(rows, show_signal: bool = True):
         trend_icon = trend_icons.get(trend_dir, "➡️")
         inv_icon = inv_icons.get(inv_type, "🌱")
 
+        # Confidence & Momentum Badges
+        conf_pct = int(round((confidence or 0.5) * 100))
+        conf_tag = f"🎯 {conf_pct}% Conf"
+        if mom_6m is not None:
+            if mom_6m >= 20.0:
+                mom_tag = f" | 🚀 6M: +{mom_6m:.0f}%"
+            elif mom_6m >= 0.0:
+                mom_tag = f" | 📈 6M: +{mom_6m:.0f}%"
+            else:
+                mom_tag = f" | 📉 6M: {mom_6m:.0f}%"
+        else:
+            mom_tag = ""
+
         # Time-to-Target forecast
         pred_ttt = predict_time_to_target(
             entry_price=buy_price or price or 0,
@@ -408,8 +431,8 @@ def render_stock_table(rows, show_signal: bool = True):
         earn_tag = f" | {earn.get('sentiment_badge')}" if earn.get('has_upcoming_earnings') else ""
 
         with st.expander(
-            f"{rank_label} **{symbol}** — {name[:24]} | "
-            f"{sig_icon} {signal} | {freshness_header}{mtf_star_tag}{earn_tag} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
+            f"{rank_label} **{symbol}** — {name[:22]} | "
+            f"{sig_icon} {signal} ({conf_tag}) | {freshness_header}{mom_tag}{mtf_star_tag}{earn_tag} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
             f"Score: **{composite_score:.0f}** | ⏳ {pred_ttt['window_str']}",
             expanded=(i < 3)
         ):
@@ -507,7 +530,9 @@ def render_stock_table(rows, show_signal: bool = True):
                 if sharpe:
                     st.markdown(f"- Sharpe: {sharpe:.2f}")
                 if confidence:
-                    st.markdown(f"- Confidence: {confidence*100:.0f}%")
+                    st.markdown(f"- **Confidence:** `{confidence*100:.0f}%` ({'High Conviction' if confidence >= 0.75 else ('Moderate' if confidence >= 0.60 else 'Speculative')})")
+                if mom_6m is not None:
+                    st.markdown(f"- **6M Momentum:** `{mom_6m:+.1f}%` ({'Leader 🚀' if mom_6m >= 20 else ('Upward 📈' if mom_6m >= 0 else 'Lagging 📉')})")
 
             with col4:
                 st.markdown("**💡 Why this signal?**")

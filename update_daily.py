@@ -114,6 +114,16 @@ def run_daily_delta_update(top_forecasts: int = 50):
     except Exception as e:
         logger.warning(f"Signal audit evaluation notice: {e}")
 
+    # 8b. Update SIP Suggestion Forward Performance Track Record
+    try:
+        from core.sip_tracker import init_sip_log_table, update_sip_forward_performance
+        init_sip_log_table(session)
+        sip_res = update_sip_forward_performance(session)
+        if sip_res:
+            logger.info(f"   SIP Track Record: Evaluated and updated {sip_res} open recommendations.")
+    except Exception as e:
+        logger.warning(f"SIP forward tracker notice: {e}")
+
     # 9. Advanced Analysis Suites (Candlestick Patterns, Alerts, Bulk Deals, Calendar)
     logger.info("\n🕯️ Step 9/12: Scanning Candlestick Formations (15 Patterns)...")
     try:

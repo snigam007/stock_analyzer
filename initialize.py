@@ -161,6 +161,12 @@ def run_full_initialization():
     except Exception as e:
         logger.warning(f"ML forecasting skipped: {e}")
 
+    try:
+        from core.sip_tracker import init_sip_log_table
+        init_sip_log_table(session)
+    except Exception as e:
+        logger.warning(f"SIP table init notice: {e}")
+
     session.close()
     elapsed = (time.time() - start_time) / 60
     logger.info("=" * 70)
@@ -180,6 +186,8 @@ if __name__ == "__main__":
         engine = create_all_tables()
         session = get_session(engine)
         load_stock_universe(session)
+        from core.sip_tracker import init_sip_log_table
+        init_sip_log_table(session)
         session.close()
     else:
         run_full_initialization()

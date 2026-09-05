@@ -377,6 +377,65 @@ def evaluate_and_generate_alerts(session: Session) -> List[Dict]:
                     ))
                     triggered_alerts.append({"type": "Sell Target", "symbol": wi.symbol, "message": msg})
 
+            # 3. Stop-Loss Hit (Price <= Stop Loss) - CRITICAL SELL REMINDER
+            if wi.stop_loss and current_p <= wi.stop_loss:
+                msg = f"🛑 Critical Stop-Loss Hit: {wi.symbol} at ₹{current_p:,.2f} <= Stop-Loss ₹{wi.stop_loss:,.2f} [{wl.name}]"
+                existing = session.execute(text("""
+                    SELECT id FROM price_alerts
+                    WHERE symbol = :s AND alert_type = 'STOP_LOSS_HIT'
+                    AND date(created_at) = date('now')
+                """), {"s": wi.symbol}).first()
+                if not existing:
+                    session.add(PriceAlert(
+                        symbol=wi.symbol, alert_type="STOP_LOSS_HIT",
+                        condition_value=wi.stop_loss, current_value=current_p,
+                        message=msg, is_triggered=True, triggered_at=datetime.utcnow()
+                    ))
+                    triggered_alerts.append({"type": "Stop-Loss Hit", "symbol": wi.symbol, "message": msg})
+
+            # 4. Model Signal Turned SELL or Score < 45
+            sig_row = session.execute(text("""
+                SELECT sig.signal, cs.composite_score FROM signals sig
+                LEFT JOIN composite_scores cs ON sig.symbol = cs.symbol AND sig.date = cs.date
+                WHERE sig.symbol = :s ORDER BY sig.date DESC LIMIT 1
+            """), {"s": wi.symbol}).first()
+            if sig_row and (sig_row[0] == 'SELL' or (sig_row[1] and sig_row[1] < 45.0)):
+                sig_val = sig_row[0] or "SELL"
+                sc_val = float(sig_row[1] or 0.0)
+                msg = f"⚠️ Sell Reminder: {wi.symbol} model rating flipped to {sig_val} (Score: {sc_val:.1f}/100) [{wl.name}]"
+                existing = session.execute(text("""
+                    SELECT id FROM price_alerts
+                    WHERE symbol = :s AND alert_type = 'SELL_SIGNAL_ALERT'
+                    AND date(created_at) = date('now')
+                """), {"s": wi.symbol}).first()
+                if not existing:
+                    session.add(PriceAlert(
+                        symbol=wi.symbol, alert_type="SELL_SIGNAL_ALERT",
+                        condition_value=45.0, current_value=sc_val,
+                        message=msg, is_triggered=True, triggered_at=datetime.utcnow()
+                    ))
+                    triggered_alerts.append({"type": "Sell Signal", "symbol": wi.symbol, "message": msg})
+
+            # 5. 200 EMA Breakdown
+            ti_row = session.execute(text("""
+                SELECT ema_200 FROM technical_indicators WHERE symbol = :s ORDER BY date DESC LIMIT 1
+            """), {"s": wi.symbol}).first()
+            if ti_row and ti_row[0] and current_p < float(ti_row[0]):
+                ema_val = float(ti_row[0])
+                msg = f"📉 200-EMA Breakdown: {wi.symbol} at ₹{current_p:,.2f} traded below 200 EMA (₹{ema_val:,.2f}) [{wl.name}]"
+                existing = session.execute(text("""
+                    SELECT id FROM price_alerts
+                    WHERE symbol = :s AND alert_type = '200_EMA_BREAKDOWN'
+                    AND date(created_at) = date('now')
+                """), {"s": wi.symbol}).first()
+                if not existing:
+                    session.add(PriceAlert(
+                        symbol=wi.symbol, alert_type="200_EMA_BREAKDOWN",
+                        condition_value=ema_val, current_value=current_p,
+                        message=msg, is_triggered=True, triggered_at=datetime.utcnow()
+                    ))
+                    triggered_alerts.append({"type": "200 EMA Breakdown", "symbol": wi.symbol, "message": msg})
+
     session.commit()
     return triggered_alerts
 

@@ -112,6 +112,7 @@ def run_daily_delta(launch: bool = True):
     from core.strategies import save_all_strategies
     from core.ml_models import run_forecasts_for_top_stocks
     from core.accuracy_tracker import log_current_signals_to_audit, evaluate_signal_audit_track_record
+    from core.sip_tracker import init_sip_log_table, update_sip_forward_performance
 
     engine = get_global_engine()
     session = get_session(engine)
@@ -153,6 +154,14 @@ def run_daily_delta(launch: bool = True):
         logger.info(f"✅ Audit logged: {logged} daily signals snapshotted for future performance verification.")
     except Exception as e:
         logger.warning(f"Audit log notice: {e}")
+
+    logger.info("📋 Step 8/8: Updating SIP Suggestion Forward Performance...")
+    try:
+        init_sip_log_table(session)
+        sip_updated = update_sip_forward_performance(session)
+        logger.info(f"✅ SIP tracker: {sip_updated} open positions evaluated.")
+    except Exception as e:
+        logger.warning(f"SIP tracker notice: {e}")
 
     session.close()
     elapsed = time.time() - start_time

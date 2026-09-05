@@ -426,16 +426,33 @@ def generate_signal_for_stock(
     if primary_signal == "WATCH":
         strength = "NEUTRAL"
 
-    # ── Composite 5-Factor Confidence Score (item 4.2) ───────────────────────
+    # ── Composite 6-Factor Mathematical Confidence Score ─────────────────────
+    # Factor 1: Score Margin above/below threshold (0 to 1)
     score_margin_pct = min(1.0, margin / 15.0)
+    # Factor 2: Trend Strength from ADX (0 to 1)
     adx_norm = min(1.0, adx_val / 50.0)
+    # Factor 3: Volume Ratio expansion (0 to 1)
     volume_norm = min(1.0, float(ind.get('volume_ratio') or 1.0) / 3.0)
+    # Factor 4: Fundamental Health (Piotroski 0 to 1)
     fundamental_quality = float(pio_score) / 9.0
+
+    # Factor 5: 6-Month Intermediate Momentum (proven in SIP audit)
+    momentum_6m_pct = 0.0
+    if price_df is not None and not price_df.empty and len(price_df) >= 20:
+        lookback_idx = max(0, len(price_df) - min(125, len(price_df)))
+        p_past = float(price_df["close"].iloc[lookback_idx])
+        if p_past > 0:
+            momentum_6m_pct = round((close - p_past) / p_past * 100.0, 1)
+
+    # Normalize momentum: +25% = 1.0, 0% = 0.5, <= -25% = 0.0
+    mom_norm = float(np.clip((momentum_6m_pct + 25.0) / 50.0, 0.0, 1.0))
+
     confidence = round(
-        0.35 * score_margin_pct
+        0.30 * score_margin_pct
         + 0.20 * adx_norm
-        + 0.20 * volume_norm
-        + 0.15 * sector_alignment
+        + 0.15 * volume_norm
+        + 0.15 * mom_norm
+        + 0.10 * sector_alignment
         + 0.10 * fundamental_quality,
         2
     )
@@ -452,6 +469,10 @@ def generate_signal_for_stock(
     all_reasons = []
     if reversal_reason: all_reasons.append(reversal_reason)
     if vcp_reason:      all_reasons.append(vcp_reason)
+    if primary_signal == "BUY" and momentum_6m_pct >= 20.0:
+        all_reasons.append(f"🚀 Elite Momentum: +{momentum_6m_pct:.1f}% 6M Intermediate Upcycle")
+    elif primary_signal == "BUY" and momentum_6m_pct < -5.0:
+        all_reasons.append(f"⚠️ Counter-Trend Bounce: Stock down {momentum_6m_pct:.1f}% over 6M")
     if rsi_s == primary_signal:   all_reasons.append(f"📊 RSI: {rsi_r}")
     if macd_s == primary_signal:  all_reasons.append(f"📈 MACD: {macd_r}")
     if ema_s == primary_signal:   all_reasons.append(f"〰️ Trend: {ema_r}")

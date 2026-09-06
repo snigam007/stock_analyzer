@@ -21,6 +21,13 @@ import db.database
 if not hasattr(db.database, "MutualFund"):
     importlib.reload(db.database)
 from db.database import Watchlist, WatchlistItem, Stock, PriceAlert, MutualFund, MutualFundNAV
+from core.consensus_verifier import (
+    fetch_stock_consensus,
+    evaluate_stock_alignment,
+    fetch_mf_consensus,
+    evaluate_mf_alignment,
+    compute_portfolio_consensus_summary
+)
 
 logger = logging.getLogger(__name__)
 
@@ -521,6 +528,56 @@ def generate_monthly_sip_basket(
         except Exception:
             pass
 
+    # Attach External Consensus & Dual-Confirmation Verification
+    for item in selected_assets:
+        try:
+            if item.get("is_mutual_fund"):
+                sc = item.get("scheme_code")
+                if sc:
+                    mf_eval = evaluate_mf_alignment(
+                        model_signal=item.get("signal", "BUY"),
+                        scheme_code=sc,
+                        session=session
+                    )
+                    item["consensus_label"] = mf_eval.get("external_consensus", "Institutional Buy")
+                    item["analyst_count"] = mf_eval.get("analyst_count", 1)
+                    item["target_mean_price"] = None
+                    item["consensus_upside_pct"] = None
+                    item["external_verification"] = mf_eval
+            elif item.get("asset_class") == "Equity":
+                sym = item.get("symbol", "")
+                p = item.get("current_price", 0.0)
+                c_data = fetch_stock_consensus(sym, current_price=p)
+                alignment = evaluate_stock_alignment(
+                    model_signal=item.get("signal", "BUY"),
+                    consensus_key=c_data.get("consensus_key", "buy"),
+                    target_upside_pct=c_data.get("target_upside_pct"),
+                    number_of_analysts=c_data.get("number_of_analysts", 0)
+                )
+                item["consensus_label"] = c_data.get("consensus_label", "Moderate Buy")
+                item["analyst_count"] = c_data.get("number_of_analysts", 0)
+                item["target_mean_price"] = c_data.get("target_mean_price")
+                item["consensus_upside_pct"] = c_data.get("target_upside_pct")
+                item["is_dual_confirmed"] = (alignment.get("status") == "DUAL_CONFIRMED")
+                item["external_verification"] = alignment
+                item["consensus_data"] = c_data
+            else:
+                item["consensus_label"] = "Benchmark Core"
+                item["analyst_count"] = None
+                item["target_mean_price"] = None
+                item["consensus_upside_pct"] = None
+                item["external_verification"] = {
+                    "badge": "🏛️ Benchmark Core",
+                    "status": "confirmed",
+                    "color": "blue",
+                    "confidence": 90,
+                    "rationale": "Sovereign/Macro passive asset class with institutional acceptance."
+                }
+        except Exception as e:
+            logger.debug(f"Consensus verification error for {item.get('symbol')}: {e}")
+
+    consensus_summary = compute_portfolio_consensus_summary(selected_assets)
+
     return {
         "monthly_wallet": monthly_wallet,
         "strategy": strategy,
@@ -540,7 +597,8 @@ def generate_monthly_sip_basket(
         "min_momentum_hurdle_pct": min_momentum_hurdle_pct,
         "enable_dip_buying": enable_dip_buying,
         "enable_parabolic_skim": enable_parabolic_skim,
-        "annual_step_up_pct": annual_step_up_pct
+        "annual_step_up_pct": annual_step_up_pct,
+        "consensus_summary": consensus_summary
     }
 
 

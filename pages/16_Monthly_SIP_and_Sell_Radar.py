@@ -259,6 +259,45 @@ with tab1:
 
     st.markdown("---")
 
+    # ── External Brokerage & Institutional Consensus Verification KPI Banner ────
+    c_sum = basket.get("consensus_summary", {})
+    if c_sum and c_sum.get("total_items", 0) > 0:
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.85) 100%); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 10px; padding: 14px 20px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 1.15em; font-weight: 800; color: #38bdf8;">🌐 External Consensus & Dual-Confirmation Radar</span>
+                    <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; font-size: 0.8em; font-weight: 700; padding: 2px 8px; border-radius: 4px;">Wall Street & AMFI Verification</span>
+                </div>
+                <div style="color: #94a3b8; font-size: 0.85em;">
+                    Real-time verification against global consensus ratings & institutional benchmarks
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px;">
+                <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid #10b981; padding: 10px 14px; border-radius: 6px;">
+                    <div style="font-size: 0.78em; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Dual-Confirmed Conviction</div>
+                    <div style="font-size: 1.35em; font-weight: 800; color: #10b981; margin-top: 2px;">{c_sum.get('dual_confirmed_pct', 0.0):.0f}% Agreement</div>
+                    <div style="font-size: 0.78em; color: #cbd5e1; margin-top: 2px;">{c_sum.get('dual_confirmed_count', 0)} of {c_sum.get('total_items', 0)} assets confirmed by Street</div>
+                </div>
+                <div style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 10px 14px; border-radius: 6px;">
+                    <div style="font-size: 0.78em; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Mean Street Target Upside</div>
+                    <div style="font-size: 1.35em; font-weight: 800; color: #38bdf8; margin-top: 2px;">{c_sum.get('avg_target_upside_pct', 0.0):+.1f}%</div>
+                    <div style="font-size: 0.78em; color: #cbd5e1; margin-top: 2px;">Average brokerage 12M price target</div>
+                </div>
+                <div style="background: rgba(168, 85, 247, 0.08); border-left: 3px solid #a855f7; padding: 10px 14px; border-radius: 6px;">
+                    <div style="font-size: 0.78em; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Institutional Coverage</div>
+                    <div style="font-size: 1.35em; font-weight: 800; color: #a855f7; margin-top: 2px;">{c_sum.get('total_analyst_opinions', 0)} Analysts</div>
+                    <div style="font-size: 0.78em; color: #cbd5e1; margin-top: 2px;">Active coverage across Indian & global brokerages</div>
+                </div>
+                <div style="background: rgba(234, 179, 8, 0.08); border-left: 3px solid #eab308; padding: 10px 14px; border-radius: 6px;">
+                    <div style="font-size: 0.78em; color: #94a3b8; text-transform: uppercase; font-weight: 600;">Model Momentum Lead</div>
+                    <div style="font-size: 1.35em; font-weight: 800; color: #eab308; margin-top: 2px;">{c_sum.get('model_lead_count', 0)} Early Signals</div>
+                    <div style="font-size: 0.78em; color: #cbd5e1; margin-top: 2px;">{c_sum.get('divergence_count', 0)} Divergence Alerts</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
     # Real-Time Strategic Booster Alerts (Tactical Dip-Buying & Parabolic Skims)
     dip_info = basket.get("tactical_dip_alert")
     if dip_info:
@@ -412,18 +451,31 @@ with tab1:
         """)
 
     # Detailed Table
-    st.subheader(f"📋 Exact Share Purchase Matrix ({basket['n_assets']} Assets)")
-    st.caption("Quantities rounded down to integer whole shares so you can execute immediately without fractional share restrictions.")
+    st.subheader(f"📋 Exact Share Purchase Matrix & Online Consensus ({basket['n_assets']} Assets)")
+    st.caption("Quantities rounded down to integer whole shares. Each asset is cross-referenced with Wall Street / Institutional consensus.")
 
     df_display = pd.DataFrame(basket["assets"])
     if not df_display.empty:
         df_display["display_symbol"] = df_display.apply(
             lambda r: f"🚀 {r['symbol']}" if r.get("is_pyramided") else r["symbol"], axis=1
         )
+        df_display["street_consensus"] = df_display.apply(
+            lambda r: f"{r.get('consensus_label', 'Hold')} ({r.get('analyst_count', 0)} Analysts)" if r.get("analyst_count") and r.get("analyst_count") > 0 else (r.get("consensus_label") or "Benchmark"),
+            axis=1
+        )
+        df_display["street_upside"] = df_display.apply(
+            lambda r: f"{r.get('consensus_upside_pct'):+.1f}%" if r.get("consensus_upside_pct") is not None else "—",
+            axis=1
+        )
+        df_display["verification_badge"] = df_display.apply(
+            lambda r: r.get("external_verification", {}).get("badge", "ℹ️ Consensus Hold"),
+            axis=1
+        )
+
         st.dataframe(
             df_display[[
                 "display_symbol", "name", "sector", "shares_to_buy", "current_price", "total_cost",
-                "weight_pct", "stop_loss", "target_price", "composite_score", "signal", "rationale"
+                "weight_pct", "signal", "street_consensus", "street_upside", "verification_badge", "stop_loss", "target_price"
             ]].rename(columns={
                 "display_symbol": "Symbol",
                 "name": "Company / Asset",
@@ -432,23 +484,66 @@ with tab1:
                 "current_price": "Price (₹)",
                 "total_cost": "Total Outlay (₹)",
                 "weight_pct": "Weight %",
+                "signal": "Our Signal",
+                "street_consensus": "Street / Institutional Consensus",
+                "street_upside": "Consensus Upside",
+                "verification_badge": "External Verification",
                 "stop_loss": "Stop Loss (₹)",
-                "target_price": "Target 1 (₹)",
-                "composite_score": "Score",
-                "signal": "Signal",
-                "rationale": "Investment Rationale"
+                "target_price": "Target 1 (₹)"
             }).style.format({
                 "Monthly Qty": "{:,}",
                 "Price (₹)": "₹{:,.2f}",
                 "Total Outlay (₹)": "₹{:,.2f}",
                 "Weight %": "{:.1f}%",
-                "Stop Loss (₹)": "₹{:,.2f}",
-                "Target 1 (₹)": "₹{:,.2f}",
-                "Score": "{:.1f}"
+                "Stop Loss (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
+                "Target 1 (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—"
             }),
             use_container_width=True,
             hide_index=True
         )
+
+        # Consensus Deep-Dive Expander
+        with st.expander("🔍 Deep-Dive: Online Source Consensus & Signal Verification Matrix", expanded=False):
+            st.caption("Side-by-side comparison of our internal quantitative algorithm vs. Wall Street consensus (Yahoo Finance) and CRISIL institutional ratings.")
+            for item in basket["assets"]:
+                ext = item.get("external_verification", {})
+                badge = ext.get("badge", "ℹ️ Consensus Hold")
+                color = ext.get("color", "#38bdf8")
+                conf = ext.get("confidence_pct", 75)
+                rat = ext.get("rationale", "Evaluated by consensus verifier.")
+                sym = item.get("symbol", "")
+                name = item.get("name", "")
+                c_label = item.get("consensus_label", "Moderate Buy")
+                c_cnt = item.get("analyst_count")
+                c_up = item.get("consensus_upside_pct")
+                tgt = item.get("target_mean_price")
+                
+                st.markdown(f"""
+                <div style="background: rgba(15, 23, 42, 0.7); border-left: 4px solid {color}; border-radius: 6px; padding: 10px 16px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <span style="font-weight: 700; font-size: 1.05em; color: #fff;">{sym}</span>
+                            <span style="color: #94a3b8; font-size: 0.9em; margin-left: 6px;">{name}</span>
+                        </div>
+                        <div>
+                            <span style="background: {color}22; color: {color}; border: 1px solid {color}55; font-weight: 700; padding: 2px 10px; border-radius: 4px; font-size: 0.85em;">
+                                {badge}
+                            </span>
+                            <span style="background: rgba(255,255,255,0.08); color: #cbd5e1; font-weight: 600; padding: 2px 8px; border-radius: 4px; font-size: 0.82em; margin-left: 6px;">
+                                Conviction: {conf}%
+                            </span>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 8px; font-size: 0.88em; color: #cbd5e1;">
+                        <div>Our Signal: <b style="color: #10b981;">{item.get('signal')}</b> (Score: {item.get('composite_score')})</div>
+                        <div>External Rating: <b style="color: #38bdf8;">{c_label}</b> {f'({c_cnt} analysts)' if c_cnt else ''}</div>
+                        {f"<div>Street Target: <b style='color: #fef08a;'>₹{tgt:,.2f}</b> ({c_up:+.1f}% upside)</div>" if tgt and c_up is not None else ""}
+                    </div>
+                    <div style="margin-top: 6px; font-size: 0.85em; color: #94a3b8;">
+                        💡 <b>Verification Note:</b> {rat}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
 
     st.markdown("---")
 

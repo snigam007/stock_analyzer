@@ -20,6 +20,7 @@ import db.database
 if not hasattr(db.database, "MutualFund"):
     importlib.reload(db.database)
 from db.database import MutualFund, MutualFundNAV, MutualFundSignal
+from core.consensus_verifier import evaluate_mf_alignment
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,14 @@ def plan_mf_sip_allocation(
             except Exception as e:
                 logger.debug(f"Error fetching metadata for {sc}: {e}")
 
+        # External Consensus verification
+        ext_eval = None
+        if session:
+            try:
+                ext_eval = evaluate_mf_alignment(latest_signal, sc, session)
+            except Exception:
+                pass
+
         allocations.append({
             "scheme_code": sc,
             "scheme_name": fund_name,
@@ -240,7 +249,8 @@ def plan_mf_sip_allocation(
             "expense_ratio": exp_ratio,
             "crisil_rating": crisil,
             "latest_signal": latest_signal,
-            "strength_score": strength_score
+            "strength_score": strength_score,
+            "external_verification": ext_eval
         })
 
     weighted_expense = sum(a["expense_ratio"] * (a["target_weight_pct"] / 100.0) for a in allocations)

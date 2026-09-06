@@ -29,3 +29,6 @@ data/*.db-journal
 
 # Keep the main SQLite database for Cloud deployment
 !data/stock_analyzer.db
+
+# Scratch and experimental analysis scripts
+scratch/

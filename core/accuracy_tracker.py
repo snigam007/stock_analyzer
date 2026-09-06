@@ -1290,6 +1290,7 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
         clust = get_sector_cluster(sec)
         clust_meta = get_cluster_metadata(clust)
 
+        disp_trailing = round(float(trailing), 2) if trailing else (round(float(sl), 2) if sl else None)
         is_ratcheted = bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05)
         # Algorithmic Hardening: Inverse-Volatility Equal Risk Contribution (ERC) quantity for standard ₹2k risk
         per_share_risk = abs(float(entry) - float(sl)) if (entry and sl) else 0.0

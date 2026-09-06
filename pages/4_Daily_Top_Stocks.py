@@ -4,8 +4,11 @@ Top 15 BUY stocks, Safe investments, Risky investments, and SELL alerts.
 Each stock shows: Score, Signal, Price, Targets, Stop-Loss, Trend Pattern, Reason.
 """
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import streamlit as st
 import plotly.express as px

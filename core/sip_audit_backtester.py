@@ -112,6 +112,10 @@ def run_monthly_sip_backtest(
     macro_regime_trigger: str = "EMA_200",     # "EMA_200" or "EMA_50_OR_200"
     macro_hedge_pct: float = 10.0,             # Percentage diverted to Gold ETF (0% to 30%, default 10%)
     macro_hedge_asset: str = "GOLDBEES.NS",     # Hedge instrument
+    # ── Combined Option 1A + 2A: Macro Cycle Rotation & Smart Stepladder Trailing ──
+    enable_macro_rotation: bool = True,        # Option 1A: Rotate Gold ETF into Equities when NIFTY >= 200 EMA
+    macro_rotation_ratio: float = 1.0,         # 100% liquidation of accumulated Gold ETF into equities
+    enable_stepladder_trailing: bool = True,   # Option 2A: Smart Stepladder progressive profit floors (+20%, +50%, +100%, +200%)
     **kwargs
 ) -> Dict:
     """
@@ -195,6 +199,7 @@ def run_monthly_sip_backtest(
     # Rule 1 & Rule 2 State Trackers
     loss_cooldown_map = {}
     macro_defense_triggered_months = []
+    macro_rotations_count = 0
 
     # Benchmark tracking
     benchmark_units = 0.0
@@ -588,6 +593,51 @@ def run_monthly_sip_backtest(
                                 "is_etf": True,
                                 "entry_dt": sip_dt
                             })
+            elif enable_macro_rotation and not is_macro_defensive:
+                # Option 1A: Macro Cycle Profit Rotation
+                # When NIFTY crosses back above its 200-day EMA, liquidate accumulated Gold ETF
+                # and rotate capital directly into fresh top-ranking equity momentum leaders.
+                etf_positions = [p for p in active_positions if p.get("is_etf", False) or p["symbol"] == (macro_hedge_asset or "GOLDBEES.NS")]
+                if etf_positions:
+                    for pos_etf in etf_positions:
+                        sym_etf = pos_etf["symbol"]
+                        cur_p_info = price_lookup.get((sip_date, sym_etf))
+                        cur_p_etf = float(cur_p_info["close"]) if cur_p_info else pos_etf["entry_price"]
+                        sh_to_rot = int(math.floor(pos_etf["shares"] * macro_rotation_ratio))
+                        if sh_to_rot > 0:
+                            realized_val = round(sh_to_rot * cur_p_etf, 2)
+                            cost_of_rot = round(pos_etf["cost_basis"] * (sh_to_rot / pos_etf["shares"]), 2)
+                            pnl_rot = round(realized_val - cost_of_rot, 2)
+                            pnl_pct_rot = round((cur_p_etf - pos_etf["entry_price"]) / max(0.01, pos_etf["entry_price"]) * 100.0, 2)
+                            cash_balance += realized_val
+                            pos_etf["shares"] -= sh_to_rot
+                            pos_etf["cost_basis"] = round(pos_etf["cost_basis"] - cost_of_rot, 2)
+                            macro_rotations_count += 1
+
+                            all_closed_positions.append({
+                                "symbol": sym_etf,
+                                "name": pos_etf["name"],
+                                "sector": pos_etf["sector"],
+                                "tier": pos_etf.get("tier", "ETF"),
+                                "entry_date": pos_etf["entry_date"],
+                                "exit_date": sip_date,
+                                "entry_price": pos_etf["entry_price"],
+                                "exit_price": cur_p_etf,
+                                "shares": sh_to_rot,
+                                "cost_basis": cost_of_rot,
+                                "realized_val": realized_val,
+                                "realized_value": realized_val,
+                                "pnl": pnl_rot,
+                                "ret_pct": pnl_pct_rot,
+                                "return_pct": pnl_pct_rot,
+                                "status": "WIN" if pnl_rot >= 0 else "LOSS",
+                                "exit_reason": f"Macro Rotation to Equities (+{pnl_pct_rot:.1f}%)",
+                                "holding_days": (sip_dt - datetime.strptime(pos_etf["entry_date"], "%Y-%m-%d").date()).days,
+                                "capital_preserved": 0.0,
+                                "avoided_further_drop": False,
+                                "month_cohort": pos_etf.get("month_cohort", sip_date)
+                            })
+                    active_positions = [p for p in active_positions if p["shares"] > 0]
 
             picked_for_month = []
             used_sectors = set()
@@ -885,6 +935,17 @@ def run_monthly_sip_backtest(
                         if sec in ("FMCG & Consumer Staples", "Pharmaceuticals & Healthcare") and pos["highest_price"] >= pos["entry_price"] * 1.35:
                             pos["stop_loss"] = max(pos["stop_loss"], pos["highest_price"] * 0.78)
 
+                        # Option 2A: Smart Stepladder Trailing Stops (Progressive Profit Floors)
+                        if enable_stepladder_trailing:
+                            if pos["highest_price"] >= pos["entry_price"] * 1.20:
+                                pos["stop_loss"] = max(pos["stop_loss"], round(pos["entry_price"] * 1.02, 2))
+                            if pos["highest_price"] >= pos["entry_price"] * 1.50:
+                                pos["stop_loss"] = max(pos["stop_loss"], round(pos["entry_price"] * 1.25, 2))
+                            if pos["highest_price"] >= pos["entry_price"] * 2.00:
+                                pos["stop_loss"] = max(pos["stop_loss"], round(pos["entry_price"] * 1.60, 2))
+                            if pos["highest_price"] >= pos["entry_price"] * 3.00:
+                                pos["stop_loss"] = max(pos["stop_loss"], round(pos["entry_price"] * 2.30, 2))
+
                         # Trigger on Daily Close to prevent intra-day shadow wick stop-hunting
                         if curr_p <= pos["stop_loss"]:
                             exit_triggered = True
@@ -1115,6 +1176,9 @@ def run_monthly_sip_backtest(
         "macro_hedge_pct": macro_hedge_pct if enable_macro_regime_gate else 0.0,
         "macro_defense_triggered_months": macro_defense_triggered_months,
         "macro_defense_count": len(macro_defense_triggered_months),
+        "enable_macro_rotation": enable_macro_rotation,
+        "macro_rotations_count": macro_rotations_count,
+        "enable_stepladder_trailing": enable_stepladder_trailing,
         "equity_curve": equity_curve,
         "trade_log": all_closed_positions
     }

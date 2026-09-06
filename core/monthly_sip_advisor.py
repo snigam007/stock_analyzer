@@ -54,7 +54,9 @@ def generate_monthly_sip_basket(
     enable_sector_momentum_gate: bool = True,
     enable_macro_regime_gate: bool = True,
     macro_hedge_pct: float = 10.0,
-    macro_hedge_asset: str = "GOLDBEES.NS"
+    macro_hedge_asset: str = "GOLDBEES.NS",
+    enable_macro_rotation: bool = True,
+    enable_stepladder_trailing: bool = True
 ) -> Dict:
     """
     Generates an optimized monthly investment basket with exact integer share quantities
@@ -662,7 +664,24 @@ def generate_monthly_sip_basket(
         except Exception:
             pass
 
-    # Attach External Consensus & Dual-Confirmation Verification
+    # Option 1A: Macro Cycle Profit Rotation Scanner
+    macro_rotation_alert = None
+    if enable_macro_rotation and not macro_regime_status.get("is_defensive", False):
+        try:
+            gold_items = session.query(WatchlistItem).filter(
+                WatchlistItem.symbol.in_(["GOLDBEES.NS", "GOLDBEES", macro_hedge_asset])
+            ).all()
+            if gold_items:
+                dist_pct = macro_regime_status.get("distance_to_200_ema_pct", 1.5)
+                macro_rotation_alert = {
+                    "can_rotate": True,
+                    "symbol": gold_items[0].symbol,
+                    "message": f"🐂 Bull Market Recovery Confirmed: NIFTY is trading {dist_pct:+.1f}% above its 200-Day EMA. Rotate accumulated Gold ETF ({gold_items[0].symbol}) holdings into this month's top momentum equity leaders to maximize upside compounding!"
+                }
+        except Exception:
+            pass
+
+    # Attach External Consensus & Dual-Confirmation Verification & Stepladder Floors
     for item in selected_assets:
         try:
             if item.get("is_mutual_fund"):
@@ -737,7 +756,10 @@ def generate_monthly_sip_basket(
         "enable_loss_cooldown": enable_loss_cooldown,
         "enable_sector_momentum_gate": enable_sector_momentum_gate,
         "enable_macro_regime_gate": enable_macro_regime_gate,
-        "macro_hedge_pct": macro_hedge_pct
+        "macro_hedge_pct": macro_hedge_pct,
+        "enable_macro_rotation": enable_macro_rotation,
+        "macro_rotation_alert": macro_rotation_alert,
+        "enable_stepladder_trailing": enable_stepladder_trailing
     }
 
 

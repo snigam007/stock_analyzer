@@ -213,7 +213,7 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
             global_mf_pct = 0.0
 
     st.markdown("---")
-    st.markdown("##### 🛡️ Option B: Alpha Maximizer with Macro Defense & Risk Gates")
+    st.markdown("##### 🛡️ Option B + Combined 1A/2A: Macro Defense, Cycle Rotation & Stepladder Floors")
     g_col1, g_col2, g_col3, g_col4 = st.columns([1.2, 1.2, 1.2, 1.4])
     with g_col1:
         global_loss_cooldown = st.toggle(
@@ -247,6 +247,22 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
             help="Percentage of monthly SIP wallet allocated to Gold ETF (default 10%, up to 30%) when NIFTY closes below its 200-day EMA."
         )
 
+    g_col5, g_col6 = st.columns([1.2, 1.2])
+    with g_col5:
+        global_macro_rot = st.toggle(
+            "🔄 Macro Cycle Profit Rotation (Gold → Equities)",
+            value=True,
+            key="global_macro_rot",
+            help="Option 1A: When NIFTY recovers above 200 EMA, liquidates 100% of accumulated Gold ETF holdings and deploys capital directly into fresh top-ranking equity momentum leaders."
+        )
+    with g_col6:
+        global_stepladder = st.toggle(
+            "🪜 Smart Stepladder Trailing Stops",
+            value=True,
+            key="global_stepladder",
+            help="Option 2A: Locks in progressive profit floors (+20% -> BE+2%, +50% -> +25%, +100% -> +60%, +200% -> +130%) under Adaptive Structural protocol."
+        )
+
 # Generate Basket
 session_basket = get_session(engine)
 basket = generate_monthly_sip_basket(
@@ -268,7 +284,9 @@ basket = generate_monthly_sip_basket(
     cooldown_days=60,
     enable_sector_momentum_gate=global_sector_gate,
     enable_macro_regime_gate=global_macro_hedge,
-    macro_hedge_pct=float(global_macro_hedge_pct)
+    macro_hedge_pct=float(global_macro_hedge_pct),
+    enable_macro_rotation=global_macro_rot,
+    enable_stepladder_trailing=global_stepladder
 )
 session_basket.close()
 
@@ -369,6 +387,21 @@ with tab1:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+
+    # Option 1A: Macro Cycle Profit Rotation Alert Banner
+    rot_alert = basket.get("macro_rotation_alert")
+    if rot_alert and rot_alert.get("can_rotate"):
+        st.markdown(f"""
+        <div style="background: linear-gradient(90deg, rgba(16, 185, 129, 0.22) 0%, rgba(56, 189, 248, 0.12) 100%); border-left: 5px solid #10b981; padding: 12px 18px; border-radius: 8px; margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <span style="font-weight: 700; color: #6ee7b7; font-size: 1.05em;">🔄 MACRO CYCLE PROFIT ROTATION ALERT (GOLD → EQUITIES)</span>
+                <span style="background: #10b981; color: #000; font-weight: bold; padding: 3px 10px; border-radius: 4px; font-size: 0.85em;">Bull Recovery Triggered</span>
+            </div>
+            <div style="margin-top: 6px; color: #e2e8f0; font-size: 0.92em;">
+                {rot_alert['message']}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Real-Time Strategic Booster Alerts (Tactical Dip-Buying & Parabolic Skims)
     dip_info = basket.get("tactical_dip_alert")
@@ -1043,6 +1076,22 @@ with tab4:
             help="Gold ETF allocation % when NIFTY is below 200-day EMA (0% to 30%, default 10%)."
         )
 
+    col_opt11, col_opt12 = st.columns([1.2, 1.2])
+    with col_opt11:
+        bt_macro_rot = st.toggle(
+            "🔄 Macro Cycle Profit Rotation (100% Gold to Equities)",
+            value=global_macro_rot,
+            key="bt_macro_rot",
+            help="Option 1A: When NIFTY recovers above 200 EMA, liquidates 100% of accumulated Gold ETF holdings and deploys capital directly into fresh top equity momentum leaders."
+        )
+    with col_opt12:
+        bt_stepladder = st.toggle(
+            "🪜 Smart Stepladder Trailing (4-Tier Floors)",
+            value=global_stepladder,
+            key="bt_stepladder",
+            help="Option 2A: Locks in progressive profit floors (+20% -> BE+2%, +50% -> +25%, +100% -> +60%, +200% -> +130%) under Adaptive Structural protocol."
+        )
+
     # Initialize or fetch backtest results
     if "sip_backtest_res" not in st.session_state or run_bt_btn:
         with st.spinner(f"Simulating {months_val}-Month SIP execution across historical daily prices..."):
@@ -1074,7 +1123,10 @@ with tab4:
                 enable_macro_regime_gate=bt_macro_hedge,
                 macro_regime_trigger="EMA_200",
                 macro_hedge_pct=float(bt_macro_hedge_pct),
-                macro_hedge_asset="GOLDBEES.NS"
+                macro_hedge_asset="GOLDBEES.NS",
+                enable_macro_rotation=bt_macro_rot,
+                macro_rotation_ratio=1.0,
+                enable_stepladder_trailing=bt_stepladder
             )
             session_bt.close()
 
@@ -1105,6 +1157,10 @@ with tab4:
             meta_items.append(f"🛡️ Sector Gate: <b style='color: #10b981;'>Laggards Filtered</b>")
         if bt.get('enable_macro_regime_gate'):
             meta_items.append(f"🛡️ 200-EMA Macro Hedge: <b style='color: #f59e0b;'>{bt.get('macro_hedge_pct', 10):.0f}% Gold ({len(bt.get('macro_defense_triggered_months', []))} mo)</b>")
+        if bt.get('enable_macro_rotation'):
+            meta_items.append(f"🔄 Macro Rotation: <b style='color: #10b981;'>{bt.get('macro_rotations_count', 0)} cycles</b>")
+        if bt.get('enable_stepladder_trailing'):
+            meta_items.append(f"🪜 Stepladder: <b style='color: #38bdf8;'>4-Tier Floors Active</b>")
         banner_html = " &nbsp;|&nbsp; ".join(meta_items)
         st.markdown(f'<div style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 8px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 0.9em; color: #cbd5e1; line-height: 1.6;">{banner_html}</div>', unsafe_allow_html=True)
         # Scorecard Row 1: Core Performance Metrics

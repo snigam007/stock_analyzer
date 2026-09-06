@@ -722,8 +722,9 @@ def generate_monthly_sip_basket(
                 item["external_verification"] = {
                     "badge": "🏛️ Benchmark Core",
                     "status": "confirmed",
-                    "color": "blue",
+                    "color": "#38bdf8",
                     "confidence": 90,
+                    "confidence_pct": 90,
                     "rationale": "Sovereign/Macro passive asset class with institutional acceptance."
                 }
         except Exception as e:

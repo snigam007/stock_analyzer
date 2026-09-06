@@ -569,7 +569,7 @@ with tab1:
             axis=1
         )
         df_display["street_upside"] = df_display.apply(
-            lambda r: f"{r.get('consensus_upside_pct'):+.1f}%" if r.get("consensus_upside_pct") is not None else "—",
+            lambda r: f"{r.get('consensus_upside_pct'):+.1f}%" if pd.notnull(r.get("consensus_upside_pct")) and not np.isnan(r.get("consensus_upside_pct")) else "—",
             axis=1
         )
         df_display["verification_badge"] = df_display.apply(
@@ -613,8 +613,9 @@ with tab1:
             for item in basket["assets"]:
                 ext = item.get("external_verification", {})
                 badge = ext.get("badge", "ℹ️ Consensus Hold")
-                color = ext.get("color", "#38bdf8")
-                conf = ext.get("confidence_pct", 75)
+                raw_color = ext.get("color", "#38bdf8")
+                color = raw_color if (raw_color and str(raw_color).startswith("#")) else "#38bdf8"
+                conf = ext.get("confidence_pct") or ext.get("confidence") or 75
                 rat = ext.get("rationale", "Evaluated by consensus verifier.")
                 sym = item.get("symbol", "")
                 name = item.get("name", "")
@@ -622,33 +623,31 @@ with tab1:
                 c_cnt = item.get("analyst_count")
                 c_up = item.get("consensus_upside_pct")
                 tgt = item.get("target_mean_price")
-                
-                st.markdown(f"""
-                <div style="background: rgba(15, 23, 42, 0.7); border-left: 4px solid {color}; border-radius: 6px; padding: 10px 16px; margin-bottom: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-                        <div>
-                            <span style="font-weight: 700; font-size: 1.05em; color: #fff;">{sym}</span>
-                            <span style="color: #94a3b8; font-size: 0.9em; margin-left: 6px;">{name}</span>
-                        </div>
-                        <div>
-                            <span style="background: {color}22; color: {color}; border: 1px solid {color}55; font-weight: 700; padding: 2px 10px; border-radius: 4px; font-size: 0.85em;">
-                                {badge}
-                            </span>
-                            <span style="background: rgba(255,255,255,0.08); color: #cbd5e1; font-weight: 600; padding: 2px 8px; border-radius: 4px; font-size: 0.82em; margin-left: 6px;">
-                                Conviction: {conf}%
-                            </span>
-                        </div>
-                    </div>
-                    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 8px; font-size: 0.88em; color: #cbd5e1;">
-                        <div>Our Signal: <b style="color: #10b981;">{item.get('signal')}</b> (Score: {item.get('composite_score')})</div>
-                        <div>External Rating: <b style="color: #38bdf8;">{c_label}</b> {f'({c_cnt} analysts)' if c_cnt else ''}</div>
-                        {f"<div>Street Target: <b style='color: #fef08a;'>₹{tgt:,.2f}</b> ({c_up:+.1f}% upside)</div>" if tgt and c_up is not None else ""}
-                    </div>
-                    <div style="margin-top: 6px; font-size: 0.85em; color: #94a3b8;">
-                        💡 <b>Verification Note:</b> {rat}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+
+                analyst_html = f"({c_cnt} analysts)" if (c_cnt is not None and pd.notnull(c_cnt) and int(c_cnt) > 0) else ""
+                target_html = f"<div>Street Target: <b style='color: #fef08a;'>₹{float(tgt):,.2f}</b> ({float(c_up):+.1f}% upside)</div>" if (pd.notnull(tgt) and pd.notnull(c_up) and not np.isnan(c_up)) else ""
+
+                card_html = f"""<div style="background: rgba(15, 23, 42, 0.7); border-left: 4px solid {color}; border-radius: 6px; padding: 10px 16px; margin-bottom: 10px;">
+<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+<div>
+<span style="font-weight: 700; font-size: 1.05em; color: #fff;">{sym}</span>
+<span style="color: #94a3b8; font-size: 0.9em; margin-left: 6px;">{name}</span>
+</div>
+<div>
+<span style="background: {color}22; color: {color}; border: 1px solid {color}55; font-weight: 700; padding: 2px 10px; border-radius: 4px; font-size: 0.85em;">{badge}</span>
+<span style="background: rgba(255,255,255,0.08); color: #cbd5e1; font-weight: 600; padding: 2px 8px; border-radius: 4px; font-size: 0.82em; margin-left: 6px;">Conviction: {conf}%</span>
+</div>
+</div>
+<div style="display: flex; gap: 20px; flex-wrap: wrap; margin-top: 8px; font-size: 0.88em; color: #cbd5e1;">
+<div>Our Signal: <b style="color: #10b981;">{item.get('signal')}</b> (Score: {item.get('composite_score')})</div>
+<div>External Rating: <b style="color: #38bdf8;">{c_label}</b> {analyst_html}</div>
+{target_html}
+</div>
+<div style="margin-top: 6px; font-size: 0.85em; color: #94a3b8;">
+💡 <b>Verification Note:</b> {rat}
+</div>
+</div>"""
+                st.markdown(card_html, unsafe_allow_html=True)
 
     st.markdown("---")
 

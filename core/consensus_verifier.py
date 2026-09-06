@@ -369,7 +369,7 @@ def compute_portfolio_consensus_summary(items: List[Dict]) -> Dict:
     
     upsides = [float(it.get("consensus_upside_pct", 0.0)) for it in items if it.get("consensus_upside_pct") is not None]
     avg_upside = round(float(np.mean(upsides)), 1) if upsides else 18.5
-    total_analysts = sum(int(it.get("analyst_count", 0)) for it in items)
+    total_analysts = sum(int(it.get("analyst_count") or 0) for it in items)
 
     return {
         "total_items": total,

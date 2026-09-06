@@ -104,6 +104,14 @@ def run_monthly_sip_backtest(
     target_stock_count: int = 5,               # Suggestion count (3 to 10)
     include_mutual_funds: bool = False,        # Include Mutual Funds in backtest
     mf_allocation_pct: float = 50.0,           # MF allocation % (10% to 90%)
+    # ── Algorithmic Hardening Options (Option B: Alpha Maximizer + 200-EMA Hedge) ──
+    enable_loss_cooldown: bool = True,         # Rule 1: 60-day loss quarantine on stopped-out stocks
+    cooldown_days: int = 60,                   # Calendar days cooldown
+    enable_sector_momentum_gate: bool = True,  # Rule 5: Quarantines chronic laggard sectors
+    enable_macro_regime_gate: bool = True,     # Rule 2: Dynamic macro defense on 200-day EMA breakdown
+    macro_regime_trigger: str = "EMA_200",     # "EMA_200" or "EMA_50_OR_200"
+    macro_hedge_pct: float = 10.0,             # Percentage diverted to Gold ETF (0% to 30%, default 10%)
+    macro_hedge_asset: str = "GOLDBEES.NS",     # Hedge instrument
     **kwargs
 ) -> Dict:
     """
@@ -154,6 +162,11 @@ def run_monthly_sip_backtest(
     if len(all_trading_days) < 40:
         return {"error": "Insufficient historical trading days in the requested window."}
 
+    # Precalculate NIFTY EMAs for Macro Regime Defense Gate
+    nifty_series = pd.Series([nifty_price_map[d] for d in all_trading_days], index=all_trading_days)
+    nifty_50_ema = nifty_series.ewm(span=50, adjust=False).mean().to_dict()
+    nifty_200_ema = nifty_series.ewm(span=200, adjust=False).mean().to_dict()
+
     # 2. Identify 1st Trading Day of Each Month
     df_dates = pd.DataFrame({"date": pd.to_datetime(all_trading_days)})
     df_dates["year_month"] = df_dates["date"].dt.to_period("M")
@@ -178,6 +191,10 @@ def run_monthly_sip_backtest(
     dip_buys_count = 0
     skimmed_trades_count = 0
     last_dip_day_idx = -999
+
+    # Rule 1 & Rule 2 State Trackers
+    loss_cooldown_map = {}
+    macro_defense_triggered_months = []
 
     # Benchmark tracking
     benchmark_units = 0.0
@@ -358,6 +375,19 @@ def run_monthly_sip_backtest(
                 if min_momentum_hurdle_pct > 0 and ret_6m < (min_momentum_hurdle_pct / 100.0) and len(cand_rows) > 5:
                     continue
                 name, sec = stock_sector_map.get(sym, (sym, "General"))
+
+                # Rule 5: Sector Momentum Gate (Quarantines chronic laggards unless relative strength >35%)
+                if enable_sector_momentum_gate:
+                    if sec in ("Agriculture, Fertilizers & Agro", "Chemicals & Specialty", "Textiles & Apparel", "Real Estate"):
+                        if ret_6m < 0.35:
+                            continue
+
+                # Rule 1: 60-Day Loss Cooldown (Quarantines recently stopped-out stocks)
+                if enable_loss_cooldown and sym in loss_cooldown_map:
+                    last_exit_dt = loss_cooldown_map[sym]
+                    if (sip_dt - last_exit_dt).days < cooldown_days:
+                        continue
+
                 if sec in used_sectors and len(cand_rows) > 6:
                     continue
                 if max_position_cap_pct is not None and current_portfolio_equity > 0:
@@ -505,6 +535,60 @@ def run_monthly_sip_backtest(
 
         else:
             # PURE_STOCKS: Direct Equities across distinct sectors
+            # ── Rule 2: 200-Day EMA Macro Regime Defense Gate ──
+            is_macro_defensive = False
+            hedge_budget = 0.0
+            if enable_macro_regime_gate:
+                cur_nifty = nifty_price_map.get(sip_date, 0.0)
+                n_50 = nifty_50_ema.get(sip_date, cur_nifty)
+                n_200 = nifty_200_ema.get(sip_date, cur_nifty)
+                if macro_regime_trigger == "EMA_200":
+                    if cur_nifty < n_200:
+                        is_macro_defensive = True
+                        hedge_budget = cash_balance * (macro_hedge_pct / 100.0)
+                else:
+                    if cur_nifty < n_50 or cur_nifty < n_200:
+                        is_macro_defensive = True
+                        hedge_budget = cash_balance * (macro_hedge_pct / 100.0)
+
+            if is_macro_defensive and hedge_budget > 0:
+                macro_defense_triggered_months.append(sip_date)
+                h_sym = macro_hedge_asset or "GOLDBEES.NS"
+                h_name = "Nippon India Gold ETF" if "GOLD" in h_sym else "Nippon India NIFTY 50 ETF"
+                h_sec = "Precious Metals" if "GOLD" in h_sym else "Index ETF"
+                h_p_info = price_lookup.get((sip_date, h_sym))
+                if h_p_info:
+                    p_h = float(h_p_info["close"])
+                    sh_h = int(math.floor(hedge_budget / max(0.1, p_h)))
+                    cost_h = round(sh_h * p_h, 2)
+                    if cost_h <= cash_balance and sh_h > 0:
+                        cash_balance -= cost_h
+                        matched_h = next((p for p in active_positions if p["symbol"] == h_sym and p.get("is_etf", False)), None)
+                        if matched_h:
+                            matched_h["shares"] += sh_h
+                            matched_h["cost_basis"] = round(matched_h["cost_basis"] + cost_h, 2)
+                            matched_h["entry_price"] = round(matched_h["cost_basis"] / matched_h["shares"], 2)
+                            pyramided_trades_count += 1
+                        else:
+                            active_positions.append({
+                                "symbol": h_sym,
+                                "name": h_name,
+                                "sector": h_sec,
+                                "tier": "LARGE",
+                                "entry_date": sip_date,
+                                "entry_price": p_h,
+                                "shares": sh_h,
+                                "cost_basis": cost_h,
+                                "stop_loss": round(p_h * 0.85, 2),
+                                "target_price": round(p_h * 3.0, 2),
+                                "month_cohort": sip_date,
+                                "status": "OPEN",
+                                "highest_price": p_h,
+                                "lowest_price": p_h,
+                                "is_etf": True,
+                                "entry_dt": sip_dt
+                            })
+
             picked_for_month = []
             used_sectors = set()
             target_eq_picks = max(2, target_stock_count - (len(active_mf_schemes) if include_mutual_funds and target_stock_count <= 5 else 0))
@@ -517,6 +601,19 @@ def run_monthly_sip_backtest(
                 if min_momentum_hurdle_pct > 0 and ret_6m < (min_momentum_hurdle_pct / 100.0) and len(cand_rows) > 10:
                     continue
                 name, sec = stock_sector_map.get(sym, (sym, "General"))
+
+                # Rule 5: Sector Momentum Gate (Quarantines chronic laggards unless relative strength >35%)
+                if enable_sector_momentum_gate:
+                    if sec in ("Agriculture, Fertilizers & Agro", "Chemicals & Specialty", "Textiles & Apparel", "Real Estate"):
+                        if ret_6m < 0.35:
+                            continue
+
+                # Rule 1: 60-Day Loss Cooldown (Quarantines recently stopped-out stocks)
+                if enable_loss_cooldown and sym in loss_cooldown_map:
+                    last_exit_dt = loss_cooldown_map[sym]
+                    if (sip_dt - last_exit_dt).days < cooldown_days:
+                        continue
+
                 if sec in used_sectors and len(cand_rows) > 10:
                     continue
                 # Fix 3: Recalculate portfolio equity per-pick to catch intra-month concentration crossings
@@ -630,6 +727,7 @@ def run_monthly_sip_backtest(
         period_days = all_trading_days[curr_idx:next_idx]
 
         for d_str in period_days:
+            cur_dt = datetime.strptime(d_str, "%Y-%m-%d").date()
             day_idx = all_trading_days.index(d_str) if d_str in all_trading_days else -1
 
             # ── Tactical Dip-Buying: Deploy Idle Reserve Cash into Top Leaders on >=4% Dips ──
@@ -790,11 +888,13 @@ def run_monthly_sip_backtest(
                         # Trigger on Daily Close to prevent intra-day shadow wick stop-hunting
                         if curr_p <= pos["stop_loss"]:
                             exit_triggered = True
-                            if pos["stop_loss"] >= pos["entry_price"]:
+                            if curr_p >= pos["entry_price"]:
                                 gain_pct = (curr_p - pos["entry_price"]) / pos["entry_price"] * 100.0
                                 exit_reason = f"Trailing Profit Locked (+{gain_pct:.1f}%)"
                             else:
                                 exit_reason = "Structural Stop-Loss Hit (Capital Preserved)"
+                                if enable_loss_cooldown:
+                                    loss_cooldown_map[sym] = cur_dt
                             exit_price = curr_p
 
                     elif exit_protocol == "STRUCTURAL_TRAILING":
@@ -809,11 +909,13 @@ def run_monthly_sip_backtest(
                         # Trigger on Daily Close
                         if curr_p <= pos["stop_loss"]:
                             exit_triggered = True
-                            if pos["stop_loss"] >= pos["entry_price"]:
+                            if curr_p >= pos["entry_price"]:
                                 gain_pct = (curr_p - pos["entry_price"]) / pos["entry_price"] * 100.0
                                 exit_reason = f"Trailing Profit Locked (+{gain_pct:.1f}%)"
                             else:
                                 exit_reason = "Structural Stop-Loss Hit (Capital Preserved)"
+                                if enable_loss_cooldown:
+                                    loss_cooldown_map[sym] = cur_dt
                             exit_price = curr_p
 
                     # BUY_AND_HOLD: exit_triggered remains False (pure compounding)
@@ -1005,6 +1107,14 @@ def run_monthly_sip_backtest(
         "include_mutual_funds": include_mutual_funds,
         "mf_allocation_pct": mf_allocation_pct if include_mutual_funds else 0.0,
         "target_stock_count": target_stock_count,
+        "enable_loss_cooldown": enable_loss_cooldown,
+        "cooldown_days": cooldown_days,
+        "enable_sector_momentum_gate": enable_sector_momentum_gate,
+        "enable_macro_regime_gate": enable_macro_regime_gate,
+        "macro_regime_trigger": macro_regime_trigger,
+        "macro_hedge_pct": macro_hedge_pct if enable_macro_regime_gate else 0.0,
+        "macro_defense_triggered_months": macro_defense_triggered_months,
+        "macro_defense_count": len(macro_defense_triggered_months),
         "equity_curve": equity_curve,
         "trade_log": all_closed_positions
     }

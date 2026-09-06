@@ -48,7 +48,13 @@ def generate_monthly_sip_basket(
     enable_dip_buying: bool = True,
     enable_parabolic_skim: bool = True,
     max_position_cap_pct: float = 45.0,
-    annual_step_up_pct: float = 10.0
+    annual_step_up_pct: float = 10.0,
+    enable_loss_cooldown: bool = True,
+    cooldown_days: int = 60,
+    enable_sector_momentum_gate: bool = True,
+    enable_macro_regime_gate: bool = True,
+    macro_hedge_pct: float = 10.0,
+    macro_hedge_asset: str = "GOLDBEES.NS"
 ) -> Dict:
     """
     Generates an optimized monthly investment basket with exact integer share quantities
@@ -135,7 +141,109 @@ def generate_monthly_sip_basket(
             equity_budget_pool = max(1000.0, monthly_wallet - (mf_portion * len(chosen_mfs)))
             target_stocks_to_pick = max(2, target_stock_count - (len(chosen_mfs) if target_stock_count <= 5 else 0))
 
+    # ─── Macro Regime Status & 200-Day EMA Defense Gate ────────────────────────
+    macro_regime_status = {
+        "is_defensive": False,
+        "current_nifty": None,
+        "nifty_200_ema": None,
+        "nifty_50_ema": None,
+        "distance_to_200_ema_pct": 0.0,
+        "hedge_pct": 0.0,
+        "hedge_asset": macro_hedge_asset,
+        "message": "Market in healthy uptrend above 200-Day EMA. 100% Equity allocation active."
+    }
+
+    try:
+        nifty_query = session.execute(text("""
+            SELECT date, close FROM index_prices
+            WHERE symbol = '^NSEI' AND date <= :d
+            ORDER BY date ASC
+        """), {"d": as_of_date}).fetchall()
+        if not nifty_query:
+            nifty_query = session.execute(text("""
+                SELECT date, close FROM index_prices
+                WHERE symbol = 'NIFTYBEES.NS' AND date <= :d
+                ORDER BY date ASC
+            """), {"d": as_of_date}).fetchall()
+
+        if nifty_query and len(nifty_query) >= 50:
+            n_series = pd.Series([float(r[1]) for r in nifty_query], index=[str(r[0]) for r in nifty_query])
+            cur_n = float(n_series.iloc[-1])
+            ema_200_val = float(n_series.ewm(span=200, adjust=False).mean().iloc[-1])
+            ema_50_val = float(n_series.ewm(span=50, adjust=False).mean().iloc[-1])
+            dist_pct = round(((cur_n - ema_200_val) / ema_200_val) * 100.0, 2)
+            
+            is_def = (cur_n < ema_200_val)
+            macro_regime_status["current_nifty"] = round(cur_n, 2)
+            macro_regime_status["nifty_200_ema"] = round(ema_200_val, 2)
+            macro_regime_status["nifty_50_ema"] = round(ema_50_val, 2)
+            macro_regime_status["distance_to_200_ema_pct"] = dist_pct
+            macro_regime_status["is_defensive"] = is_def
+
+            if is_def:
+                macro_regime_status["hedge_pct"] = macro_hedge_pct if enable_macro_regime_gate else 0.0
+                macro_regime_status["message"] = (
+                    f"⚠️ CAUTION: NIFTY 50 ({cur_n:,.1f}) is trading {abs(dist_pct):.1f}% BELOW its 200-Day EMA ({ema_200_val:,.1f}). "
+                    + (f"Defensive Macro Hedge active: Allocating {macro_hedge_pct:.0f}% into Gold ETF ({macro_hedge_asset}) to cushion drawdown." if enable_macro_regime_gate else "Macro Gate is disabled; remaining in 100% Equities.")
+                )
+            else:
+                macro_regime_status["message"] = (
+                    f"✅ BULLISH REGIME: NIFTY 50 ({cur_n:,.1f}) is trading +{dist_pct:.1f}% ABOVE its 200-Day EMA ({ema_200_val:,.1f}). "
+                    "Full equity compounding active."
+                )
+    except Exception as e:
+        logger.warning(f"Error computing macro regime status: {e}")
+
+    # Rule 1: Loss Cooldown Quarantine Lookup (from recent triggered stop-loss alerts)
+    quarantined_loss_symbols = set()
+    if enable_loss_cooldown:
+        try:
+            as_of_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
+            cutoff_dt = as_of_dt - timedelta(days=cooldown_days)
+            pa_rows = session.execute(text("""
+                SELECT DISTINCT symbol FROM price_alerts 
+                WHERE alert_type = 'STOP_LOSS' 
+                AND is_triggered = 1 
+                AND triggered_at >= :c
+            """), {"c": cutoff_dt}).fetchall()
+            quarantined_loss_symbols = {r[0] for r in pa_rows}
+        except Exception:
+            pass
+
     if strategy == "PURE_STOCKS":
+        # Rule 2: Automatic Macro Defense Gold Hedge Tranche (when NIFTY < 200-EMA)
+        if macro_regime_status.get("is_defensive") and enable_macro_regime_gate and macro_hedge_pct > 0:
+            gold_price_row = session.execute(text("""
+                SELECT close FROM index_prices
+                WHERE symbol IN ('GOLDBEES.NS', 'GOLDBEES') AND date <= :d
+                ORDER BY date DESC LIMIT 1
+            """), {"d": as_of_date}).first()
+            gold_price = float(gold_price_row[0]) if gold_price_row and gold_price_row[0] else 72.0
+            hedge_budget = round(monthly_wallet * (macro_hedge_pct / 100.0), 2)
+            gold_shares = int(math.floor(hedge_budget / max(0.01, gold_price)))
+            if gold_shares == 0 and gold_price <= hedge_budget:
+                gold_shares = 1
+            if gold_shares > 0:
+                gold_cost = round(gold_shares * gold_price, 2)
+                selected_assets.append({
+                    "symbol": "GOLDBEES.NS",
+                    "name": "Nippon India Gold ETF",
+                    "asset_class": "Commodity / Hedge",
+                    "sector": "Precious Metals",
+                    "tier": "macro",
+                    "current_price": gold_price,
+                    "shares_to_buy": gold_shares,
+                    "total_cost": gold_cost,
+                    "stop_loss": round(gold_price * 0.88, 2),
+                    "target_price": round(gold_price * 1.50, 2),
+                    "composite_score": 75.0,
+                    "signal": "BUY",
+                    "risk_level": "SAFE",
+                    "is_pyramided": False,
+                    "rationale": f"🛡️ Macro Defense Hedge ({macro_hedge_pct:.0f}% allocation): NIFTY trading below 200-Day EMA ({macro_regime_status.get('distance_to_200_ema_pct', 0):+.1f}%)"
+                })
+                equity_budget_pool = max(1000.0, equity_budget_pool - gold_cost)
+
         # 100% Direct Equities across distinct sectors
         # Query top candidate stocks with 6-month momentum lookup
         lookback_180d = (datetime.strptime(as_of_date, "%Y-%m-%d").date() - timedelta(days=180)).strftime("%Y-%m-%d")
@@ -192,13 +300,25 @@ def generate_monthly_sip_basket(
         for c in candidates:
             if len(picked_stocks) >= target_stocks_to_pick:
                 break
+            sym = str(c[0])
             sec = c[2] or "General"
+            ret_6m = float(c[11]) if len(c) > 11 and c[11] is not None else 0.0
+
+            # Rule 5: Sector Momentum Gate (Quarantines chronic laggards unless relative strength >= 35%)
+            if enable_sector_momentum_gate:
+                if sec in ("Agriculture, Fertilizers & Agro", "Chemicals & Specialty", "Textiles & Apparel", "Real Estate"):
+                    if ret_6m < 0.35:
+                        continue
+
+            # Rule 1: 60-Day Loss Cooldown (Quarantines recently stopped-out stocks)
+            if enable_loss_cooldown and sym in quarantined_loss_symbols:
+                continue
+
             if sec in chosen_sectors and len(candidates) > 8:
                 continue
 
             # Momentum Hurdle Check
             if min_momentum_hurdle_pct > 0 and len(candidates) > (target_stocks_to_pick + 3):
-                ret_6m = float(c[11]) if len(c) > 11 and c[11] is not None else 0.0
                 if ret_6m < (min_momentum_hurdle_pct / 100.0):
                     continue
             elif min_momentum_hurdle_pct == 0:
@@ -219,6 +339,15 @@ def generate_monthly_sip_basket(
             for c in candidates:
                 if len(picked_stocks) >= target_stocks_to_pick:
                     break
+                sym = str(c[0])
+                sec = c[2] or "General"
+                ret_6m = float(c[11]) if len(c) > 11 and c[11] is not None else 0.0
+
+                if enable_sector_momentum_gate and sec in ("Agriculture, Fertilizers & Agro", "Chemicals & Specialty", "Textiles & Apparel", "Real Estate") and ret_6m < 0.35:
+                    continue
+                if enable_loss_cooldown and sym in quarantined_loss_symbols:
+                    continue
+
                 if c[0] not in [x[0] for x in picked_stocks]:
                     picked_stocks.append(c)
 
@@ -333,7 +462,12 @@ def generate_monthly_sip_basket(
         for r in eq_rows:
             if len([x for x in selected_assets if x["asset_class"] == "Equity"]) >= eq_target_n:
                 break
+            sym = str(r[0])
             sec = r[2] or "General"
+            if enable_sector_momentum_gate and sec in ("Agriculture, Fertilizers & Agro", "Chemicals & Specialty", "Textiles & Apparel", "Real Estate"):
+                continue
+            if enable_loss_cooldown and sym in quarantined_loss_symbols:
+                continue
             if sec in picked_secs:
                 continue
             picked_secs.add(sec)
@@ -563,7 +697,7 @@ def generate_monthly_sip_basket(
                 item["consensus_data"] = c_data
             else:
                 item["consensus_label"] = "Benchmark Core"
-                item["analyst_count"] = None
+                item["analyst_count"] = 0
                 item["target_mean_price"] = None
                 item["consensus_upside_pct"] = None
                 item["external_verification"] = {
@@ -598,7 +732,12 @@ def generate_monthly_sip_basket(
         "enable_dip_buying": enable_dip_buying,
         "enable_parabolic_skim": enable_parabolic_skim,
         "annual_step_up_pct": annual_step_up_pct,
-        "consensus_summary": consensus_summary
+        "consensus_summary": consensus_summary,
+        "macro_regime_status": macro_regime_status,
+        "enable_loss_cooldown": enable_loss_cooldown,
+        "enable_sector_momentum_gate": enable_sector_momentum_gate,
+        "enable_macro_regime_gate": enable_macro_regime_gate,
+        "macro_hedge_pct": macro_hedge_pct
     }
 
 

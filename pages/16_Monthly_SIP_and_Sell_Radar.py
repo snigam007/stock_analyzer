@@ -212,6 +212,41 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
         else:
             global_mf_pct = 0.0
 
+    st.markdown("---")
+    st.markdown("##### 🛡️ Option B: Alpha Maximizer with Macro Defense & Risk Gates")
+    g_col1, g_col2, g_col3, g_col4 = st.columns([1.2, 1.2, 1.2, 1.4])
+    with g_col1:
+        global_loss_cooldown = st.toggle(
+            "🛑 60-Day Loss Cooldown",
+            value=True,
+            key="global_loss_cooldown",
+            help="Quarantines any symbol that triggers a structural stop-loss for 60 calendar days to eliminate repeat whipsaw losses."
+        )
+    with g_col2:
+        global_sector_gate = st.toggle(
+            "🛡️ Sector Momentum Gate",
+            value=True,
+            key="global_sector_gate",
+            help="Quarantines chronic laggard sectors (Fertilizers, Chemicals, Textiles, Real Estate) unless 6M relative strength is exceptional (>=+35%)."
+        )
+    with g_col3:
+        global_macro_hedge = st.toggle(
+            "🛡️ 200-EMA Macro Hedge",
+            value=True,
+            key="global_macro_hedge",
+            help="When NIFTY breaks below its 200-day EMA, automatically allocates a defensive hedge % into Gold ETF to cushion portfolio drawdowns."
+        )
+    with g_col4:
+        global_macro_hedge_pct = st.slider(
+            "Macro Hedge % (NIFTY < 200 EMA)",
+            min_value=0,
+            max_value=30,
+            value=10,
+            step=5,
+            key="global_macro_hedge_pct",
+            help="Percentage of monthly SIP wallet allocated to Gold ETF (default 10%, up to 30%) when NIFTY closes below its 200-day EMA."
+        )
+
 # Generate Basket
 session_basket = get_session(engine)
 basket = generate_monthly_sip_basket(
@@ -228,7 +263,12 @@ basket = generate_monthly_sip_basket(
     enable_dip_buying=global_dip_buy,
     enable_parabolic_skim=global_skim,
     max_position_cap_pct=cap_guard_val or 45.0,
-    annual_step_up_pct=step_up_val
+    annual_step_up_pct=step_up_val,
+    enable_loss_cooldown=global_loss_cooldown,
+    cooldown_days=60,
+    enable_sector_momentum_gate=global_sector_gate,
+    enable_macro_regime_gate=global_macro_hedge,
+    macro_hedge_pct=float(global_macro_hedge_pct)
 )
 session_basket.close()
 
@@ -297,6 +337,38 @@ with tab1:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+    # ── Macro Regime Defense & 200-EMA Status Banner ────────────────────────────
+    m_stat = basket.get("macro_regime_status", {})
+    if m_stat:
+        if m_stat.get("is_defensive"):
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, rgba(239, 68, 68, 0.15) 0%, rgba(245, 158, 11, 0.08) 100%); border-left: 5px solid #ef4444; padding: 12px 18px; border-radius: 8px; margin-bottom: 14px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <span style="font-weight: 700; color: #fca5a5; font-size: 1.05em;">🛡️ DEFENSIVE MACRO REGIME ACTIVE (NIFTY &lt; 200-DAY EMA)</span>
+                    <span style="background: #ef4444; color: #fff; font-weight: bold; padding: 3px 10px; border-radius: 4px; font-size: 0.85em;">
+                        NIFTY: ₹{m_stat.get('current_nifty', 0):,.1f} vs 200-EMA: ₹{m_stat.get('nifty_200_ema', 0):,.1f} ({m_stat.get('distance_to_200_ema_pct', 0):+.1f}%)
+                    </span>
+                </div>
+                <div style="color: #cbd5e1; font-size: 0.9em; margin-top: 6px;">
+                    {m_stat.get('message', '')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, rgba(16, 185, 129, 0.15) 0%, rgba(56, 189, 248, 0.08) 100%); border-left: 5px solid #10b981; padding: 10px 18px; border-radius: 8px; margin-bottom: 14px;">
+                <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+                    <span style="font-weight: 700; color: #6ee7b7; font-size: 1.0em;">✅ BULLISH MACRO REGIME (NIFTY ABOVE 200-DAY EMA)</span>
+                    <span style="background: #10b981; color: #000; font-weight: bold; padding: 3px 10px; border-radius: 4px; font-size: 0.82em;">
+                        NIFTY: ₹{m_stat.get('current_nifty', 0):,.1f} (+{m_stat.get('distance_to_200_ema_pct', 0):.1f}% above 200-EMA)
+                    </span>
+                </div>
+                <div style="color: #cbd5e1; font-size: 0.88em; margin-top: 4px;">
+                    {m_stat.get('message', '')}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
     # Real-Time Strategic Booster Alerts (Tactical Dip-Buying & Parabolic Skims)
     dip_info = basket.get("tactical_dip_alert")
@@ -938,6 +1010,39 @@ with tab4:
         else:
             bt_mf_pct = 0.0
 
+    col_opt7, col_opt8, col_opt9, col_opt10 = st.columns([1.1, 1.1, 1.2, 1.4])
+    with col_opt7:
+        bt_loss_cooldown = st.toggle(
+            "🛑 60-Day Loss Cooldown",
+            value=global_loss_cooldown,
+            key="bt_loss_cooldown",
+            help="Quarantines stopped out stocks for 60 calendar days to eliminate repeat whipsaws."
+        )
+    with col_opt8:
+        bt_sector_gate = st.toggle(
+            "🛡️ Sector Momentum Gate",
+            value=global_sector_gate,
+            key="bt_sector_gate",
+            help="Filters out chronic laggard sectors unless individual stock 6M relative strength is >= +35%."
+        )
+    with col_opt9:
+        bt_macro_hedge = st.toggle(
+            "🛡️ 200-EMA Macro Hedge",
+            value=global_macro_hedge,
+            key="bt_macro_hedge",
+            help="Allocates defensive hedge % into Gold ETF whenever NIFTY breaks its 200-day EMA."
+        )
+    with col_opt10:
+        bt_macro_hedge_pct = st.slider(
+            "Backtest Macro Hedge %",
+            min_value=0,
+            max_value=30,
+            value=int(global_macro_hedge_pct),
+            step=5,
+            key="bt_macro_hedge_pct",
+            help="Gold ETF allocation % when NIFTY is below 200-day EMA (0% to 30%, default 10%)."
+        )
+
     # Initialize or fetch backtest results
     if "sip_backtest_res" not in st.session_state or run_bt_btn:
         with st.spinner(f"Simulating {months_val}-Month SIP execution across historical daily prices..."):
@@ -962,7 +1067,14 @@ with tab4:
                 max_position_cap_pct=45.0 if cap_choice else None,
                 target_stock_count=target_stocks,
                 include_mutual_funds=bt_mf_choice,
-                mf_allocation_pct=bt_mf_pct
+                mf_allocation_pct=bt_mf_pct,
+                enable_loss_cooldown=bt_loss_cooldown,
+                cooldown_days=60,
+                enable_sector_momentum_gate=bt_sector_gate,
+                enable_macro_regime_gate=bt_macro_hedge,
+                macro_regime_trigger="EMA_200",
+                macro_hedge_pct=float(bt_macro_hedge_pct),
+                macro_hedge_asset="GOLDBEES.NS"
             )
             session_bt.close()
 
@@ -987,6 +1099,12 @@ with tab4:
             meta_items.append(f"⚡ Dip Buys: <b style='color: #eab308;'>{bt.get('dip_buys_count', 0)} entries</b>")
         if bt.get('enable_parabolic_skim'):
             meta_items.append(f"💰 Skims: <b style='color: #06b6d4;'>{bt.get('skimmed_trades_count', 0)} locked</b>")
+        if bt.get('enable_loss_cooldown'):
+            meta_items.append(f"🛑 Loss Cooldown: <b style='color: #ef4444;'>{bt.get('cooldown_days', 60)}d Active</b>")
+        if bt.get('enable_sector_momentum_gate'):
+            meta_items.append(f"🛡️ Sector Gate: <b style='color: #10b981;'>Laggards Filtered</b>")
+        if bt.get('enable_macro_regime_gate'):
+            meta_items.append(f"🛡️ 200-EMA Macro Hedge: <b style='color: #f59e0b;'>{bt.get('macro_hedge_pct', 10):.0f}% Gold ({len(bt.get('macro_defense_triggered_months', []))} mo)</b>")
         banner_html = " &nbsp;|&nbsp; ".join(meta_items)
         st.markdown(f'<div style="background: rgba(56, 189, 248, 0.08); border-left: 3px solid #38bdf8; padding: 8px 14px; border-radius: 4px; margin-bottom: 12px; font-size: 0.9em; color: #cbd5e1; line-height: 1.6;">{banner_html}</div>', unsafe_allow_html=True)
         # Scorecard Row 1: Core Performance Metrics

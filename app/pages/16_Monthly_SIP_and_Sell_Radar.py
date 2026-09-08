@@ -1801,17 +1801,25 @@ with tab6:
         """, unsafe_allow_html=True)
     else:
         # Scorecard Row 1: Core Performance Metrics
+        df_log = acc_rep["df"]
+        avg_days = df_log["days_held"].mean() if "days_held" in df_log.columns and len(df_log) > 0 else 0
+        if acc_rep['completed_count'] == 0:
+            st.caption(f"⏳ **Early Incubation Horizon**: Current picks have an average holding period of **{avg_days:.1f} days** (1 trading session elapsed since snapshot). Targets (T1: +15% to +50%) are calibrated for 3–12 month holding periods.")
+
         m1, m2, m3, m4, m5 = st.columns(5)
         with m1:
             st.metric("Total Picks Tracked", f"{total_sug}", f"Open: {acc_rep['open_count']} | Closed: {acc_rep['completed_count']}")
         with m2:
-            st.metric("Target Hit Rate (Win %)", f"{acc_rep['win_rate_pct']:.1f}%", f"T1 Hits: {acc_rep['t1_count']}")
+            win_label = "Current Win Rate (Open)" if acc_rep['completed_count'] == 0 else "Target Hit Rate (Win %)"
+            t1_sub = f"T1 Hits: {acc_rep['t1_count']}" if acc_rep['completed_count'] > 0 else f"Green: {int(round(acc_rep['win_rate_pct']/100*total_sug))} / {total_sug} (T1: 0)"
+            st.metric(win_label, f"{acc_rep['win_rate_pct']:.1f}%", t1_sub)
         with m3:
             st.metric("Benchmark Beat Rate", f"{acc_rep['benchmark_beat_rate_pct']:.1f}%", f"Avg Alpha: {acc_rep['avg_alpha_pct']:+.1f}%")
         with m4:
             st.metric("Profit Factor", f"{acc_rep['profit_factor']:.2f}x", f"Avg Win: +{acc_rep['avg_winner_gain_pct']:.1f}%")
         with m5:
-            st.metric("Live Realized XIRR", f"{acc_rep['live_xirr_pct']:.1f}%", "vs ~35% Backtest")
+            xirr_title = "Live Portfolio XIRR" if acc_rep['completed_count'] == 0 else "Live Realized XIRR"
+            st.metric(xirr_title, f"{acc_rep['live_xirr_pct']:.1f}%", "vs ~35% Backtest")
 
         st.markdown("---")
 

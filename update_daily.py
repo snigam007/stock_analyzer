@@ -141,24 +141,37 @@ def run_daily_delta_update(top_forecasts: int = 50):
     except Exception as e:
         logger.warning(f"Alerts evaluation notice: {e}")
 
-    logger.info("\n🏦 Step 11/12: Syncing Institutional Bulk/Block Deals & Economic Calendar...")
+    logger.info("\n🏦 Step 11/12: Syncing Mutual Fund NAV Deltas, Institutional Bulk Deals & Calendar...")
     try:
-        from core.bulk_deals import fetch_latest_bulk_deals
+        from core.mf_fetcher import sync_all_mf_nav_deltas
+        from core.bulk_deals import sync_bulk_and_block_deals_delta
         from core.economic_calendar import seed_macro_calendar
-        deals_count = fetch_latest_bulk_deals(session)
-        cal_count = seed_macro_calendar(session)
-        logger.info(f"   Synced {deals_count} bulk deals and verified economic calendar schedule.")
-    except Exception as e:
-        logger.warning(f"Institutional/Calendar sync notice: {e}")
 
-    logger.info("\n🔍 Step 12/12: Running Missed Alpha & False Negative Surveillance...")
-    try:
-        from core.missed_signals import scan_missed_opportunities
-        m_rep = scan_missed_opportunities(session, lookback_days=5, min_gain_pct=4.0)
-        m_s = m_rep["summary"]
-        logger.info(f"   Surveillance: {m_s.get('total_movers_detected', 0)} fast movers | {m_s.get('missed_movers_count', 0)} uncaught on WATCH | Top bottleneck: {m_s.get('top_bottleneck_factor', 'None')}")
+        mf_res = sync_all_mf_nav_deltas(session)
+        logger.info(f"   MF NAV Delta: {mf_res.get('new_navs_added', 0)} daily NAV records synced across {mf_res.get('schemes_updated', 0)} schemes.")
+
+        deals_res = sync_bulk_and_block_deals_delta(session, force_full=False)
+        deals_count = deals_res.get("new_deals_added", 0) + deals_res.get("existing_deals_updated", 0)
+        net_flow = deals_res.get("net_delta_flow_cr", 0.0)
+        logger.info(f"   Institutional Deals Delta: Synced {deals_count} bulk/block deals (Net Institutional Flow: ₹{net_flow:+,.2f} Cr).")
+
+        cal_count = seed_macro_calendar(session)
+        logger.info(f"   Economic Calendar: verified {cal_count} scheduled macro releases.")
     except Exception as e:
-        logger.warning(f"Missed mover surveillance notice: {e}")
+        logger.warning(f"Institutional/MF/Calendar sync notice: {e}")
+
+    logger.info("\n🔍 Step 12/12: Running Missed Alpha & False Negative Surveillance Audit...")
+    try:
+        from core.missed_signals import log_daily_missed_alpha_audit
+        audit_res = log_daily_missed_alpha_audit(session, lookback_days=5, min_gain_pct=4.0)
+        logger.info(
+            f"   Surveillance Audit: {audit_res.get('total_movers', 0)} total movers | "
+            f"{audit_res.get('caught_count', 0)} caught by BUY ({audit_res.get('capture_rate_pct', 0.0)}%) | "
+            f"{audit_res.get('missed_count', 0)} uncaught (Logged {audit_res.get('new_records_logged', 0)} records) | "
+            f"Top Bottleneck: {audit_res.get('top_bottleneck', 'None')}"
+        )
+    except Exception as e:
+        logger.warning(f"Missed mover surveillance audit notice: {e}")
 
     session.close()
 

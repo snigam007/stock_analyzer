@@ -24,8 +24,10 @@ import db.database
 if not hasattr(db.database, "MutualFund"):
     importlib.reload(db.database)
 from db.database import get_global_engine, get_session, MutualFund, MutualFundNAV, MutualFundSignal
+import core.mf_fetcher
+importlib.reload(core.mf_fetcher)
 from core.mf_signals import generate_daily_mf_signals, audit_mf_signals, compute_mf_rolling_metrics
-from core.mf_fetcher import sync_daily_amfi_nav_feed
+from core.mf_fetcher import sync_daily_amfi_nav_feed, sync_all_mf_nav_deltas, get_mf_daily_delta_summary
 from core.mf_sip_planner import (
     CURATED_MF_BASKETS,
     plan_mf_sip_allocation,
@@ -44,7 +46,7 @@ st.markdown("""
         background: #0d1b2a;
         border: 1px solid #1e293b;
         border-radius: 8px;
-        padding: 14px 18px;
+        padding: 16px;
         margin-bottom: 12px;
     }
     .badge-buy {
@@ -98,8 +100,9 @@ except Exception as e:
     st.error(f"Error checking latest signals: {e}")
 
 # Main Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab_delta, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Daily MF Buy & Sell Signals",
+    "⚡ Daily NAV Delta Tracker",
     "🎯 Signals Accuracy & Audit",
     "📈 3-Year Rolling Return Leaderboard",
     "🔍 Direct Stock vs MF Overlap Analyzer",
@@ -140,7 +143,8 @@ with tab1:
     # Controls & Filters
     f1, f2, f3 = st.columns([1.5, 1.5, 2])
     with f1:
-        cat_choices = ["All Categories", "Flexi Cap Fund", "Large Cap Fund", "Mid Cap Fund", "Small Cap Fund", "Index Fund", "Dynamic Asset Allocation / Balanced Advantage", "Liquid Fund"]
+        db_cats = [r[0] for r in session.execute(text("SELECT DISTINCT sub_category FROM mutual_funds WHERE sub_category IS NOT NULL ORDER BY sub_category ASC")).fetchall()]
+        cat_choices = ["All Categories"] + (db_cats if db_cats else ["Flexi Cap Fund", "Large Cap Fund", "Mid Cap Fund", "Small Cap Fund", "Index Fund"])
         selected_cat = st.selectbox("Filter Category", cat_choices, index=0)
     with f2:
         sig_choices = ["All Signals", "TACTICAL_BUY_DIP", "ACCUMULATE", "HOLD", "TRIM_PROFIT", "AVOID_DEFENSIVE"]
@@ -241,6 +245,99 @@ with tab1:
         )
     else:
         st.info("No mutual fund signals found matching the selected filter criteria.")
+
+# ─── TAB DELTA: Daily NAV Delta Tracker ───────────────────────────────────────
+with tab_delta:
+    st.subheader("⚡ Daily NAV Delta & Performance Tracker")
+    st.caption("Tracks incremental daily NAV adjustments, 1-day value deltas, and multi-session rolling momentum across all curated direct-growth mutual funds.")
+
+    col_sync_btn, col_sync_info = st.columns([1, 3])
+    with col_sync_btn:
+        if st.button("🔄 Sync MF Daily Deltas Now", type="primary", use_container_width=True):
+            with st.spinner("Syncing incremental mutual fund NAV deltas from AMFI and exchange APIs..."):
+                sync_out = sync_all_mf_nav_deltas(session)
+                st.success(sync_out.get("message", "Sync complete!"))
+                st.rerun()
+
+    delta_rows = get_mf_daily_delta_summary(session)
+
+    if delta_rows:
+        df_deltas = pd.DataFrame(delta_rows)
+
+        avg_1d = df_deltas["daily_return_pct"].mean()
+        top_gainer = df_deltas.iloc[0]
+        latest_nav_dt = df_deltas["latest_date"].max()
+
+        kpi1, kpi2, kpi3, kpi4 = st.columns(4)
+        kpi1.metric("🏛️ Tracked Schemes", f"{len(df_deltas)} Funds", "Direct-Growth")
+        kpi2.metric("📅 Latest NAV Session", str(latest_nav_dt), "Market Close")
+        kpi3.metric("📊 Mean 1D Delta Return", f"{avg_1d:+.2f}%", "All-Universe Avg")
+        kpi4.metric("🥇 Top 1D Gainer", f"{top_gainer['scheme_name'][:22]}...", f"{top_gainer['daily_return_pct']:+.2f}%")
+
+        st.markdown("---")
+
+        f_cat_col, f_search_col = st.columns([1, 2])
+        with f_cat_col:
+            cat_list = ["ALL"] + sorted(list(df_deltas["category"].unique()))
+            sel_cat = st.selectbox("Filter Category:", cat_list, key="mf_delta_cat_filter")
+        with f_search_col:
+            search_query = st.text_input("Search Fund / AMC:", "", placeholder="e.g. Parag Parikh, HDFC, Small Cap...", key="mf_delta_search")
+
+        filtered_df = df_deltas.copy()
+        if sel_cat != "ALL":
+            filtered_df = filtered_df[filtered_df["category"] == sel_cat]
+        if search_query.strip():
+            filtered_df = filtered_df[filtered_df["scheme_name"].str.contains(search_query.strip(), case=False, na=False)]
+
+        # Display Dataframe
+        disp_df = filtered_df[[
+            "scheme_name", "category", "sub_category", "latest_nav",
+            "nav_delta_1d_inr", "daily_return_pct", "delta_5d_pct", "delta_1m_pct",
+            "trend_status", "crisil_rating"
+        ]].rename(columns={
+            "scheme_name": "Scheme Name",
+            "category": "Category",
+            "sub_category": "Sub-Category",
+            "latest_nav": "Latest NAV (₹)",
+            "nav_delta_1d_inr": "1D Delta (₹)",
+            "daily_return_pct": "1D Return %",
+            "delta_5d_pct": "5D Delta %",
+            "delta_1m_pct": "1M Delta %",
+            "trend_status": "Momentum Bias",
+            "crisil_rating": "Rating"
+        })
+
+        st.dataframe(
+            disp_df.style.format({
+                "Latest NAV (₹)": "₹{:,.2f}",
+                "1D Delta (₹)": "{:+,.4f}",
+                "1D Return %": "{:+.2f}%",
+                "5D Delta %": "{:+.2f}%",
+                "1M Delta %": "{:+.2f}%",
+                "Rating": lambda x: "⭐" * int(x) if pd.notnull(x) else "—"
+            }),
+            use_container_width=True,
+            height=420,
+            hide_index=True
+        )
+
+        # Plotly Chart
+        if not filtered_df.empty:
+            chart_df = filtered_df.sort_values(by="daily_return_pct", ascending=True).tail(15)
+            fig = px.bar(
+                chart_df,
+                x="daily_return_pct",
+                y="scheme_name",
+                orientation="h",
+                color="daily_return_pct",
+                color_continuous_scale=["#ef4444", "#eab308", "#10b981"],
+                title="⚡ Top Mutual Fund Daily NAV Delta Returns (%)",
+                labels={"daily_return_pct": "1-Day NAV Return (%)", "scheme_name": "Mutual Fund"}
+            )
+            fig.update_layout(height=450, template="plotly_dark", margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No mutual fund daily delta data available. Click 'Sync MF Daily Deltas Now' above.")
 
 # ─── TAB 2: Signals Accuracy & Audit ──────────────────────────────────────────
 with tab2:

@@ -29,11 +29,14 @@ import db.database
 if not hasattr(db.database, "Watchlist"):
     importlib.reload(db.database)
 
+import core.watchlist_manager
+importlib.reload(core.watchlist_manager)
+
 from db.database import get_global_engine, get_session, Stock
 from sqlalchemy import text
 from core.watchlist_manager import (
-    get_all_watchlists, create_watchlist, delete_watchlist,
-    get_watchlist_items, add_item_to_watchlist, remove_item_from_watchlist,
+    get_all_watchlists, create_watchlist, update_watchlist, delete_watchlist,
+    get_watchlist_items, add_item_to_watchlist, update_watchlist_item, remove_item_from_watchlist,
     get_52_week_high_low_radar, evaluate_and_generate_alerts, get_recent_alerts
 )
 
@@ -79,7 +82,7 @@ tab1, tab2, tab3 = st.tabs(["⭐ My Watchlists", "📡 52-Week High / Low Radar"
 
 # ─── TAB 1: WATCHLISTS ────────────────────────────────────────────────────────
 with tab1:
-    col_wl_sel, col_wl_create = st.columns([2, 1])
+    col_wl_sel, col_wl_create, col_wl_edit, col_wl_del = st.columns([2.0, 1.0, 1.0, 0.9])
 
     watchlists = get_all_watchlists(session)
     wl_options = {wl["name"]: wl["id"] for wl in watchlists}
@@ -87,12 +90,14 @@ with tab1:
     with col_wl_sel:
         selected_wl_name = st.selectbox("📂 Select Watchlist:", list(wl_options.keys()), index=0)
         selected_wl_id = wl_options[selected_wl_name]
+        curr_wl_obj = next((w for w in watchlists if w["id"] == selected_wl_id), None)
+        curr_wl_desc = curr_wl_obj["description"] if curr_wl_obj else ""
 
     with col_wl_create:
-        with st.popover("➕ Create New Watchlist"):
-            new_wl_name = st.text_input("Watchlist Name:", placeholder="e.g. EV & Green Energy")
-            new_wl_desc = st.text_input("Description:", placeholder="e.g. Long-term thematic basket")
-            if st.button("Save Watchlist", use_container_width=True, type="primary"):
+        with st.popover("➕ New Watchlist"):
+            new_wl_name = st.text_input("Watchlist Name:", placeholder="e.g. EV & Green Energy", key="txt_new_wl_name")
+            new_wl_desc = st.text_input("Description:", placeholder="e.g. Long-term thematic basket", key="txt_new_wl_desc")
+            if st.button("Save Watchlist", use_container_width=True, type="primary", key="btn_save_new_wl"):
                 if new_wl_name:
                     new_id = create_watchlist(new_wl_name, new_wl_desc, session)
                     if new_id:
@@ -101,41 +106,109 @@ with tab1:
                     else:
                         st.error("Failed to create watchlist (name may already exist).")
 
-    # Add Stock to Current Watchlist Popover
-    with st.expander("➕ Add Stock to this Watchlist", expanded=False):
+    with col_wl_edit:
+        with st.popover("✏️ Edit Watchlist"):
+            st.caption(f"Editing Watchlist #{selected_wl_id}")
+            up_name = st.text_input("Rename Watchlist:", value=selected_wl_name, key="txt_edit_wl_name")
+            up_desc = st.text_input("Update Description:", value=curr_wl_desc, key="txt_edit_wl_desc")
+            if st.button("Update Watchlist", use_container_width=True, type="primary", key="btn_update_wl"):
+                if update_watchlist(selected_wl_id, up_name, up_desc, session):
+                    st.success("Watchlist updated successfully!")
+                    st.rerun()
+                else:
+                    st.error("Failed to update watchlist.")
+
+    with col_wl_del:
+        with st.popover("🗑️ Delete"):
+            st.warning(f"Delete watchlist '{selected_wl_name}'?")
+            st.caption("This will delete the watchlist and all contained stock trackers.")
+            if st.button("Confirm Delete", use_container_width=True, type="secondary", key="btn_confirm_del_wl"):
+                if delete_watchlist(selected_wl_id, session):
+                    st.success("Watchlist deleted!")
+                    st.rerun()
+                else:
+                    st.error("Could not delete watchlist.")
+
+    # Expander 1: Add Stock to Current Watchlist
+    with st.expander("➕ Add Stock(s) to this Watchlist", expanded=False):
+        add_tab_single, add_tab_bulk = st.tabs(["Single Stock with Targets", "Bulk Symbols (Comma-Separated)"])
+        
         all_stocks = session.query(Stock).filter(Stock.is_active == True).order_by(Stock.symbol).all()
         stock_options = [f"{s.symbol} — {s.name} ({s.sector})" for s in all_stocks]
 
-        col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 1, 1])
-        with col_s1:
-            chosen_stock_str = st.selectbox("Select Stock:", stock_options)
-            chosen_symbol = chosen_stock_str.split(" — ")[0] if chosen_stock_str else ""
-        with col_s2:
-            t_buy = st.number_input("Target Buy (₹):", min_value=0.0, value=0.0, step=5.0)
-        with col_s3:
-            t_sell = st.number_input("Target Sell (₹):", min_value=0.0, value=0.0, step=5.0)
-        with col_s4:
-            s_loss = st.number_input("Stop Loss (₹):", min_value=0.0, value=0.0, step=5.0)
+        with add_tab_single:
+            col_s1, col_s2, col_s3, col_s4 = st.columns([2, 1, 1, 1])
+            with col_s1:
+                chosen_stock_str = st.selectbox("Select Stock:", stock_options, key="wl_add_single_select")
+                chosen_symbol = chosen_stock_str.split(" — ")[0] if chosen_stock_str else ""
+            with col_s2:
+                t_buy = st.number_input("Target Buy (₹):", min_value=0.0, value=0.0, step=5.0, key="wl_single_tbuy")
+            with col_s3:
+                t_sell = st.number_input("Target Sell (₹):", min_value=0.0, value=0.0, step=5.0, key="wl_single_tsell")
+            with col_s4:
+                s_loss = st.number_input("Stop Loss (₹):", min_value=0.0, value=0.0, step=5.0, key="wl_single_sl")
 
-        notes = st.text_input("Research Notes / Thesis:", placeholder="e.g. Breakout retest on 50 EMA with strong delivery")
+            notes = st.text_input("Research Notes / Thesis:", placeholder="e.g. Breakout retest on 50 EMA with strong delivery", key="wl_single_notes")
 
-        if st.button("Add to Watchlist", type="primary"):
-            if chosen_symbol:
-                ok = add_item_to_watchlist(
-                    watchlist_id=selected_wl_id,
-                    symbol=chosen_symbol,
-                    target_buy_price=t_buy if t_buy > 0 else None,
-                    target_sell_price=t_sell if t_sell > 0 else None,
-                    stop_loss=s_loss if s_loss > 0 else None,
-                    notes=notes,
-                    session=session,
-                )
-                if ok:
-                    st.success(f"Added {chosen_symbol} to {selected_wl_name}!")
+            if st.button("Add to Watchlist", type="primary", key="btn_add_single_stock"):
+                if chosen_symbol:
+                    ok = add_item_to_watchlist(
+                        watchlist_id=selected_wl_id,
+                        symbol=chosen_symbol,
+                        target_buy_price=t_buy if t_buy > 0 else None,
+                        target_sell_price=t_sell if t_sell > 0 else None,
+                        stop_loss=s_loss if s_loss > 0 else None,
+                        notes=notes,
+                        session=session,
+                    )
+                    if ok:
+                        st.success(f"Added {chosen_symbol} to {selected_wl_name}!")
+                        st.rerun()
+
+        with add_tab_bulk:
+            bulk_text = st.text_area("Paste Symbols (comma or newline separated):", placeholder="e.g. RELIANCE, TCS, INFY, HDFCBANK, TATAMOTORS", key="wl_bulk_text")
+            if st.button("Add All Symbols", type="primary", key="btn_add_bulk_stocks"):
+                if bulk_text.strip():
+                    raw_syms = [s.strip().upper() for s in bulk_text.replace("\n", ",").split(",") if s.strip()]
+                    added_cnt = 0
+                    for sym in raw_syms:
+                        stk_exists = session.query(Stock).filter(Stock.symbol == sym).first()
+                        if stk_exists:
+                            add_item_to_watchlist(selected_wl_id, sym, None, None, None, "Bulk added", session)
+                            added_cnt += 1
+                    st.success(f"Added {added_cnt} valid stocks to '{selected_wl_name}'!")
                     st.rerun()
 
-    # Display items in Watchlist
+    # Expander 2: Edit Existing Stock in Watchlist
     items = get_watchlist_items(selected_wl_id, session)
+
+    if items:
+        with st.expander("✏️ Edit Stock Parameters & Notes in this Watchlist", expanded=False):
+            item_choice = st.selectbox(
+                "Select Stock to Edit:",
+                [f"{it['item_id']}: {it['symbol']} — {it['name']}" for it in items],
+                key="sel_stock_to_edit"
+            )
+            sel_item_id = int(item_choice.split(":")[0])
+            cur_item = next((it for it in items if it["item_id"] == sel_item_id), None)
+
+            if cur_item:
+                ce1, ce2, ce3, ce4 = st.columns(4)
+                with ce1:
+                    new_tb = st.number_input("Target Buy (₹):", min_value=0.0, value=float(cur_item["target_buy_price"] or 0.0), step=5.0, key="edit_tb")
+                with ce2:
+                    new_ts = st.number_input("Target Sell (₹):", min_value=0.0, value=float(cur_item["target_sell_price"] or 0.0), step=5.0, key="edit_ts")
+                with ce3:
+                    new_sl = st.number_input("Stop Loss (₹):", min_value=0.0, value=float(cur_item["stop_loss"] or 0.0), step=5.0, key="edit_sl")
+                with ce4:
+                    new_notes = st.text_input("Notes:", value=cur_item.get("notes", ""), key="edit_notes")
+
+                if st.button("Save Changes to Stock", type="primary", key="btn_save_stock_edit"):
+                    if update_watchlist_item(sel_item_id, new_tb, new_ts, new_sl, new_notes, session):
+                        st.success(f"Updated {cur_item['symbol']} parameters!")
+                        st.rerun()
+                    else:
+                        st.error("Failed to update stock parameters.")
 
     if items:
         # Summary KPI Ribbon

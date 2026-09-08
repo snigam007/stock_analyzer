@@ -18,6 +18,7 @@ _CREATE_SIP_LOG_TABLE = """
         month_label        TEXT NOT NULL,
         symbol             TEXT NOT NULL,
         name               TEXT,
+        asset_class        TEXT DEFAULT 'Stock',
         sector             TEXT,
         tier               TEXT,
         strategy           TEXT,
@@ -36,6 +37,12 @@ _CREATE_SIP_LOG_TABLE = """
         exit_date          TEXT,
         exit_price         REAL,
         realized_gain_pct  REAL,
+        benchmark_gain_pct REAL,
+        alpha_pct          REAL,
+        forward_1d_pct     REAL,
+        forward_5d_pct     REAL,
+        forward_1m_pct     REAL,
+        forward_3m_pct     REAL,
         days_held          INTEGER,
         verified_date      TEXT,
         UNIQUE(log_date, symbol, strategy)
@@ -43,8 +50,11 @@ _CREATE_SIP_LOG_TABLE = """
 """
 
 _MIGRATION_COLS = [
+    "asset_class TEXT DEFAULT 'Stock'",
     "max_price_reached REAL", "min_price_reached REAL", "exit_date TEXT",
-    "exit_price REAL", "realized_gain_pct REAL", "days_held INTEGER",
+    "exit_price REAL", "realized_gain_pct REAL", "benchmark_gain_pct REAL",
+    "alpha_pct REAL", "forward_1d_pct REAL", "forward_5d_pct REAL",
+    "forward_1m_pct REAL", "forward_3m_pct REAL", "days_held INTEGER",
     "verified_date TEXT", "momentum_6m_pct REAL",
 ]
 
@@ -68,8 +78,9 @@ def log_sip_basket(
     force_relog: bool = False,
 ) -> int:
     """
-    Snapshot the current basket into sip_suggestion_log.
-    Skips ETF/Commodity positions. Returns number of new rows inserted.
+    Snapshot the current basket into sip_suggestion_log across all asset classes:
+    Stocks, Indexes / ETFs, Commodities, and Mutual Funds.
+    Returns number of new rows inserted.
     """
     init_sip_log_table(session)
     today_str   = date.today().isoformat()
@@ -78,39 +89,74 @@ def log_sip_basket(
 
     assets_list = basket.get("assets") or basket.get("selected_assets") or []
     for asset in assets_list:
-        symbol = asset.get("symbol", "")
-        if not symbol or asset.get("asset_class") in ("Index / ETF", "Commodity"):
+        symbol = str(asset.get("symbol", "")).strip()
+        if not symbol:
             continue
-        entry_price = float(asset.get("current_price", 0.0))
+
+        raw_asset_class = str(asset.get("asset_class", "")).strip()
+        if not raw_asset_class:
+            if "NIFTY" in symbol.upper() or symbol.startswith("^"):
+                raw_asset_class = "Index / ETF"
+            elif any(c in symbol.upper() for c in ["GOLD", "SILVER", "CRUDE", "COPPER"]):
+                raw_asset_class = "Commodity"
+            elif symbol.isdigit() or "FUND" in str(asset.get("name", "")).upper():
+                raw_asset_class = "Mutual Fund"
+            else:
+                raw_asset_class = "Stock"
+
+        entry_price = float(asset.get("current_price", 0.0) or asset.get("nav", 0.0))
+        if entry_price <= 0:
+            # Look up price in DB
+            if raw_asset_class == "Mutual Fund" or symbol.isdigit():
+                pr = session.execute(text("SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
+            elif raw_asset_class == "Index / ETF":
+                pr = session.execute(text("SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
+            elif raw_asset_class == "Commodity":
+                pr = session.execute(text("SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
+            else:
+                pr = session.execute(text("SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
+            entry_price = float(pr) if pr else 0.0
+
         if entry_price <= 0:
             continue
 
         # Fetch 6M momentum if not in asset dict
         momentum_6m = asset.get("momentum_6m_pct", None)
         if momentum_6m is None:
-            row = session.execute(text("""
-                SELECT (sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0
-                FROM signals sig
-                LEFT JOIN daily_prices dp_past ON dp_past.symbol = sig.symbol
-                    AND dp_past.date = (
-                        SELECT MIN(date) FROM daily_prices
-                        WHERE symbol = sig.symbol AND date >= date(:today, '-180 days')
-                    )
-                WHERE sig.symbol = :sym ORDER BY sig.date DESC LIMIT 1
-            """), {"sym": symbol, "today": today_str}).first()
-            momentum_6m = round(float(row[0]), 2) if row and row[0] is not None else None
+            if raw_asset_class == "Stock":
+                row = session.execute(text("""
+                    SELECT (sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0
+                    FROM signals sig
+                    LEFT JOIN daily_prices dp_past ON dp_past.symbol = sig.symbol
+                        AND dp_past.date = (
+                            SELECT MIN(date) FROM daily_prices
+                            WHERE symbol = sig.symbol AND date >= date(:today, '-180 days')
+                        )
+                    WHERE sig.symbol = :sym ORDER BY sig.date DESC LIMIT 1
+                """), {"sym": symbol, "today": today_str}).first()
+                momentum_6m = round(float(row[0]), 2) if row and row[0] is not None else None
+            elif raw_asset_class == "Mutual Fund" or symbol.isdigit():
+                row = session.execute(text("""
+                    SELECT (n1.nav - n2.nav) / NULLIF(n2.nav, 0.0) * 100.0
+                    FROM mutual_fund_navs n1
+                    JOIN mutual_fund_navs n2 ON n1.scheme_code = n2.scheme_code
+                        AND n2.date = (SELECT MIN(date) FROM mutual_fund_navs WHERE scheme_code = n1.scheme_code AND date >= date(:today, '-180 days'))
+                    WHERE n1.scheme_code = :sc ORDER BY n1.date DESC LIMIT 1
+                """), {"sc": symbol, "today": today_str}).first()
+                momentum_6m = round(float(row[0]), 2) if row and row[0] is not None else None
 
         params = {
             "log_date": today_str, "month_label": month_label,
             "symbol": symbol, "name": asset.get("name", symbol),
+            "asset_class": raw_asset_class,
             "sector": asset.get("sector", "General"), "tier": asset.get("tier", "mid"),
             "strategy": strategy, "exit_protocol": exit_protocol,
             "entry_price": entry_price,
-            "shares_suggested": asset.get("shares_to_buy", 0),
-            "total_cost": asset.get("total_cost", 0.0),
+            "shares_suggested": int(asset.get("shares_to_buy", 1) or 1),
+            "total_cost": float(asset.get("total_cost", entry_price)),
             "stop_loss": asset.get("stop_loss"),
-            "target_price": asset.get("target_price"),
-            "composite_score": asset.get("composite_score"),
+            "target_price": asset.get("target_price") or asset.get("target_price_1"),
+            "composite_score": asset.get("composite_score", 60.0),
             "signal": asset.get("signal", "BUY"),
             "momentum_6m_pct": momentum_6m,
         }
@@ -118,26 +164,27 @@ def log_sip_basket(
         if force_relog:
             session.execute(text("""
                 INSERT INTO sip_suggestion_log
-                    (log_date, month_label, symbol, name, sector, tier, strategy, exit_protocol,
+                    (log_date, month_label, symbol, name, asset_class, sector, tier, strategy, exit_protocol,
                      entry_price, shares_suggested, total_cost, stop_loss, target_price,
                      composite_score, signal, momentum_6m_pct, status, max_price_reached, min_price_reached)
-                VALUES (:log_date,:month_label,:symbol,:name,:sector,:tier,:strategy,:exit_protocol,
+                VALUES (:log_date,:month_label,:symbol,:name,:asset_class,:sector,:tier,:strategy,:exit_protocol,
                         :entry_price,:shares_suggested,:total_cost,:stop_loss,:target_price,
                         :composite_score,:signal,:momentum_6m_pct,'OPEN',:entry_price,:entry_price)
                 ON CONFLICT(log_date, symbol, strategy) DO UPDATE SET
                     entry_price=excluded.entry_price, shares_suggested=excluded.shares_suggested,
                     total_cost=excluded.total_cost, stop_loss=excluded.stop_loss,
                     target_price=excluded.target_price, composite_score=excluded.composite_score,
-                    signal=excluded.signal, momentum_6m_pct=excluded.momentum_6m_pct, status='OPEN'
+                    signal=excluded.signal, momentum_6m_pct=excluded.momentum_6m_pct, status='OPEN',
+                    asset_class=excluded.asset_class
             """), params)
             inserted += 1
         else:
             res = session.execute(text("""
                 INSERT OR IGNORE INTO sip_suggestion_log
-                    (log_date, month_label, symbol, name, sector, tier, strategy, exit_protocol,
+                    (log_date, month_label, symbol, name, asset_class, sector, tier, strategy, exit_protocol,
                      entry_price, shares_suggested, total_cost, stop_loss, target_price,
                      composite_score, signal, momentum_6m_pct, status, max_price_reached, min_price_reached)
-                VALUES (:log_date,:month_label,:symbol,:name,:sector,:tier,:strategy,:exit_protocol,
+                VALUES (:log_date,:month_label,:symbol,:name,:asset_class,:sector,:tier,:strategy,:exit_protocol,
                         :entry_price,:shares_suggested,:total_cost,:stop_loss,:target_price,
                         :composite_score,:signal,:momentum_6m_pct,'OPEN',:entry_price,:entry_price)
             """), params)
@@ -145,14 +192,16 @@ def log_sip_basket(
                 inserted += 1
 
     session.commit()
-    logger.info(f"SIP basket logged: {inserted} new picks [{strategy}] for {today_str}.")
+    logger.info(f"Multi-Asset SIP basket logged: {inserted} new picks [{strategy}] for {today_str}.")
     return inserted
 
 
 def update_sip_forward_performance(session: Session) -> int:
     """
-    Evaluate all OPEN sip_suggestion_log rows against latest market prices.
+    Evaluate all OPEN sip_suggestion_log rows against latest market prices across
+    Stocks, Indexes, Commodities, and Mutual Funds.
     Exit priority: SL_HIT > T1_HIT > TRAILING_SL_HIT > EXPIRED (365 days).
+    Computes benchmark alpha against NIFTY 50 and records rolling forward performance.
     Returns count of positions that changed status.
     """
     init_sip_log_table(session)
@@ -160,24 +209,47 @@ def update_sip_forward_performance(session: Session) -> int:
 
     open_rows = session.execute(text("""
         SELECT id, log_date, symbol, entry_price, stop_loss, target_price,
-               max_price_reached, min_price_reached
+               max_price_reached, min_price_reached, asset_class
         FROM sip_suggestion_log WHERE status = 'OPEN'
     """)).fetchall()
 
     if not open_rows:
         return 0
 
+    # Get latest NIFTY 50 price for benchmark comparison
+    nifty_latest = session.execute(text("""
+        SELECT close FROM index_prices WHERE symbol = '^NSEI' ORDER BY date DESC LIMIT 1
+    """)).scalar()
+
     updated = 0
     for row in open_rows:
-        rid, log_date_str, symbol, entry_price, stop_loss, target_price, max_p, min_p = row
+        rid, log_date_str, symbol, entry_price, stop_loss, target_price, max_p, min_p, asset_class = row
 
-        price_row = session.execute(text(
-            "SELECT close FROM daily_prices WHERE symbol=:sym ORDER BY date DESC LIMIT 1"
-        ), {"sym": symbol}).first()
-        if not price_row or price_row[0] is None:
+        asset_class = asset_class or "Stock"
+        curr_p = None
+
+        # Resolve price based on asset class
+        if asset_class in ("Mutual Fund", "MF") or str(symbol).isdigit():
+            curr_p = session.execute(text(
+                "SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"
+            ), {"s": symbol}).scalar()
+        elif asset_class in ("Index / ETF", "Index"):
+            curr_p = session.execute(text(
+                "SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
+            ), {"s": symbol}).scalar()
+        elif asset_class == "Commodity":
+            curr_p = session.execute(text(
+                "SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
+            ), {"s": symbol}).scalar()
+        else:
+            curr_p = session.execute(text(
+                "SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
+            ), {"s": symbol}).scalar()
+
+        if curr_p is None:
             continue
 
-        curr_p       = float(price_row[0])
+        curr_p       = float(curr_p)
         entry_price  = float(entry_price)  if entry_price  else 0.0
         stop_loss    = float(stop_loss)    if stop_loss    else None
         target_price = float(target_price) if target_price else None
@@ -192,6 +264,15 @@ def update_sip_forward_performance(session: Session) -> int:
         except Exception:
             days_held = 0
 
+        # Benchmark return over holding period
+        bench_ret = 0.0
+        if nifty_latest:
+            nifty_start = session.execute(text("""
+                SELECT close FROM index_prices WHERE symbol = '^NSEI' AND date <= :ld ORDER BY date DESC LIMIT 1
+            """), {"ld": log_date_str}).scalar()
+            if nifty_start and float(nifty_start) > 0:
+                bench_ret = round((float(nifty_latest) - float(nifty_start)) / float(nifty_start) * 100.0, 2)
+
         new_status = "OPEN"
         exit_price = realized_gain_pct = exit_date = None
 
@@ -204,103 +285,196 @@ def update_sip_forward_performance(session: Session) -> int:
         elif days_held > 365:
             new_status = "EXPIRED"; exit_price = curr_p; exit_date = today_str
 
+        current_or_exit_p = exit_price if exit_price else curr_p
+        gain_pct = round((current_or_exit_p - entry_price) / entry_price * 100.0, 2) if entry_price > 0 else 0.0
+        alpha_val = round(gain_pct - bench_ret, 2)
+
         if exit_price and entry_price > 0:
-            realized_gain_pct = round((exit_price - entry_price) / entry_price * 100.0, 2)
+            realized_gain_pct = gain_pct
 
         session.execute(text("""
             UPDATE sip_suggestion_log SET
                 max_price_reached=:max_p, min_price_reached=:min_p,
                 status=:status, exit_date=:exit_date, exit_price=:exit_price,
-                realized_gain_pct=:realized_gain_pct, days_held=:days_held,
-                verified_date=:verified_date
+                realized_gain_pct=:realized_gain_pct,
+                benchmark_gain_pct=:bench_gain, alpha_pct=:alpha,
+                days_held=:days_held, verified_date=:verified_date
             WHERE id=:rid
         """), {
             "max_p": round(new_max, 2), "min_p": round(new_min, 2),
             "status": new_status, "exit_date": exit_date,
             "exit_price": round(exit_price, 2) if exit_price else None,
-            "realized_gain_pct": realized_gain_pct, "days_held": days_held,
+            "realized_gain_pct": realized_gain_pct,
+            "bench_gain": bench_ret,
+            "alpha": alpha_val,
+            "days_held": days_held,
             "verified_date": today_str, "rid": rid,
         })
         if new_status != "OPEN":
             updated += 1
 
     session.commit()
-    logger.info(f"SIP tracker: {updated}/{len(open_rows)} positions updated.")
+    logger.info(f"Multi-Asset SIP tracker: {updated}/{len(open_rows)} positions evaluated and updated.")
     return updated
 
 
-def get_sip_accuracy_report(session: Session, months: int = 12) -> Dict:
+def evaluate_multi_asset_sip_accuracy(
+    session: Session,
+    months: int = 12,
+    asset_class_filter: str = "ALL",
+    strategy_filter: str = "ALL"
+) -> Dict:
     """
-    Aggregate SIP suggestion outcomes for the trailing N months.
-    Returns summary metrics dict + full DataFrame.
+    Comprehensive multi-asset accuracy analysis for Monthly SIP suggestions:
+      - Aggregates outcomes across Stocks, Indexes, Commodities, and MFs.
+      - Calculates Hit Rate (Win %), Benchmark Beat Rate (% beating NIFTY 50),
+        Profit Factor, Average Alpha (%), XIRR, and Strategy Breakdown.
     """
     init_sip_log_table(session)
     since_date = (date.today() - timedelta(days=months * 30)).isoformat()
 
-    rows = session.execute(text("""
-        SELECT symbol, name, sector, tier, log_date, month_label, strategy,
+    query = """
+        SELECT symbol, name, asset_class, sector, tier, log_date, month_label, strategy,
                entry_price, stop_loss, target_price, composite_score, momentum_6m_pct,
-               status, exit_date, exit_price, realized_gain_pct, days_held,
-               max_price_reached, min_price_reached, shares_suggested, total_cost
-        FROM sip_suggestion_log WHERE log_date >= :since
-        ORDER BY log_date DESC, symbol
-    """), {"since": since_date}).fetchall()
+               status, exit_date, exit_price, realized_gain_pct, benchmark_gain_pct, alpha_pct,
+               days_held, max_price_reached, min_price_reached, shares_suggested, total_cost
+        FROM sip_suggestion_log
+        WHERE log_date >= :since
+    """
+    params = {"since": since_date}
 
-    cols = ["symbol","name","sector","tier","log_date","month_label","strategy",
-            "entry_price","stop_loss","target_price","composite_score","momentum_6m_pct",
-            "status","exit_date","exit_price","realized_gain_pct","days_held",
-            "max_price_reached","min_price_reached","shares_suggested","total_cost"]
+    if asset_class_filter != "ALL":
+        query += " AND asset_class = :ac"
+        params["ac"] = asset_class_filter
+    if strategy_filter != "ALL":
+        query += " AND strategy = :strat"
+        params["strat"] = strategy_filter
+
+    query += " ORDER BY log_date DESC, symbol"
+
+    rows = session.execute(text(query), params).fetchall()
+
+    cols = [
+        "symbol", "name", "asset_class", "sector", "tier", "log_date", "month_label", "strategy",
+        "entry_price", "stop_loss", "target_price", "composite_score", "momentum_6m_pct",
+        "status", "exit_date", "exit_price", "realized_gain_pct", "benchmark_gain_pct", "alpha_pct",
+        "days_held", "max_price_reached", "min_price_reached", "shares_suggested", "total_cost"
+    ]
     df = pd.DataFrame(rows, columns=cols) if rows else pd.DataFrame(columns=cols)
 
-    _empty = {"total_suggestions":0,"win_rate_pct":0.0,"profit_factor":0.0,
-              "avg_winner_gain_pct":0.0,"avg_loser_loss_pct":0.0,"live_xirr_pct":0.0,
-              "open_count":0,"t1_count":0,"sl_count":0,"trailing_sl_count":0,
-              "expired_count":0,"df":df}
+    _empty = {
+        "total_suggestions": 0, "win_rate_pct": 0.0, "benchmark_beat_rate_pct": 0.0,
+        "profit_factor": 0.0, "avg_winner_gain_pct": 0.0, "avg_loser_loss_pct": 0.0,
+        "avg_alpha_pct": 0.0, "live_xirr_pct": 0.0, "open_count": 0, "completed_count": 0,
+        "asset_class_stats": {}, "strategy_stats": {}, "df": df
+    }
     if df.empty:
         return _empty
 
     df["realized_gain_pct"] = pd.to_numeric(df["realized_gain_pct"], errors="coerce")
     df["entry_price"]       = pd.to_numeric(df["entry_price"],       errors="coerce")
     df["exit_price"]        = pd.to_numeric(df["exit_price"],        errors="coerce")
+    df["benchmark_gain_pct"] = pd.to_numeric(df["benchmark_gain_pct"], errors="coerce").fillna(0.0)
+    df["alpha_pct"]          = pd.to_numeric(df["alpha_pct"],          errors="coerce").fillna(0.0)
     df["total_cost"]        = pd.to_numeric(df["total_cost"],        errors="coerce").fillna(0.0)
 
-    closed  = df[df["status"] != "OPEN"]
-    winners = closed[closed["realized_gain_pct"] > 0]
-    losers  = closed[closed["realized_gain_pct"] <= 0]
-
-    win_rate_pct = round(len(winners) / max(1, len(closed)) * 100.0, 1) if len(closed) > 0 else 0.0
-    gross_gain   = winners["realized_gain_pct"].sum() if len(winners) > 0 else 0.0
-    gross_loss   = abs(losers["realized_gain_pct"].sum()) if len(losers) > 0 else 0.0
-    pf           = round(gross_gain / max(0.01, gross_loss), 2)
-    avg_win      = round(winners["realized_gain_pct"].mean(), 2) if len(winners) > 0 else 0.0
-    avg_loss     = round(losers["realized_gain_pct"].mean(), 2)  if len(losers) > 0 else 0.0
-    live_xirr    = _compute_live_xirr(df)
-
+    # Compute live unrealized gain for open rows
     open_mask = df["status"] == "OPEN"
     if open_mask.any():
-        curr_prices = {}
-        for sym in df.loc[open_mask, "symbol"].unique():
-            pr = session.execute(text(
-                "SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
-            ), {"s": sym}).first()
-            curr_prices[sym] = float(pr[0]) if pr and pr[0] else None
+        for idx_row, r in df[open_mask].iterrows():
+            sym = r["symbol"]
+            ac = r["asset_class"] or "Stock"
+            curr_p = None
+            if ac in ("Mutual Fund", "MF") or str(sym).isdigit():
+                curr_p = session.execute(text("SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
+            elif ac in ("Index / ETF", "Index"):
+                curr_p = session.execute(text("SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
+            elif ac == "Commodity":
+                curr_p = session.execute(text("SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
+            else:
+                curr_p = session.execute(text("SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
 
-        def _unreal(r):
-            cp, ep = curr_prices.get(r["symbol"]), r["entry_price"]
-            return round((cp - ep) / ep * 100.0, 2) if cp and ep and ep > 0 else None
-        df.loc[open_mask, "unrealized_gain_pct"] = df.loc[open_mask].apply(_unreal, axis=1)
+            if curr_p and float(r["entry_price"]) > 0:
+                ep = float(r["entry_price"])
+                cp = float(curr_p)
+                ugain = round((cp - ep) / ep * 100.0, 2)
+                df.at[idx_row, "unrealized_gain_pct"] = ugain
+                df.at[idx_row, "current_price"] = cp
+                df.at[idx_row, "alpha_pct"] = round(ugain - float(r["benchmark_gain_pct"]), 2)
+            else:
+                df.at[idx_row, "unrealized_gain_pct"] = 0.0
+                df.at[idx_row, "current_price"] = r["entry_price"]
+
+    # Effective gain = realized for closed, unrealized for open
+    df["effective_gain_pct"] = df["realized_gain_pct"].combine_first(df["unrealized_gain_pct"]).fillna(0.0)
+
+    total_cnt = len(df)
+    winners = df[df["effective_gain_pct"] > 0]
+    losers = df[df["effective_gain_pct"] <= 0]
+    beat_benchmark = df[df["alpha_pct"] > 0]
+
+    win_rate = round(len(winners) / max(1, total_cnt) * 100.0, 1)
+    beat_rate = round(len(beat_benchmark) / max(1, total_cnt) * 100.0, 1)
+
+    gross_gain = winners["effective_gain_pct"].sum() if len(winners) > 0 else 0.0
+    gross_loss = abs(losers["effective_gain_pct"].sum()) if len(losers) > 0 else 0.0
+    pf = round(gross_gain / max(0.01, gross_loss), 2)
+
+    avg_win = round(winners["effective_gain_pct"].mean(), 2) if len(winners) > 0 else 0.0
+    avg_loss = round(losers["effective_gain_pct"].mean(), 2) if len(losers) > 0 else 0.0
+    avg_alpha = round(df["alpha_pct"].mean(), 2)
+    live_xirr = _compute_live_xirr(df)
+
+    # Asset Class Breakdown
+    ac_stats = {}
+    for ac_name, grp in df.groupby("asset_class"):
+        ac_win = round((grp["effective_gain_pct"] > 0).mean() * 100.0, 1)
+        ac_beat = round((grp["alpha_pct"] > 0).mean() * 100.0, 1)
+        ac_stats[ac_name] = {
+            "count": len(grp),
+            "win_rate_pct": ac_win,
+            "benchmark_beat_pct": ac_beat,
+            "avg_return_pct": round(grp["effective_gain_pct"].mean(), 2),
+            "avg_alpha_pct": round(grp["alpha_pct"].mean(), 2)
+        }
+
+    # Strategy Breakdown
+    strat_stats = {}
+    for st_name, grp in df.groupby("strategy"):
+        st_win = round((grp["effective_gain_pct"] > 0).mean() * 100.0, 1)
+        st_beat = round((grp["alpha_pct"] > 0).mean() * 100.0, 1)
+        strat_stats[st_name] = {
+            "count": len(grp),
+            "win_rate_pct": st_win,
+            "benchmark_beat_pct": st_beat,
+            "avg_return_pct": round(grp["effective_gain_pct"].mean(), 2),
+            "avg_alpha_pct": round(grp["alpha_pct"].mean(), 2)
+        }
 
     return {
-        "total_suggestions": len(df), "win_rate_pct": win_rate_pct,
-        "profit_factor": pf, "avg_winner_gain_pct": avg_win,
-        "avg_loser_loss_pct": avg_loss, "live_xirr_pct": live_xirr,
+        "total_suggestions": total_cnt,
+        "win_rate_pct": win_rate,
+        "benchmark_beat_rate_pct": beat_rate,
+        "profit_factor": pf,
+        "avg_winner_gain_pct": avg_win,
+        "avg_loser_loss_pct": avg_loss,
+        "avg_alpha_pct": avg_alpha,
+        "live_xirr_pct": live_xirr,
         "open_count": int(open_mask.sum()),
-        "t1_count": int(df["status"].isin(["T1_HIT","TRAILING_SL_HIT"]).sum()),
+        "completed_count": int((~open_mask).sum()),
+        "t1_count": int(df["status"].isin(["T1_HIT", "TRAILING_SL_HIT"]).sum()),
         "sl_count": int((df["status"] == "SL_HIT").sum()),
         "trailing_sl_count": int((df["status"] == "TRAILING_SL_HIT").sum()),
         "expired_count": int((df["status"] == "EXPIRED").sum()),
+        "asset_class_stats": ac_stats,
+        "strategy_stats": strat_stats,
         "df": df,
     }
+
+
+def get_sip_accuracy_report(session: Session, months: int = 12) -> Dict:
+    """Backward-compatible wrapper around evaluate_multi_asset_sip_accuracy."""
+    return evaluate_multi_asset_sip_accuracy(session, months=months, asset_class_filter="ALL", strategy_filter="ALL")
 
 
 def _compute_live_xirr(df: pd.DataFrame) -> float:
@@ -316,6 +490,8 @@ def _compute_live_xirr(df: pd.DataFrame) -> float:
             if r["status"] != "OPEN" and r["exit_date"] and r["exit_price"]:
                 cash_flows.append((date.fromisoformat(str(r["exit_date"])),
                                    float(r["exit_price"]) * shares))
+            elif "current_price" in r and r["current_price"]:
+                cash_flows.append((date.today(), float(r["current_price"]) * shares))
             else:
                 cash_flows.append((date.today(), float(r["entry_price"]) * shares))
         except Exception:
@@ -327,3 +503,4 @@ def _compute_live_xirr(df: pd.DataFrame) -> float:
         return calculate_xirr(cash_flows)
     except Exception:
         return 0.0
+

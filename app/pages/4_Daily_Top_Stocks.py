@@ -35,12 +35,16 @@ import core.sector_clusters
 import core.multi_timeframe
 import core.tranche_execution
 import core.earnings_catalysts
+import core.missed_signals
+import core.signals
 importlib.reload(core.macro_regime)
 importlib.reload(core.accuracy_tracker)
 importlib.reload(core.sector_clusters)
 importlib.reload(core.multi_timeframe)
 importlib.reload(core.tranche_execution)
 importlib.reload(core.earnings_catalysts)
+importlib.reload(core.missed_signals)
+importlib.reload(core.signals)
 
 from db.database import get_global_engine, get_session
 from sqlalchemy import text
@@ -49,6 +53,7 @@ from core.sector_clusters import get_sector_cluster, get_cluster_metadata, get_t
 from core.multi_timeframe import get_all_stocks_mtf_map
 from core.tranche_execution import calculate_tranche_execution_plan
 from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
+from core.signals import verify_momentum_vs_ml_projection
 
 engine = get_global_engine()
 
@@ -99,7 +104,11 @@ def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
                          SELECT MIN(date) FROM daily_prices
                          WHERE symbol = sig.symbol AND date >= date(sig.date, '-180 days')
                      )
-               ) as momentum_6m_pct
+               ) as momentum_6m_pct,
+               (
+                   SELECT forecast_1m_change_pct FROM forecasts fc
+                   WHERE fc.symbol = sig.symbol ORDER BY fc.generated_date DESC LIMIT 1
+               ) as ml_1m_pct
         FROM signals sig
         JOIN stocks s ON sig.symbol = s.symbol
         JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
@@ -379,6 +388,9 @@ def render_stock_table(rows, show_signal: bool = True):
         inc = inception_map.get(symbol, {})
         streak_days = inc.get("streak_days", int(rest[0] if rest and rest[0] else 1))
         mom_6m = float(rest[1]) if len(rest) > 1 and rest[1] is not None else None
+        ml_1m = float(rest[2]) if len(rest) > 2 and rest[2] is not None else None
+        mom_ml = verify_momentum_vs_ml_projection(symbol, momentum_pct=mom_6m, ml_forecast_pct=ml_1m)
+        mom_ml_tag = f" | {mom_ml['badge']}" if mom_ml["status"] != "NEUTRAL" else ""
         inception_date = inc.get("inception_date", "")
         inception_price = inc.get("inception_price", price)
         ret_since_inc = inc.get("return_since_inception_pct", 0.0)
@@ -440,7 +452,7 @@ def render_stock_table(rows, show_signal: bool = True):
 
         with st.expander(
             f"{rank_label} **{symbol}** — {name[:22]} | "
-            f"{sig_icon} {signal} ({conf_tag}) | {freshness_header}{mom_tag}{mtf_star_tag}{earn_tag} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
+            f"{sig_icon} {signal} ({conf_tag}) | {freshness_header}{mom_tag}{mom_ml_tag}{mtf_star_tag}{earn_tag} | {cluster_meta['badge']} | {tier.upper() if tier else 'MID'} | "
             f"Score: **{composite_score:.0f}** | ⏳ {pred_ttt['window_str']}",
             expanded=(i < 3)
         ):
@@ -541,6 +553,12 @@ def render_stock_table(rows, show_signal: bool = True):
                     st.markdown(f"- **Confidence:** `{confidence*100:.0f}%` ({'High Conviction' if confidence >= 0.75 else ('Moderate' if confidence >= 0.60 else 'Speculative')})")
                 if mom_6m is not None:
                     st.markdown(f"- **6M Momentum:** `{mom_6m:+.1f}%` ({'Leader 🚀' if mom_6m >= 20 else ('Upward 📈' if mom_6m >= 0 else 'Lagging 📉')})")
+                if mom_ml:
+                    m_col = mom_ml.get("color", "#8b949e")
+                    m_bad = mom_ml.get("badge", "Balanced")
+                    m_exp = mom_ml.get("explanation", "")
+                    st.markdown(f"- **🤖 Momentum vs ML:** <span style='color: {m_col}; font-weight: 600;'>{m_bad}</span>", unsafe_allow_html=True)
+                    st.caption(f"_{m_exp}_")
 
             with col4:
                 st.markdown("**💡 Why this signal?**")
@@ -1272,60 +1290,160 @@ with tabs[8]:
     st.markdown("---")
 
     # ── Missed Alpha & False Negative Surveillance ────────────────────────────
+    # ── Missed Alpha & False Negative Surveillance ────────────────────────────
     st.subheader("🔍 Missed Alpha & False Negative Surveillance (Uncaught Movers)")
-    st.caption("Continuous surveillance across all 285+ stocks in the universe to identify large subsequent moves (>+3% to +10%) that occurred on WATCH ratings and diagnose the root cause.")
+    st.caption("Comprehensive surveillance across all 285+ stocks in the universe to audit large subsequent moves (>+3% to +15%), diagnose false negative bottlenecks, and extract quant learnings.")
 
-    from core.missed_signals import scan_missed_opportunities
+    from core.missed_signals import scan_missed_opportunities, evaluate_missed_alpha_audit_accuracy, log_daily_missed_alpha_audit
 
-    col_ms1, col_ms2 = st.columns([1, 1])
-    with col_ms1:
-        ms_lookback = st.slider("Surveillance Lookback Horizon (Days):", min_value=3, max_value=15, value=5, step=1, key="ms_lookback_slider")
-    with col_ms2:
-        ms_min_gain = st.slider("Minimum Subsequent Gain Threshold (%):", min_value=2.0, max_value=15.0, value=4.0, step=0.5, key="ms_min_gain_slider")
+    ms_tab1, ms_tab2 = st.tabs(["⚡ Live Surveillance Scan", "📊 Historical Audit & Accuracy Track Record"])
 
-    session_ms = get_session(engine)
-    missed_report = scan_missed_opportunities(session_ms, lookback_days=ms_lookback, min_gain_pct=ms_min_gain)
-    session_ms.close()
+    with ms_tab1:
+        col_ms1, col_ms2, col_ms3 = st.columns([1.2, 1.2, 1])
+        with col_ms1:
+            ms_lookback = st.slider("Surveillance Lookback Horizon (Days):", min_value=3, max_value=15, value=5, step=1, key="ms_lookback_slider")
+        with col_ms2:
+            ms_min_gain = st.slider("Minimum Subsequent Gain Threshold (%):", min_value=2.0, max_value=15.0, value=4.0, step=0.5, key="ms_min_gain_slider")
+        with col_ms3:
+            st.write("")
+            st.write("")
+            if st.button("💾 Snapshot to Audit Log", key="btn_snapshot_missed"):
+                session_snap = get_session(engine)
+                snap_res = log_daily_missed_alpha_audit(session_snap, lookback_days=ms_lookback, min_gain_pct=ms_min_gain)
+                session_snap.close()
+                st.success(f"Snapshotted {snap_res.get('new_records_logged', 0)} mover records to audit log!")
+                st.rerun()
 
-    m_sum = missed_report["summary"]
-    if m_sum:
-        mk1, mk2, mk3, mk4 = st.columns(4)
-        mk1.metric("🚀 Total Fast Movers", f"{m_sum['total_movers_detected']} stocks", f">={ms_min_gain}% Gain")
-        mk2.metric("🔍 Uncaught / Missed", f"{m_sum['missed_movers_count']} stocks", f"Score < 59 on T-{ms_lookback}")
-        mk3.metric("📈 Avg Missed Alpha", f"+{m_sum['avg_missed_gain_pct']:.2f}%", f"Over {ms_lookback} sessions")
-        mk4.metric("🧠 Primary Bottleneck", f"{m_sum['top_bottleneck_factor']}", "Dominant Lagging Factor")
+        session_ms = get_session(engine)
+        missed_report = scan_missed_opportunities(session_ms, lookback_days=ms_lookback, min_gain_pct=ms_min_gain)
+        session_ms.close()
+
+        m_sum = missed_report["summary"]
+        if m_sum:
+            mk1, mk2, mk3, mk4 = st.columns(4)
+            mk1.metric("🚀 Total Fast Movers", f"{m_sum['total_movers_detected']} stocks", f">={ms_min_gain}% Gain")
+            mk2.metric("🔍 Uncaught / Missed", f"{m_sum['missed_movers_count']} stocks", f"Score < 59 on T-{ms_lookback}")
+            mk3.metric("📈 Avg Missed Alpha", f"+{m_sum['avg_missed_gain_pct']:.2f}%", f"Over {ms_lookback} sessions")
+            mk4.metric("🧠 Primary Bottleneck", f"{m_sum['top_bottleneck_factor']}", "Dominant Lagging Factor")
+
+            st.markdown("---")
+
+            if missed_report["missed_movers"]:
+                st.markdown("##### 🔬 Algorithmic Post-Mortem & Diagnostic Teardown")
+                df_missed = pd.DataFrame(missed_report["missed_movers"])[[
+                    "symbol", "name", "sector", "tier", "gain_pct", "start_score",
+                    "bottleneck", "diagnosis", "pattern_catalyst", "actionable_takeaway"
+                ]]
+
+                st.dataframe(
+                    df_missed.rename(columns={
+                        "symbol": "Symbol",
+                        "name": "Company",
+                        "sector": "Sector",
+                        "tier": "Cap Tier",
+                        "gain_pct": "Actual Gain %",
+                        "start_score": "Score on Day 0",
+                        "bottleneck": "Primary Bottleneck",
+                        "diagnosis": "Quantitative Diagnosis",
+                        "pattern_catalyst": "Candlestick Catalyst",
+                        "actionable_takeaway": "Actionable Quant Learning"
+                    }).style.format({
+                        "Actual Gain %": "+{:,.2f}%",
+                        "Score on Day 0": "{:.1f}/100"
+                    }),
+                    use_container_width=True,
+                    height=350,
+                    hide_index=True
+                )
+            else:
+                st.success(f"Zero missed opportunities! No WATCH stocks generated >=+{ms_min_gain}% gains over the last {ms_lookback} sessions.")
+
+    with ms_tab2:
+        session_audit = get_session(engine)
+        audit_eval = evaluate_missed_alpha_audit_accuracy(session_audit, days=60)
+        session_audit.close()
+
+        ak1, ak2, ak3, ak4, ak5 = st.columns(5)
+        ak1.metric("📦 Total Audited Movers", f"{audit_eval['total_movers']}", ">=4% Outliers")
+        ak2.metric("🎯 Signal Capture Rate", f"{audit_eval['capture_rate_pct']:.1f}%", f"{audit_eval['total_caught']} Caught by BUY")
+        ak3.metric("⚠️ False Negative Rate", f"{audit_eval['false_negative_rate_pct']:.1f}%", f"{audit_eval['total_missed']} Uncaught")
+        ak4.metric("📉 Cumulative Missed Alpha", f"+{audit_eval['total_missed_alpha_pct']:.1f}%", "Uncaptured Upside")
+        ak5.metric("📊 Avg Missed Move", f"+{audit_eval['avg_missed_gain_pct']:.1f}%", "Per False Negative")
 
         st.markdown("---")
 
-        if missed_report["missed_movers"]:
-            st.markdown("##### 🔬 Algorithmic Post-Mortem & Diagnostic Teardown")
-            df_missed = pd.DataFrame(missed_report["missed_movers"])[[
-                "symbol", "name", "sector", "tier", "gain_pct", "start_score",
-                "bottleneck", "diagnosis", "pattern_catalyst", "actionable_takeaway"
-            ]]
+        col_bchart, col_schart = st.columns(2)
 
+        with col_bchart:
+            st.markdown("##### 🔬 Bottleneck Breakdown (Why Big Moves Were Missed)")
+            if audit_eval.get("bottleneck_distribution"):
+                b_items = []
+                for btn_k, btn_v in audit_eval["bottleneck_distribution"].items():
+                    b_items.append({"Bottleneck Factor": btn_k, "Uncaught Movers": btn_v["count"], "Avg Gain %": btn_v["avg_gain"]})
+                df_btn = pd.DataFrame(b_items)
+                fig_btn = px.pie(
+                    df_btn,
+                    names="Bottleneck Factor",
+                    values="Uncaught Movers",
+                    hole=0.4,
+                    color_discrete_sequence=["#ef4444", "#f59e0b", "#38bdf8", "#8b5cf6", "#10b981"],
+                    title="Dominant False Negative Drivers"
+                )
+                fig_btn.update_layout(height=280, template="plotly_dark", margin=dict(l=10, r=10, t=35, b=10))
+                st.plotly_chart(fig_btn, use_container_width=True)
+            else:
+                st.info("No bottleneck distribution data recorded yet.")
+
+        with col_schart:
+            st.markdown("##### 🏭 Sector Distribution of False Negatives")
+            if audit_eval.get("sector_distribution"):
+                sec_items = [{"Sector": k, "Missed Movers": v} for k, v in audit_eval["sector_distribution"].items()]
+                df_sec = pd.DataFrame(sec_items).sort_values(by="Missed Movers", ascending=True)
+                fig_sec = px.bar(
+                    df_sec,
+                    x="Missed Movers",
+                    y="Sector",
+                    orientation="h",
+                    color="Missed Movers",
+                    color_continuous_scale=["#f59e0b", "#ef4444"],
+                    title="False Negative Concentration by Sector"
+                )
+                fig_sec.update_layout(height=280, template="plotly_dark", margin=dict(l=10, r=10, t=35, b=10))
+                st.plotly_chart(fig_sec, use_container_width=True)
+            else:
+                st.info("No sector distribution data recorded yet.")
+
+        st.markdown("---")
+
+        st.markdown("##### 💡 Quantitative Diagnostic Insights & Model Calibration")
+        for insight_line in audit_eval.get("quant_insights", []):
+            st.markdown(insight_line)
+
+        st.markdown("---")
+
+        st.markdown("##### 📜 Historical False Negative Audit Log")
+        df_aud_log = audit_eval.get("df")
+        if df_aud_log is not None and not df_aud_log.empty:
             st.dataframe(
-                df_missed.rename(columns={
+                df_aud_log.rename(columns={
+                    "audit_date": "Audit Date",
                     "symbol": "Symbol",
                     "name": "Company",
                     "sector": "Sector",
-                    "tier": "Cap Tier",
                     "gain_pct": "Actual Gain %",
-                    "start_score": "Score on Day 0",
+                    "was_caught": "Caught by BUY",
                     "bottleneck": "Primary Bottleneck",
-                    "diagnosis": "Quantitative Diagnosis",
-                    "pattern_catalyst": "Candlestick Catalyst",
-                    "actionable_takeaway": "Actionable Quant Learning"
+                    "diagnosis": "Diagnosis",
+                    "pattern_catalyst": "Pattern Catalyst",
+                    "actionable_takeaway": "Quant Takeaway"
                 }).style.format({
                     "Actual Gain %": "+{:,.2f}%",
-                    "Score on Day 0": "{:.1f}/100"
+                    "Caught by BUY": lambda x: "✅ YES (BUY)" if x == 1 else "❌ NO (WATCH)"
                 }),
                 use_container_width=True,
                 height=350,
                 hide_index=True
             )
-        else:
-            st.success(f"Zero missed opportunities! No WATCH stocks generated >=+{ms_min_gain}% gains over the last {ms_lookback} sessions.")
 
 # Tab 10: Custom Quantitative Screener & Institutional Presets
 with tabs[9]:

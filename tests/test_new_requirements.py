@@ -71,7 +71,7 @@ def test_2_multi_asset_sip_daily_audit():
         b_inserted = log_sip_basket(
             session=session,
             basket={"assets": test_basket},
-            strategy="Compounder Multi-Asset Core",
+            strategy="TEST_Compounder_Multi_Asset_Core",
             exit_protocol="Target T2 / Trailing Stop",
             force_relog=True
         )
@@ -88,6 +88,8 @@ def test_2_multi_asset_sip_daily_audit():
         assert "asset_class_stats" in acc
         assert "strategy_stats" in acc
     finally:
+        session.execute(text("DELETE FROM sip_suggestion_log WHERE strategy = 'TEST_Compounder_Multi_Asset_Core'"))
+        session.commit()
         session.close()
 
 
@@ -265,7 +267,7 @@ def test_7_recommendation_mandate_and_shift_tracker():
         mid = save_active_recommendation_mandate(
             session,
             name="Test Mandate Lifecycle",
-            strategy="MULTI_ASSET",
+            strategy="TEST_MULTI_ASSET",
             assets=sample_assets,
             source="Monthly SIP Planner",
             monthly_outlay=20000.0,
@@ -288,7 +290,7 @@ def test_7_recommendation_mandate_and_shift_tracker():
             {"symbol": "BHEL", "composite_score": 90.0, "signal": "BUY", "current_price": 425.0},
             {"symbol": "TRENT", "composite_score": 85.0, "signal": "BUY", "current_price": 7200.0}
         ]
-        shifts = compute_daily_recommendation_shifts(session, curr_b, strategy="MULTI_ASSET")
+        shifts = compute_daily_recommendation_shifts(session, curr_b, strategy="TEST_MULTI_ASSET")
         assert "new_additions" in shifts
         assert "dropped_assets" in shifts
         assert "action_summary" in shifts
@@ -300,6 +302,8 @@ def test_7_recommendation_mandate_and_shift_tracker():
         # Clean up test mandate
         delete_or_retire_mandate(session, mid, action="DELETE")
     finally:
+        session.execute(text("DELETE FROM sip_suggestion_log WHERE strategy = 'TEST_MULTI_ASSET'"))
+        session.commit()
         session.close()
 
 

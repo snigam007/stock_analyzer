@@ -1832,13 +1832,17 @@ with tab6:
                         "Avg Alpha %": stats["avg_alpha_pct"],
                     })
                 df_ac = pd.DataFrame(ac_rows)
+                for c in ["Total Picks", "Win Rate %", "Beat NIFTY %", "Avg Return %", "Avg Alpha %"]:
+                    if c in df_ac.columns:
+                        df_ac[c] = pd.to_numeric(df_ac[c], errors="coerce")
                 st.dataframe(
                     df_ac.style.format({
+                        "Total Picks": lambda x: f"{int(x)}" if pd.notnull(x) and not pd.isna(x) else "0",
                         "Win Rate %": "{:.1f}%",
                         "Beat NIFTY %": "{:.1f}%",
                         "Avg Return %": "{:+.2f}%",
                         "Avg Alpha %": "{:+.2f}%",
-                    }),
+                    }, na_rep="—"),
                     use_container_width=True,
                     hide_index=True
                 )
@@ -1859,13 +1863,17 @@ with tab6:
                         "Avg Alpha %": stats["avg_alpha_pct"],
                     })
                 df_st = pd.DataFrame(st_rows)
+                for c in ["Total Picks", "Win Rate %", "Beat NIFTY %", "Avg Return %", "Avg Alpha %"]:
+                    if c in df_st.columns:
+                        df_st[c] = pd.to_numeric(df_st[c], errors="coerce")
                 st.dataframe(
                     df_st.style.format({
+                        "Total Picks": lambda x: f"{int(x)}" if pd.notnull(x) and not pd.isna(x) else "0",
                         "Win Rate %": "{:.1f}%",
                         "Beat NIFTY %": "{:.1f}%",
                         "Avg Return %": "{:+.2f}%",
                         "Avg Alpha %": "{:+.2f}%",
-                    }),
+                    }, na_rep="—"),
                     use_container_width=True,
                     hide_index=True
                 )
@@ -1904,30 +1912,36 @@ with tab6:
             ]
             avail_cols = [c for c in disp_cols if c in filtered_df.columns]
 
+            rename_map = {
+                "month_label": "Month",
+                "symbol": "Symbol",
+                "name": "Name",
+                "asset_class": "Asset Class",
+                "sector": "Sector",
+                "strategy": "Strategy",
+                "entry_price": "Entry (₹)",
+                "target_price": "Target (₹)",
+                "stop_loss": "Stop Loss (₹)",
+                "status": "Status",
+                "effective_gain_pct": "Net Gain %",
+                "benchmark_gain_pct": "Nifty 50 %",
+                "alpha_pct": "Alpha %",
+                "days_held": "Days Held"
+            }
+            sub_df = filtered_df[avail_cols].rename(columns=rename_map).copy()
+            for num_col in ["Entry (₹)", "Target (₹)", "Stop Loss (₹)", "Net Gain %", "Nifty 50 %", "Alpha %", "Days Held"]:
+                if num_col in sub_df.columns:
+                    sub_df[num_col] = pd.to_numeric(sub_df[num_col], errors="coerce")
+
             st.dataframe(
-                filtered_df[avail_cols].rename(columns={
-                    "month_label": "Month",
-                    "symbol": "Symbol",
-                    "name": "Name",
-                    "asset_class": "Asset Class",
-                    "sector": "Sector",
-                    "strategy": "Strategy",
-                    "entry_price": "Entry (₹)",
-                    "target_price": "Target (₹)",
-                    "stop_loss": "Stop Loss (₹)",
-                    "status": "Status",
-                    "effective_gain_pct": "Net Gain %",
-                    "benchmark_gain_pct": "Nifty 50 %",
-                    "alpha_pct": "Alpha %",
-                    "days_held": "Days Held"
-                }).style.format({
-                    "Entry (₹)": "₹{:,.2f}",
-                    "Target (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) and x else "—",
-                    "Stop Loss (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) and x else "—",
-                    "Net Gain %": "{:+.2f}%",
-                    "Nifty 50 %": "{:+.2f}%",
-                    "Alpha %": "{:+.2f}%",
-                    "Days Held": "{:.0f}"
+                sub_df.style.format({
+                    "Entry (₹)": lambda x: f"₹{float(x):,.2f}" if pd.notnull(x) and not pd.isna(x) and float(x) > 0 else "—",
+                    "Target (₹)": lambda x: f"₹{float(x):,.2f}" if pd.notnull(x) and not pd.isna(x) and float(x) > 0 else "—",
+                    "Stop Loss (₹)": lambda x: f"₹{float(x):,.2f}" if pd.notnull(x) and not pd.isna(x) and float(x) > 0 else "—",
+                    "Net Gain %": lambda x: f"{float(x):+.2f}%" if pd.notnull(x) and not pd.isna(x) else "—",
+                    "Nifty 50 %": lambda x: f"{float(x):+.2f}%" if pd.notnull(x) and not pd.isna(x) else "—",
+                    "Alpha %": lambda x: f"{float(x):+.2f}%" if pd.notnull(x) and not pd.isna(x) else "—",
+                    "Days Held": lambda x: f"{int(x)}" if pd.notnull(x) and not pd.isna(x) else "0"
                 }, na_rep="—"),
                 use_container_width=True,
                 height=380,

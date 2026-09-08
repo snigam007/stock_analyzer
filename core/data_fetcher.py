@@ -316,6 +316,20 @@ def save_prices_to_db(
             
             if rows_data:
                 try:
+                    # If daily_return is missing (e.g. single-day delta download), compute from DB previous close
+                    prev_c = session.execute(text(
+                        "SELECT close FROM daily_prices WHERE symbol = :s AND date < :d ORDER BY date DESC LIMIT 1"
+                    ), {"s": symbol, "d": rows_data[0]["date"]}).scalar()
+                    for r in rows_data:
+                        if r["daily_return"] is None and prev_c and prev_c > 0 and r["close"] is not None:
+                            r["daily_return"] = round((r["close"] - prev_c) / prev_c * 100.0, 4)
+                            try:
+                                r["log_return"] = round(float(np.log(r["close"] / prev_c)), 6)
+                            except Exception:
+                                pass
+                        if r["close"] is not None:
+                            prev_c = r["close"]
+
                     session.execute(text("""
                         INSERT OR REPLACE INTO daily_prices 
                         (stock_id, symbol, date, open, high, low, close, adj_close, volume, daily_return, log_return)
@@ -345,6 +359,15 @@ def save_prices_to_db(
                 })
             if rows_data:
                 try:
+                    prev_idx_c = session.execute(text(
+                        "SELECT close FROM index_prices WHERE symbol = :s AND date < :d ORDER BY date DESC LIMIT 1"
+                    ), {"s": symbol, "d": rows_data[0]["date"]}).scalar()
+                    for r in rows_data:
+                        if r["daily_return"] is None and prev_idx_c and prev_idx_c > 0 and r["close"] is not None:
+                            r["daily_return"] = round((r["close"] - prev_idx_c) / prev_idx_c * 100.0, 4)
+                        if r["close"] is not None:
+                            prev_idx_c = r["close"]
+
                     session.execute(text("""
                         INSERT OR REPLACE INTO index_prices 
                         (symbol, date, open, high, low, close, volume, daily_return)
@@ -374,6 +397,15 @@ def save_prices_to_db(
                 })
             if rows_data:
                 try:
+                    prev_comm_c = session.execute(text(
+                        "SELECT close FROM commodity_prices WHERE symbol = :s AND date < :d ORDER BY date DESC LIMIT 1"
+                    ), {"s": symbol, "d": rows_data[0]["date"]}).scalar()
+                    for r in rows_data:
+                        if r["daily_return"] is None and prev_comm_c and prev_comm_c > 0 and r["close"] is not None:
+                            r["daily_return"] = round((r["close"] - prev_comm_c) / prev_comm_c * 100.0, 4)
+                        if r["close"] is not None:
+                            prev_comm_c = r["close"]
+
                     session.execute(text("""
                         INSERT OR REPLACE INTO commodity_prices 
                         (symbol, date, open, high, low, close, volume, daily_return)

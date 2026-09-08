@@ -70,6 +70,85 @@ def init_sip_log_table(session: Session) -> None:
     session.commit()
 
 
+def get_any_asset_latest_price(session: Session, symbol: str, asset_class: str = None) -> float | None:
+    """
+    Robust latest price lookup across all asset tables:
+    1. Check appropriate table based on asset_class or symbol type
+    2. Fallback across all other price tables if not found (e.g., GOLDBEES.NS is in index_prices, MF_122639 in mutual_fund_navs)
+    """
+    if not symbol:
+        return None
+
+    sym = str(symbol).strip()
+    ac = (asset_class or "").strip()
+
+    # Extract clean MF scheme code if prefixed with MF_ or is numeric
+    mf_code = sym.replace("MF_", "") if sym.startswith("MF_") else sym
+
+    # 1. Mutual Fund Check
+    if ac in ("Mutual Fund", "MF") or sym.startswith("MF_") or mf_code.isdigit():
+        p = session.execute(
+            text("SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"),
+            {"s": mf_code}
+        ).scalar()
+        if p is not None:
+            return float(p)
+
+    # 2. Commodity Check
+    if ac == "Commodity" or any(c in sym.upper() for c in ["GOLD", "SILVER", "CRUDE", "COPPER"]) and ("=" in sym or "F" in sym):
+        p = session.execute(
+            text("SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"),
+            {"s": sym}
+        ).scalar()
+        if p is not None:
+            return float(p)
+
+    # 3. Index / ETF Check
+    if ac in ("Index / ETF", "Index") or sym.startswith("^") or "BEES" in sym.upper() or "ETF" in sym.upper():
+        p = session.execute(
+            text("SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"),
+            {"s": sym}
+        ).scalar()
+        if p is not None:
+            return float(p)
+
+    # 4. Stock Check (default)
+    p = session.execute(
+        text("SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"),
+        {"s": sym}
+    ).scalar()
+    if p is not None:
+        return float(p)
+
+    # 5. Fallbacks across all tables
+    # Index / ETF table
+    p = session.execute(
+        text("SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"),
+        {"s": sym}
+    ).scalar()
+    if p is not None:
+        return float(p)
+
+    # Commodity table
+    p = session.execute(
+        text("SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"),
+        {"s": sym}
+    ).scalar()
+    if p is not None:
+        return float(p)
+
+    # Mutual Fund table (using both mf_code and sym)
+    for c in [mf_code, sym]:
+        p = session.execute(
+            text("SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"),
+            {"s": c}
+        ).scalar()
+        if p is not None:
+            return float(p)
+
+    return None
+
+
 def log_sip_basket(
     session: Session,
     basket: Dict,
@@ -94,27 +173,19 @@ def log_sip_basket(
             continue
 
         raw_asset_class = str(asset.get("asset_class", "")).strip()
-        if not raw_asset_class:
-            if "NIFTY" in symbol.upper() or symbol.startswith("^"):
+        if not raw_asset_class or raw_asset_class == "Stock":
+            if "NIFTY" in symbol.upper() or symbol.startswith("^") or "BEES" in symbol.upper() or "ETF" in symbol.upper():
                 raw_asset_class = "Index / ETF"
-            elif any(c in symbol.upper() for c in ["GOLD", "SILVER", "CRUDE", "COPPER"]):
+            elif any(c in symbol.upper() for c in ["GOLD", "SILVER", "CRUDE", "COPPER"]) and ("=" in symbol or "F" in symbol):
                 raw_asset_class = "Commodity"
-            elif symbol.isdigit() or "FUND" in str(asset.get("name", "")).upper():
+            elif symbol.isdigit() or symbol.startswith("MF_") or "FUND" in str(asset.get("name", "")).upper():
                 raw_asset_class = "Mutual Fund"
             else:
-                raw_asset_class = "Stock"
+                raw_asset_class = raw_asset_class or "Stock"
 
         entry_price = float(asset.get("current_price", 0.0) or asset.get("nav", 0.0))
         if entry_price <= 0:
-            # Look up price in DB
-            if raw_asset_class == "Mutual Fund" or symbol.isdigit():
-                pr = session.execute(text("SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
-            elif raw_asset_class == "Index / ETF":
-                pr = session.execute(text("SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
-            elif raw_asset_class == "Commodity":
-                pr = session.execute(text("SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
-            else:
-                pr = session.execute(text("SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": symbol}).scalar()
+            pr = get_any_asset_latest_price(session, symbol, raw_asset_class)
             entry_price = float(pr) if pr else 0.0
 
         if entry_price <= 0:
@@ -199,10 +270,7 @@ def log_sip_basket(
 def update_sip_forward_performance(session: Session) -> int:
     """
     Evaluate all OPEN sip_suggestion_log rows against latest market prices across
-    Stocks, Indexes, Commodities, and Mutual Funds.
-    Exit priority: SL_HIT > T1_HIT > TRAILING_SL_HIT > EXPIRED (365 days).
-    Computes benchmark alpha against NIFTY 50 and records rolling forward performance.
-    Returns count of positions that changed status.
+    all asset classes (Stocks, Mutual Funds, Indexes, Commodities).
     """
     init_sip_log_table(session)
     today_str = date.today().isoformat()
@@ -216,7 +284,6 @@ def update_sip_forward_performance(session: Session) -> int:
     if not open_rows:
         return 0
 
-    # Get latest NIFTY 50 price for benchmark comparison
     nifty_latest = session.execute(text("""
         SELECT close FROM index_prices WHERE symbol = '^NSEI' ORDER BY date DESC LIMIT 1
     """)).scalar()
@@ -225,26 +292,7 @@ def update_sip_forward_performance(session: Session) -> int:
     for row in open_rows:
         rid, log_date_str, symbol, entry_price, stop_loss, target_price, max_p, min_p, asset_class = row
 
-        asset_class = asset_class or "Stock"
-        curr_p = None
-
-        # Resolve price based on asset class
-        if asset_class in ("Mutual Fund", "MF") or str(symbol).isdigit():
-            curr_p = session.execute(text(
-                "SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"
-            ), {"s": symbol}).scalar()
-        elif asset_class in ("Index / ETF", "Index"):
-            curr_p = session.execute(text(
-                "SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
-            ), {"s": symbol}).scalar()
-        elif asset_class == "Commodity":
-            curr_p = session.execute(text(
-                "SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
-            ), {"s": symbol}).scalar()
-        else:
-            curr_p = session.execute(text(
-                "SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"
-            ), {"s": symbol}).scalar()
+        curr_p = get_any_asset_latest_price(session, symbol, asset_class)
 
         if curr_p is None:
             continue
@@ -384,15 +432,7 @@ def evaluate_multi_asset_sip_accuracy(
         for idx_row, r in df[open_mask].iterrows():
             sym = r["symbol"]
             ac = r["asset_class"] or "Stock"
-            curr_p = None
-            if ac in ("Mutual Fund", "MF") or str(sym).isdigit():
-                curr_p = session.execute(text("SELECT nav FROM mutual_fund_navs WHERE scheme_code=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
-            elif ac in ("Index / ETF", "Index"):
-                curr_p = session.execute(text("SELECT close FROM index_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
-            elif ac == "Commodity":
-                curr_p = session.execute(text("SELECT close FROM commodity_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
-            else:
-                curr_p = session.execute(text("SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": sym}).scalar()
+            curr_p = get_any_asset_latest_price(session, sym, ac)
 
             if curr_p and float(r["entry_price"]) > 0:
                 ep = float(r["entry_price"])
@@ -404,6 +444,16 @@ def evaluate_multi_asset_sip_accuracy(
             else:
                 df.at[idx_row, "unrealized_gain_pct"] = 0.0
                 df.at[idx_row, "current_price"] = r["entry_price"]
+
+    # Calculate days_held for all rows if null
+    for idx_row, r in df.iterrows():
+        if pd.isna(r["days_held"]) or r["days_held"] is None:
+            try:
+                log_d = date.fromisoformat(str(r["log_date"]))
+                exit_d = date.fromisoformat(str(r["exit_date"])) if r.get("exit_date") else date.today()
+                df.at[idx_row, "days_held"] = max(0, (exit_d - log_d).days)
+            except Exception:
+                df.at[idx_row, "days_held"] = 0
 
     # Effective gain = realized for closed, unrealized for open
     df["effective_gain_pct"] = df["realized_gain_pct"].combine_first(df["unrealized_gain_pct"]).fillna(0.0)

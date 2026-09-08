@@ -210,9 +210,9 @@ def get_dashboard_data():
     breadth = session.execute(text("""
         SELECT
             COUNT(*) as total,
-            SUM(CASE WHEN daily_return > 0 THEN 1 ELSE 0 END) as up,
-            SUM(CASE WHEN daily_return < 0 THEN 1 ELSE 0 END) as down,
-            AVG(daily_return) as avg_return
+            SUM(CASE WHEN COALESCE(daily_return, (close - open) / NULLIF(open, 0) * 100.0) > 0 THEN 1 ELSE 0 END) as up,
+            SUM(CASE WHEN COALESCE(daily_return, (close - open) / NULLIF(open, 0) * 100.0) < 0 THEN 1 ELSE 0 END) as down,
+            AVG(COALESCE(daily_return, (close - open) / NULLIF(open, 0) * 100.0)) as avg_return
         FROM daily_prices
         WHERE date = (SELECT MAX(date) FROM daily_prices)
     """)).fetchone()

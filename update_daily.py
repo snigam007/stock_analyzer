@@ -114,13 +114,21 @@ def run_daily_delta_update(top_forecasts: int = 50):
     except Exception as e:
         logger.warning(f"Signal audit evaluation notice: {e}")
 
-    # 8b. Update SIP Suggestion Forward Performance Track Record
+    # 8b. Update SIP Suggestion Forward Performance Track Record & Snapshot Today's Baskets
     try:
-        from core.sip_tracker import init_sip_log_table, update_sip_forward_performance
+        from core.sip_tracker import init_sip_log_table, update_sip_forward_performance, log_sip_basket
+        from core.sip_calculator import generate_monthly_sip_basket
         init_sip_log_table(session)
         sip_res = update_sip_forward_performance(session)
         if sip_res:
             logger.info(f"   SIP Track Record: Evaluated and updated {sip_res} open recommendations.")
+
+        # Auto-snapshot today's baseline baskets so daily recommendation shifts track automatically
+        b_stocks = generate_monthly_sip_basket(session, monthly_wallet=20000, strategy="PURE_STOCKS", include_mutual_funds=False)
+        n_stocks = log_sip_basket(session, b_stocks, strategy="PURE_STOCKS", exit_protocol="STRUCTURAL_TRAILING")
+        b_multi = generate_monthly_sip_basket(session, monthly_wallet=20000, strategy="MULTI_ASSET", include_mutual_funds=True, mf_allocation_pct=40)
+        n_multi = log_sip_basket(session, b_multi, strategy="MULTI_ASSET", exit_protocol="STRUCTURAL_TRAILING")
+        logger.info(f"   SIP Recommendations: Auto-snapshotted daily baseline baskets (Stocks: {n_stocks}, Multi-Asset/MF: {n_multi}).")
     except Exception as e:
         logger.warning(f"SIP forward tracker notice: {e}")
 

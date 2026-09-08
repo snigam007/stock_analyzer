@@ -102,6 +102,13 @@ try:
 except Exception as e:
     st.error(f"Error checking latest signals: {e}")
 
+st.markdown(f"""
+<div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #1e293b; padding: 7px 16px; border-radius: 6px; margin-bottom: 14px; font-size: 0.82em; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+    <span>🏛️ <b>Official AMFI NAV Date:</b> {latest_nav_date} • <b>Signals Run:</b> {latest_sig_date or latest_nav_date}</span>
+    <span>ℹ️ <i>Mutual Fund NAVs are released daily by AMFI between 9:00 PM and 11:00 PM IST post-market close.</i></span>
+</div>
+""", unsafe_allow_html=True)
+
 # Main Tabs
 tab1, tab_delta, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 Daily MF Buy & Sell Signals",

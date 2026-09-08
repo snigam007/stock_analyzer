@@ -103,10 +103,16 @@ with row1_c1:
 with row1_c2:
     strategy_choice = st.selectbox(
         "Investment Strategy",
-        ["💎 100% Direct Stocks (Multi-Sector Alpha)", "🌐 Multi-Asset (Equities + Index + Gold)"],
+        [
+            "💎 100% Direct Stocks (Multi-Sector Alpha)",
+            "🌐 Multi-Asset All-Weather (Equities + Mutual Funds + Index + Gold)",
+            "🏛️ Core Mutual Funds Anchor (50% MFs + 50% Equities)",
+            "🛡️ Equities + Index + Gold ETF (No Mutual Funds)"
+        ],
         index=0,
-        help="Choose 100% direct equities or a multi-asset diversified basket."
+        help="Choose 100% direct equities, multi-asset with mutual funds, or core mutual fund anchor."
     )
+    is_mf_strategy = ("Mutual Funds" in strategy_choice or "MFs" in strategy_choice)
     strategy_code = "PURE_STOCKS" if "100%" in strategy_choice else "MULTI_ASSET"
 
 with row1_c3:
@@ -210,10 +216,12 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
             cap_guard_val = None
 
     with b6:
+        default_mf_toggle = is_mf_strategy
+        default_mf_ratio = 50 if "50%" in strategy_choice else (40 if is_mf_strategy else 0)
         global_include_mf = st.toggle(
             "🏛️ Include Mutual Funds",
-            value=False,
-            key="global_include_mf",
+            value=default_mf_toggle,
+            key=f"global_include_mf_{is_mf_strategy}",
             help="Allocates chosen % to Top Direct-Growth Mutual Funds as institutional core anchor, and remaining % to direct stocks."
         )
         if global_include_mf:
@@ -221,9 +229,9 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
                 "Core MF %",
                 min_value=10,
                 max_value=90,
-                value=50,
+                value=default_mf_ratio if default_mf_ratio > 0 else 40,
                 step=5,
-                key="global_mf_pct",
+                key=f"global_mf_pct_{is_mf_strategy}",
                 help="Percentage of monthly wallet directed to Core Direct-Growth Mutual Funds (Flexi Cap, Mid Cap, Index, Small Cap)."
             )
             st.caption("💡 Prefer an independent dedicated MF budget or Quarterly/Yearly SIP? Open **Mutual Funds Radar (Tab 5)**.")
@@ -577,9 +585,20 @@ with tab1:
     session_shift = get_session(engine)
     try:
         shift_data = compute_daily_recommendation_shifts(session_shift, basket["assets"], strategy=strategy_code)
+        mkt_max_d = session_shift.execute(text("SELECT MAX(date) FROM daily_prices")).scalar() or date.today().isoformat()
+        mf_max_d = session_shift.execute(text("SELECT MAX(date) FROM mutual_fund_navs")).scalar() or date.today().isoformat()
     except Exception as e:
         shift_data = {"is_identical": True, "new_additions": [], "dropped_assets": [], "retained_assets": [], "action_summary": "", "prior_snapshot_date": None}
+        mkt_max_d = date.today().isoformat()
+        mf_max_d = date.today().isoformat()
     session_shift.close()
+
+    st.markdown(f"""
+    <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #1e293b; padding: 7px 16px; border-radius: 6px; margin-bottom: 12px; font-size: 0.82em; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <span>📊 <b>Market Equities:</b> {mkt_max_d} (Latest Close) • 🏛️ <b>Mutual Fund NAVs:</b> {mf_max_d} (AMFI Official Feed — updates ~9 PM IST)</span>
+        <span>⚡ <b>SIP Model:</b> Live Multi-Factor Optimization on {mkt_max_d} Close</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     if not shift_data["is_identical"]:
         with st.expander("⚡ Daily Recommendation Shift Alert: What Changed Today?", expanded=True):
@@ -589,6 +608,18 @@ with tab1:
                 <div style="color: #cbd5e1; font-size: 0.88em; margin-top: 4px;">{shift_data['action_summary']}</div>
             </div>
             """, unsafe_allow_html=True)
+
+            b_c1, b_c2 = st.columns([1.5, 3.5])
+            with b_c1:
+                if st.button("💾 Lock In & Snapshot Today's Basket", key="tab1_snapshot_today", type="primary", use_container_width=True):
+                    s_snap = get_session(engine)
+                    from core.sip_tracker import log_sip_basket
+                    n_log = log_sip_basket(s_snap, basket, strategy=strategy_code, exit_protocol=protocol_code, force_relog=True)
+                    s_snap.close()
+                    st.success(f"✅ Snapshotted {n_log} assets for {date.today().isoformat()} to audit database!")
+                    st.rerun()
+            with b_c2:
+                st.caption("Locks in today's updated basket as the active forward baseline. Subsequent runs will track shifts and performance against today's prices.")
 
             sc1, sc2, sc3 = st.columns(3)
             with sc1:

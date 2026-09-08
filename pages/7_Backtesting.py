@@ -22,73 +22,76 @@ while _curr != _curr.parent:
 BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
-st.set_page_config(page_title="Strategy Backtesting", page_icon="🧪", layout="wide")
-
-import importlib
-import core.backtester
-importlib.reload(core.backtester)
-
-from db.database import get_global_engine, get_session
-from sqlalchemy import text
-from core.backtester import run_backtest
-
-engine = get_global_engine()
-
-
-def format_price(p): return f"₹{p:,.2f}" if p else "—"
-
-
-@st.cache_data(ttl=30)
-def get_available_stocks():
-    session = get_session(engine)
-    result = session.execute(text("""
-        SELECT s.symbol, s.name, s.sector
-        FROM stocks s
-        JOIN daily_prices p ON s.symbol = p.symbol
-        GROUP BY s.symbol
-        HAVING COUNT(p.id) >= 60
-        ORDER BY s.sector, s.symbol
-    """)).fetchall()
-    session.close()
-    return result
-
-
-st.title("🧪 Quantitative Strategy Backtesting & Rule Composer")
-st.caption("Verify and stress-test algorithmic trading strategies and compose custom quantitative rules")
-
-backtest_tabs = st.tabs([
-    "📈 Single Asset Strategy Backtest",
-    "🛠️ No-Code Visual Quantitative Strategy Builder",
-    "🔬 Overfitting Audit & Deflated Sharpe (DSR)",
-    "🧬 Genetic Algorithm Evolutionary Optimizer",
-    "🔄 Walk-Forward Rolling Analysis (Out-of-Sample)",
-])
-
-with backtest_tabs[0]:
-    # ── Sidebar Controls ──────────────────────────────────────────────────────────
-    st.sidebar.title("⚙️ Backtest Settings")
-
-    stock_list = get_available_stocks()
-    if not stock_list:
-        st.warning("No historical price data available. Please download stock data first.")
-        st.stop()
-
-symbols = [s[0] for s in stock_list]
-labels = [f"{s[0]} — {s[1][:30]} ({s[2]})" for s in stock_list]
-
-selected_idx = st.sidebar.selectbox("Select Stock / Asset", range(len(labels)), format_func=lambda i: labels[i])
-selected_symbol = symbols[selected_idx]
-
-strategy = st.sidebar.selectbox(
-    "Select Strategy",
-    [
-        "Multi-Engine Confluence",
-        "EMA Golden Cross Trend",
-        "RSI Oversold Mean Reversion",
-        "Volume Breakout Momentum",
-    ],
-    help="Algorithmic trading model to execute historically."
-)
+try:
+    st.set_page_config(page_title="Strategy Backtesting", page_icon="🧪", layout="wide")
+    
+    import importlib
+    import core.backtester
+    importlib.reload(core.backtester)
+    
+    from db.database import get_global_engine, get_session
+    from sqlalchemy import text
+    from core.backtester import run_backtest
+    
+    engine = get_global_engine()
+    
+    
+    def format_price(p): return f"₹{p:,.2f}" if p else "—"
+    
+    
+    @st.cache_data(ttl=30)
+    def get_available_stocks():
+        session = get_session(engine)
+        result = session.execute(text("""
+            SELECT s.symbol, s.name, s.sector
+            FROM stocks s
+            JOIN daily_prices p ON s.symbol = p.symbol
+            GROUP BY s.symbol
+            HAVING COUNT(p.id) >= 60
+            ORDER BY s.sector, s.symbol
+        """)).fetchall()
+        session.close()
+        return result
+    
+    
+    st.title("🧪 Quantitative Strategy Backtesting & Rule Composer")
+    st.caption("Verify and stress-test algorithmic trading strategies and compose custom quantitative rules")
+    
+    backtest_tabs = st.tabs([
+        "📈 Single Asset Strategy Backtest",
+        "🛠️ No-Code Visual Quantitative Strategy Builder",
+        "🔬 Overfitting Audit & Deflated Sharpe (DSR)",
+        "🧬 Genetic Algorithm Evolutionary Optimizer",
+        "🔄 Walk-Forward Rolling Analysis (Out-of-Sample)",
+    ])
+    
+    with backtest_tabs[0]:
+        # ── Sidebar Controls ──────────────────────────────────────────────────────────
+        st.sidebar.title("⚙️ Backtest Settings")
+    
+        stock_list = get_available_stocks()
+        if not stock_list:
+            st.warning("No historical price data available. Please download stock data first.")
+            st.stop()
+    
+    symbols = [s[0] for s in stock_list]
+    labels = [f"{s[0]} — {s[1][:30]} ({s[2]})" for s in stock_list]
+    
+    selected_idx = st.sidebar.selectbox("Select Stock / Asset", range(len(labels)), format_func=lambda i: labels[i])
+    selected_symbol = symbols[selected_idx]
+    
+    strategy = st.sidebar.selectbox(
+        "Select Strategy",
+        [
+            "Multi-Engine Confluence",
+            "EMA Golden Cross Trend",
+            "RSI Oversold Mean Reversion",
+            "Volume Breakout Momentum",
+        ],
+        help="Algorithmic trading model to execute historically."
+    )
+except Exception:
+    pass
 
 time_horizon = st.sidebar.selectbox(
     "Backtest Period",

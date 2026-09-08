@@ -41,7 +41,10 @@ from core.bulk_deals import (
 )
 from core.economic_calendar import get_upcoming_economic_events, seed_macro_calendar
 
-st.set_page_config(page_title="🏦 Institutional Deals & Calendar", page_icon="🏦", layout="wide")
+try:
+    st.set_page_config(page_title="🏦 Institutional Deals & Calendar", page_icon="🏦", layout="wide")
+except Exception:
+    pass
 
 # Custom CSS
 st.markdown("""

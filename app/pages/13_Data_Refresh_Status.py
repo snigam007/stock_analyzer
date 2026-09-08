@@ -30,12 +30,15 @@ from core.data_status import (
     get_searchable_universe_directory,
 )
 
-st.set_page_config(
-    page_title="Data Refresh Status",
-    page_icon="🔄",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+try:
+    st.set_page_config(
+        page_title="Data Refresh Status",
+        page_icon="🔄",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+except Exception:
+    pass
 
 # Custom CSS
 st.markdown("""

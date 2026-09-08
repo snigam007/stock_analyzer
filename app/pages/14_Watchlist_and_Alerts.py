@@ -40,7 +40,10 @@ from core.watchlist_manager import (
     get_52_week_high_low_radar, evaluate_and_generate_alerts, get_recent_alerts
 )
 
-st.set_page_config(page_title="⭐ Watchlists & 52W Radar", page_icon="⭐", layout="wide")
+try:
+    st.set_page_config(page_title="⭐ Watchlists & 52W Radar", page_icon="⭐", layout="wide")
+except Exception:
+    pass
 
 # Custom CSS
 st.markdown("""

@@ -35,7 +35,10 @@ from core.mf_sip_planner import (
     calculate_mf_sip_accuracy
 )
 
-st.set_page_config(page_title="Mutual Funds Radar & Signals", page_icon="🏛️", layout="wide")
+try:
+    st.set_page_config(page_title="Mutual Funds Radar & Signals", page_icon="🏛️", layout="wide")
+except Exception:
+    pass
 
 engine = get_global_engine()
 

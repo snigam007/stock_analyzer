@@ -22,20 +22,23 @@ while _curr != _curr.parent:
 BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
-st.set_page_config(page_title="Portfolio Optimizer & Paper Trading", page_icon="💼", layout="wide")
-
-import importlib
-import core.portfolio_optimizer
-importlib.reload(core.portfolio_optimizer)
-
-from db.database import get_global_engine, get_session
-from sqlalchemy import text
-from core.portfolio_optimizer import (
-    compute_mpt_efficient_frontier,
-    get_paper_portfolio,
-    execute_paper_buy,
-    execute_paper_sell,
-)
+try:
+    st.set_page_config(page_title="Portfolio Optimizer & Paper Trading", page_icon="💼", layout="wide")
+    
+    import importlib
+    import core.portfolio_optimizer
+    importlib.reload(core.portfolio_optimizer)
+    
+    from db.database import get_global_engine, get_session
+    from sqlalchemy import text
+    from core.portfolio_optimizer import (
+        compute_mpt_efficient_frontier,
+        get_paper_portfolio,
+        execute_paper_buy,
+        execute_paper_sell,
+    )
+except Exception:
+    pass
 from core.macro_regime import evaluate_macro_regime
 
 engine = get_global_engine()
@@ -669,4 +672,4 @@ with tabs[9]:
         st.error(f"Portfolio Risk Dashboard error: {e}")
     finally:
         risk_sess.close()
-
+

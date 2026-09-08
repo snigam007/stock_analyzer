@@ -25,23 +25,26 @@ BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-st.set_page_config(page_title="Institutional Portfolio Advisor", page_icon="💼", layout="wide")
-
-import importlib
-import core.portfolio_analyzer
-importlib.reload(core.portfolio_analyzer)
-
-from db.database import get_global_engine, get_session
-from sqlalchemy import text
-from core.portfolio_advisor import generate_institutional_portfolio
-from core.portfolio_optimizer import execute_paper_buy
-from core.macro_regime import evaluate_macro_regime
-from core.portfolio_analyzer import (
-    parse_portfolio_text,
-    parse_portfolio_csv,
-    analyze_custom_portfolio,
-    get_searchable_assets_catalog
-)
+try:
+    st.set_page_config(page_title="Institutional Portfolio Advisor", page_icon="💼", layout="wide")
+    
+    import importlib
+    import core.portfolio_analyzer
+    importlib.reload(core.portfolio_analyzer)
+    
+    from db.database import get_global_engine, get_session
+    from sqlalchemy import text
+    from core.portfolio_advisor import generate_institutional_portfolio
+    from core.portfolio_optimizer import execute_paper_buy
+    from core.macro_regime import evaluate_macro_regime
+    from core.portfolio_analyzer import (
+        parse_portfolio_text,
+        parse_portfolio_csv,
+        analyze_custom_portfolio,
+        get_searchable_assets_catalog
+    )
+except Exception:
+    pass
 
 engine = get_global_engine()
 

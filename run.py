@@ -71,13 +71,15 @@ def find_available_port(start_port: int = 8501, max_tries: int = 10) -> int:
     return start_port
 
 
-def launch_streamlit(port: int = 8501):
+def launch_streamlit(port: int = 8501, legacy: bool = False):
     """Launch the Streamlit web application on an open port."""
     available_port = find_available_port(port)
     if available_port != port:
         logger.warning(f"⚠️ Port {port} is occupied. Automatically routing to open port {available_port}...")
-    logger.info(f"\n🚀 Launching Streamlit App on http://localhost:{available_port} ...")
-    app_main = str(BASE_DIR / "app" / "main.py")
+    ui_type = "Legacy UI" if legacy else "Modern Simplified UI"
+    logger.info(f"\n🚀 Launching Streamlit App ({ui_type}) on http://localhost:{available_port} ...")
+    script_name = "legacy_main.py" if legacy else "main.py"
+    app_main = str(BASE_DIR / "app" / script_name)
     
     # Try finding streamlit inside virtualenv or PATH
     python_exe = sys.executable
@@ -333,12 +335,17 @@ def main():
         default=8501,
         help="Streamlit port (default: 8501)"
     )
+    parser.add_argument(
+        "--legacy",
+        action="store_true",
+        help="Launch in Legacy un-grouped UI mode (revert mode)"
+    )
     args = parser.parse_args()
 
     launch = not args.no_launch
 
     if args.mode == "run":
-        launch_streamlit(port=args.port)
+        launch_streamlit(port=args.port, legacy=args.legacy)
     elif args.mode == "daily":
         run_daily_delta(launch=launch)
     elif args.mode == "refresh":

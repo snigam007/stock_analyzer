@@ -24,29 +24,32 @@ BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-st.set_page_config(page_title="Monthly SIP & Sell Radar", page_icon="💰", layout="wide")
-
-import importlib
-import db.database
-if not hasattr(db.database, "MutualFund"):
-    importlib.reload(db.database)
-import core.monthly_sip_advisor
-import core.sip_audit_backtester
-import core.sip_tracker
-import core.recommendation_tracker
-importlib.reload(core.monthly_sip_advisor)
-importlib.reload(core.sip_audit_backtester)
-importlib.reload(core.sip_tracker)
-importlib.reload(core.recommendation_tracker)
-
-from db.database import get_global_engine, get_session
-from sqlalchemy import text
-from core.monthly_sip_advisor import (
-    generate_monthly_sip_basket,
-    deploy_sip_basket_to_watchlist,
-    evaluate_sell_reminders,
-    scan_tactical_dip_boosters
-)
+try:
+    st.set_page_config(page_title="Monthly SIP & Sell Radar", page_icon="💰", layout="wide")
+    
+    import importlib
+    import db.database
+    if not hasattr(db.database, "MutualFund"):
+        importlib.reload(db.database)
+    import core.monthly_sip_advisor
+    import core.sip_audit_backtester
+    import core.sip_tracker
+    import core.recommendation_tracker
+    importlib.reload(core.monthly_sip_advisor)
+    importlib.reload(core.sip_audit_backtester)
+    importlib.reload(core.sip_tracker)
+    importlib.reload(core.recommendation_tracker)
+    
+    from db.database import get_global_engine, get_session
+    from sqlalchemy import text
+    from core.monthly_sip_advisor import (
+        generate_monthly_sip_basket,
+        deploy_sip_basket_to_watchlist,
+        evaluate_sell_reminders,
+        scan_tactical_dip_boosters
+    )
+except Exception:
+    pass
 from core.sip_tracker import (
     init_sip_log_table,
     log_sip_basket,
@@ -91,13 +94,13 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Top Control Bar ───────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6 = st.columns([1.1, 1.3, 1.0, 1.4, 0.8, 1.1])
+# ── Top Control Bar (Clean 2-Row Layout) ──────────────────────────────────────
+row1_c1, row1_c2, row1_c3 = st.columns(3)
 
-with c1:
+with row1_c1:
     monthly_wallet = st.number_input("Monthly Budget (₹)", min_value=5000.0, max_value=5000000.0, value=20000.0, step=5000.0, help="Your monthly investment amount.")
 
-with c2:
+with row1_c2:
     strategy_choice = st.selectbox(
         "Investment Strategy",
         ["💎 100% Direct Stocks (Multi-Sector Alpha)", "🌐 Multi-Asset (Equities + Index + Gold)"],
@@ -106,7 +109,7 @@ with c2:
     )
     strategy_code = "PURE_STOCKS" if "100%" in strategy_choice else "MULTI_ASSET"
 
-with c3:
+with row1_c3:
     risk_choice = st.selectbox(
         "Risk Profile",
         ["⚖️ Balanced All-Weather", "🛡️ Safe Fortress (Capital Preservation)", "⚡ High Growth (Maximum Alpha)"],
@@ -114,7 +117,9 @@ with c3:
     )
     risk_code = "SAFE" if "Safe" in risk_choice else ("RISKY" if "High Growth" in risk_choice else "BALANCED")
 
-with c4:
+row2_c1, row2_c2, row2_c3 = st.columns(3)
+
+with row2_c1:
     mgmt_protocol_choice = st.selectbox(
         "Exit & Surveillance Protocol",
         [
@@ -135,10 +140,10 @@ with c4:
     else:
         protocol_code = "STRUCTURAL_TRAILING"
 
-with c5:
+with row2_c2:
     target_stocks = st.slider("Stock Count", 3, 10, 5 if strategy_code == "PURE_STOCKS" else 6)
 
-with c6:
+with row2_c3:
     step_up_choice = st.selectbox(
         "Annual Step-Up",
         ["+10% / Year (Recommended)", "+5% / Year", "+15% / Year", "+20% / Year", "0% (Flat SIP)"],

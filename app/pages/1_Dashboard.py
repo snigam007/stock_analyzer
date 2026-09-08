@@ -19,7 +19,10 @@ while _curr != _curr.parent:
 BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
-st.set_page_config(page_title="Live Dashboard", page_icon="📈", layout="wide")
+try:
+    st.set_page_config(page_title="Live Dashboard", page_icon="📈", layout="wide")
+except Exception:
+    pass
 
 import importlib
 import core.macro_regime

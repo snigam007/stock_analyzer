@@ -73,6 +73,10 @@ def load_stock_universe(session: Session) -> list:
                 )
                 session.add(stock)
                 stocks_created += 1
+            else:
+                existing.is_active = True
+                existing.yf_symbol = yf_symbol
+                existing.name = stock_cfg.get("name", existing.name)
 
             stock_list.append({
                 "symbol": symbol,
@@ -80,6 +84,12 @@ def load_stock_universe(session: Session) -> list:
                 "name": stock_cfg.get("name", symbol),
                 "sector": sector_name,
             })
+
+    # Deactivate any stocks not in YAML
+    yaml_symbols = {s["symbol"] for s in stock_list}
+    for db_stock in session.query(Stock).filter(Stock.is_active == True).all():
+        if db_stock.symbol not in yaml_symbols:
+            db_stock.is_active = False
 
     session.commit()
     logger.info(f"✅ Stock universe loaded: {stocks_created} new stocks added ({len(stock_list)} total)")

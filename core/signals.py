@@ -405,6 +405,11 @@ def generate_signal_for_stock(
     elif any(s in sector_name for s in ["METAL", "MINING", "AUTO"]):
         sector_boost = -1.5
 
+    # Defensive RS Bonus: Institutional safe-haven rotation during Risk-Off regimes
+    if not nifty_bullish or vix_level > 20:
+        if any(s in sector_name for s in ["PHARMA", "HEALTH", "FMCG"]):
+            sector_boost += 3.0
+
     # Live sector A/D momentum overlay — query sector_analysis for today
     try:
         sa_row = session.execute(text("""
@@ -429,9 +434,29 @@ def generate_signal_for_stock(
     except Exception:
         pass
 
-    final_score = float(np.clip(composite_score + sector_boost, 0.0, 100.0))
+    # Candlestick Pattern Score Booster: Grant +3 to +5 score points for high-reliability reversal formations
+    candlestick_boost = 0.0
+    candlestick_catalyst = ""
+    pats = []
+    if price_df is not None and not price_df.empty and len(price_df) >= 5:
+        try:
+            from core.candlestick_patterns import analyze_candlestick_patterns
+            all_pats = analyze_candlestick_patterns(price_df)
+            if all_pats:
+                # Get the most recent pattern
+                sorted_pats = sorted(all_pats, key=lambda x: str(x.get("date", "")), reverse=True)
+                top_p = sorted_pats[0]
+                pats = [top_p]
+                if top_p.get("sentiment") == "BULLISH":
+                    rel = int(top_p.get("reliability", 3) or 3)
+                    candlestick_boost = 5.0 if rel >= 4 else 3.0
+                    candlestick_catalyst = f"🕯️ {top_p.get('pattern_name', 'Bullish Reversal')} (+{candlestick_boost:.1f} pts)"
+        except Exception as e:
+            logger.debug(f"Candlestick analysis notice for {stock.symbol}: {e}")
 
-    # ── Tier-Adaptive Thresholds (57.0 Large, 59.5 Mid, 63.5 Small) ──────────
+    final_score = float(np.clip(composite_score + sector_boost + candlestick_boost, 0.0, 100.0))
+
+    # ── Tier-Adaptive Thresholds (57.0 Large, 58.0 Mid, 58.0 Small) ──────────
     base_buy_th = tier_cfg["buy_threshold"]
     base_sell_th = tier_cfg["sell_threshold"]
     min_vol_ratio = tier_cfg["min_volume_ratio"]
@@ -444,33 +469,35 @@ def generate_signal_for_stock(
     reversal_reason = ""
     # For banks, alt_z is exempt; otherwise requires alt_z >= 2.0
     z_ok = is_bank_exempt or alt_z >= 2.0
-    if not is_above_50_ema and pio_score >= 7 and z_ok and rsi_val <= 32.0 and adx_val >= 18.0:
-        if price_df is not None and not price_df.empty and len(price_df) >= 5:
-            from core.candlestick_patterns import analyze_candlestick_patterns
-            pats = analyze_candlestick_patterns(price_df)
-            has_bullish_pat = any(p.get("sentiment") == "BULLISH" for p in pats)
-            if has_bullish_pat and final_score >= (effective_buy_threshold - 1.5):
-                is_quality_oversold_reversal = True
-                reversal_reason = f"🏛️ Contrarian Alpha: High Quality Mean-Reversion (Piotroski {pio_score}/9, RSI={rsi_val:.1f})"
+    if not is_above_50_ema and pio_score >= 7 and z_ok and rsi_val <= 38.0 and adx_val >= 18.0:
+        has_bullish_pat = any(p.get("sentiment") == "BULLISH" for p in pats)
+        if has_bullish_pat and final_score >= (effective_buy_threshold - 3.5):
+            is_quality_oversold_reversal = True
+            reversal_reason = f"🏛️ Contrarian Alpha: High Quality Mean-Reversion (Piotroski {pio_score}/9, RSI={rsi_val:.1f})"
 
     # 4. Volume Contraction Pattern (VCP) Breakout Trigger
     is_vcp_breakout = False
     vcp_reason = ""
     vol_ratio_val = float(ind.get("volume_ratio") or 1.0)
-    # Tier-adaptive volume expansion requirement (1.15x Large, 1.25x Mid, 1.75x Small)
-    if is_above_50_ema and vol_ratio_val >= min_vol_ratio and (rsi_val >= 52.0 and rsi_val <= 75.0):
+    # Tier-adaptive volume expansion requirement OR tight coiling incubation (<= 0.65x)
+    if (rsi_val >= 50.0 and rsi_val <= 75.0):
         if price_df is not None and not price_df.empty and len(price_df) >= 10:
             past_vols = price_df["volume"].tail(5).iloc[:-1]
             avg_vol = price_df["volume"].tail(20).mean()
-            if avg_vol > 0 and (past_vols.min() / avg_vol <= 0.70 or adx_val >= 22.0):
+            # Scenario A: Expansion post Volatility Contraction
+            if is_above_50_ema and vol_ratio_val >= min_vol_ratio and avg_vol > 0 and (past_vols.min() / avg_vol <= 0.70 or adx_val >= 22.0):
                 is_vcp_breakout = True
                 vcp_reason = f"⚡ VCP Breakout: Volume Expansion ({vol_ratio_val:.2f}x >= {min_vol_ratio}x) post Volatility Contraction"
+            # Scenario B: Low-Volume Quiet Coil prior to blast-off (incubation setup)
+            elif vol_ratio_val <= 0.65 and final_score >= 52.0 and (is_above_50_ema or bullish_count >= 3):
+                is_vcp_breakout = True
+                vcp_reason = f"⚡ VCP Incubation: Low-Volume Quiet Coil ({vol_ratio_val:.2f}x avg) with Strong Structure"
 
     # 5. Primary Signal Decision
     if (final_score >= effective_buy_threshold and (is_above_50_ema or bullish_count >= 4)) or \
        (final_score >= effective_buy_threshold - 1.0 and bullish_count >= 5 and is_above_50_ema and is_above_200_ema) or \
-       (is_vcp_breakout and final_score >= effective_buy_threshold - 1.5) or \
-       (is_quality_oversold_reversal and final_score >= effective_buy_threshold - 1.5):
+       (is_vcp_breakout and final_score >= 52.0) or \
+       (is_quality_oversold_reversal and final_score >= (effective_buy_threshold - 3.5)):
         candidate_signal = "BUY"
     elif (final_score <= effective_sell_threshold and (not is_above_50_ema or bearish_count >= 4)) or \
          (not is_above_50_ema and not is_above_200_ema and bearish_count >= 4 and final_score <= (effective_sell_threshold + 1.5)) or \
@@ -560,8 +587,9 @@ def generate_signal_for_stock(
 
     # Multi-Pillar Reason Generation
     all_reasons = []
-    if reversal_reason: all_reasons.append(reversal_reason)
-    if vcp_reason:      all_reasons.append(vcp_reason)
+    if reversal_reason:       all_reasons.append(reversal_reason)
+    if vcp_reason:            all_reasons.append(vcp_reason)
+    if candlestick_catalyst:  all_reasons.append(candlestick_catalyst)
     if primary_signal == "BUY" and momentum_6m_pct >= 20.0:
         all_reasons.append(f"🚀 Elite Momentum: +{momentum_6m_pct:.1f}% 6M Intermediate Upcycle")
     elif primary_signal == "BUY" and momentum_6m_pct < -5.0:

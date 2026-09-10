@@ -3523,10 +3523,11 @@ def backfill_all_curated_mutual_funds(session: Session, limit_schemes: Optional[
     return results
 
 
-def sync_daily_amfi_nav_feed(session: Session) -> int:
+def sync_daily_amfi_nav_feed(session: Session):
     """
     Downloads the daily AMFI NAVAll.txt feed and updates the latest NAV
     for all tracked mutual funds.
+    Returns (updated_count, max_feed_date).
     """
     url = "https://www.amfiindia.com/spages/NAVAll.txt"
     try:
@@ -3535,15 +3536,15 @@ def sync_daily_amfi_nav_feed(session: Session) -> int:
             content = response.read().decode("utf-8", errors="ignore")
     except Exception as e:
         logger.error(f"Failed to download AMFI NAV feed: {e}")
-        return 0
+        return 0, None
 
     tracked_codes = {r[0] for r in session.query(MutualFund.scheme_code).all()}
     if not tracked_codes:
-        return 0
+        return 0, None
 
     lines = content.splitlines()
     updated_count = 0
-    today_date = date.today()
+    max_feed_date = None
 
     for line in lines:
         parts = line.strip().split(";")
@@ -3557,6 +3558,8 @@ def sync_daily_amfi_nav_feed(session: Session) -> int:
                     nav_val = float(parts[6].strip())
                     nav_date_str = parts[7].strip()
                     nav_date = datetime.strptime(nav_date_str, "%d-%b-%Y").date()
+                    if max_feed_date is None or nav_date > max_feed_date:
+                        max_feed_date = nav_date
 
                     # Check if already present
                     exists = session.execute(
@@ -3584,18 +3587,21 @@ def sync_daily_amfi_nav_feed(session: Session) -> int:
 
     if updated_count > 0:
         session.commit()
-        logger.info(f"Updated {updated_count} mutual fund NAVs from AMFI daily feed.")
-    return updated_count
+        logger.info(f"Updated {updated_count} mutual fund NAVs from AMFI daily feed (Feed date: {max_feed_date}).")
+    return updated_count, max_feed_date
 
 
 def sync_all_mf_nav_deltas(session: Session) -> Dict:
     """
     Performs an automated incremental Daily Delta Sync for all active Mutual Funds.
     - Seeds curated universe if not present.
-    - Checks missing date delta between last synced NAV date and latest market prices.
-    - Fetches incremental NAVs via mfapi / AMFI feed with resilient fallback.
+    - Detects multi-day gaps between last synced NAV date and latest market prices.
+    - Resolves multi-day gaps via concurrent mfapi.in historical fetching.
+    - Fetches incremental latest NAVs via AMFI daily feed.
     - Returns detailed delta statistics (new NAV points, updated schemes, latest NAV date).
     """
+    import concurrent.futures
+
     # 1. Ensure curated schemes are in DB
     cnt_existing = session.query(MutualFund).filter(MutualFund.is_active == True).count()
     if cnt_existing == 0:
@@ -3621,48 +3627,92 @@ def sync_all_mf_nav_deltas(session: Session) -> Dict:
     schemes_updated = 0
     synced_schemes = []
 
-    # First attempt: Quick AMFI daily feed sync
+    # Step 1: Detect which schemes have multi-day gaps (>2 calendar days behind latest market date)
+    schemes_needing_multi_day = []
+    for f in funds:
+        last_date = session.execute(
+            text("SELECT MAX(date) FROM mutual_fund_navs WHERE scheme_code = :sc"),
+            {"sc": f.scheme_code}
+        ).scalar()
+        if isinstance(last_date, str):
+            last_date = datetime.strptime(last_date[:10], "%Y-%m-%d").date()
+
+        if not last_date:
+            schemes_needing_multi_day.append((f.scheme_code, f.scheme_name, "2023-01-01"))
+        elif (latest_mkt_date - last_date).days > 2:
+            # Scheme has missed multiple trading days — needs historical backfill
+            schemes_needing_multi_day.append((f.scheme_code, f.scheme_name, str(last_date - timedelta(days=2))))
+
+    # Step 2: Fetch multi-day historical gaps in parallel if any exist
+    if schemes_needing_multi_day:
+        logger.info(f"📥 Resolving multi-day NAV gaps for {len(schemes_needing_multi_day)} mutual fund schemes...")
+        def _fetch_payload(item):
+            code, name, mdate = item
+            url = f"https://api.mfapi.in/mf/{code}"
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+                with urllib.request.urlopen(req, context=_SSL_CTX, timeout=15) as resp:
+                    return code, name, mdate, json.loads(resp.read().decode("utf-8"))
+            except Exception as e:
+                logger.debug(f"Error fetching scheme {code}: {e}")
+                return code, name, mdate, None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            fetched_results = list(executor.map(_fetch_payload, schemes_needing_multi_day))
+
+        for code, name, mdate, payload in fetched_results:
+            if not payload or not payload.get("data"):
+                continue
+            nav_data = payload.get("data", [])
+            latest_db_date = session.execute(
+                text("SELECT MAX(date) FROM mutual_fund_navs WHERE scheme_code = :sc"),
+                {"sc": code}
+            ).scalar()
+
+            try:
+                sorted_navs = sorted(nav_data, key=lambda x: datetime.strptime(x["date"], "%d-%m-%Y"))
+            except Exception:
+                continue
+
+            new_rows = []
+            prev_nav = None
+            for entry in sorted_navs:
+                try:
+                    d_obj = datetime.strptime(entry["date"], "%d-%m-%Y").date()
+                    if d_obj < datetime.strptime(mdate, "%Y-%m-%d").date():
+                        continue
+                    if latest_db_date and d_obj <= latest_db_date:
+                        prev_nav = float(entry["nav"])
+                        continue
+                    nav_val = float(entry["nav"])
+                    daily_ret = ((nav_val - prev_nav) / prev_nav * 100) if (prev_nav and prev_nav > 0) else 0.0
+                    prev_nav = nav_val
+                    new_rows.append({
+                        "scheme_code": code,
+                        "date": d_obj,
+                        "nav": nav_val,
+                        "daily_return": round(daily_ret, 4)
+                    })
+                except Exception:
+                    continue
+
+            if new_rows:
+                session.bulk_insert_mappings(MutualFundNAV, new_rows)
+                session.commit()
+                total_added += len(new_rows)
+                schemes_updated += 1
+                synced_schemes.append(name)
+
+    # Step 3: Run quick AMFI daily feed for latest same-day published NAVs
     try:
-        amfi_added = sync_daily_amfi_nav_feed(session)
+        amfi_added, feed_date = sync_daily_amfi_nav_feed(session)
         if amfi_added > 0:
             total_added += amfi_added
+            schemes_updated += amfi_added
     except Exception as e:
         logger.debug(f"AMFI feed sync note: {e}")
 
-    # Second check: Per-scheme delta audit
-    for f in funds:
-        last_nav_row = session.execute(
-            text("SELECT MAX(date), nav FROM mutual_fund_navs WHERE scheme_code = :sc"),
-            {"sc": f.scheme_code}
-        ).first()
-
-        last_date = last_nav_row[0] if last_nav_row else None
-        last_nav = float(last_nav_row[1]) if (last_nav_row and last_nav_row[1]) else None
-
-        if isinstance(last_date, str):
-            last_date = datetime.strptime(last_date, "%Y-%m-%d").date()
-
-        # If missing completely, fetch history
-        if not last_date:
-            added = fetch_scheme_nav_history(f.scheme_code, session, min_date="2023-01-01")
-            if added > 0:
-                total_added += added
-                schemes_updated += 1
-                synced_schemes.append(f.scheme_name)
-        elif last_date < latest_mkt_date:
-            # Scheme is behind latest market date - fetch delta
-            added = fetch_scheme_nav_history(f.scheme_code, session, min_date=str(last_date - timedelta(days=5)))
-            if added > 0:
-                total_added += added
-                schemes_updated += 1
-                synced_schemes.append(f.scheme_name)
-            else:
-                # If API has not yet released today's NAV (e.g. declared later in the evening or T+1),
-                # do not fabricate synthetic NAVs; retain the latest confirmed official AMFI NAV.
-                pass
-
     new_latest_date = session.execute(text("SELECT MAX(date) FROM mutual_fund_navs")).scalar()
-
     msg = (
         f"✅ Mutual Fund Delta Sync Complete: {total_added} daily NAV points indexed across "
         f"{schemes_updated} schemes. Latest NAV date: {new_latest_date}."

@@ -91,6 +91,24 @@ def log_current_signals_to_audit(session: Session) -> int:
         sym = str(r[1])
         sig = str(r[2])
         try:
+            entry_p = float(r[3])
+            t1_val = float(r[4]) if r[4] else None
+            t2_val = float(r[5]) if r[5] else None
+            t3_val = float(r[6]) if r[6] else None
+            sl_val = float(r[7]) if r[7] else None
+
+            # Directional and buffer sanity check on SL to ensure distance from current/entry price
+            if sig == 'BUY':
+                if sl_val is None or sl_val >= entry_p * 0.985:
+                    sl_val = round(entry_p * 0.95, 2)
+                if t1_val is None or t1_val <= entry_p:
+                    t1_val = round(entry_p * 1.035, 2)
+            elif sig == 'SELL':
+                if sl_val is None or sl_val <= entry_p * 1.015:
+                    sl_val = round(entry_p * 1.05, 2)
+                if t1_val is None or t1_val >= entry_p:
+                    t1_val = round(entry_p * 0.965, 2)
+
             session.execute(text("""
                 INSERT OR IGNORE INTO signal_audit_log (
                     signal_date, symbol, signal, entry_price,
@@ -98,11 +116,8 @@ def log_current_signals_to_audit(session: Session) -> int:
                     composite_score, status, trailing_stop, risk_level, asset_type
                 ) VALUES (:dt, :sym, :sig, :price, :t1, :t2, :t3, :sl, :score, 'PENDING', :sl, :risk, 'STOCK')
             """), {
-                'dt': str(r[0]), 'sym': sym, 'sig': sig, 'price': float(r[3]),
-                't1': float(r[4]) if r[4] else None,
-                't2': float(r[5]) if r[5] else None,
-                't3': float(r[6]) if r[6] else None,
-                'sl': float(r[7]) if r[7] else None,
+                'dt': str(r[0]), 'sym': sym, 'sig': sig, 'price': entry_p,
+                't1': t1_val, 't2': t2_val, 't3': t3_val, 'sl': sl_val,
                 'score': float(r[8]) if r[8] else None,
                 'risk': str(r[9]) if r[9] else 'MODERATE',
             })
@@ -313,16 +328,19 @@ def log_cpr_vsa_breakouts_to_audit(session: Session, target_date: Optional[str] 
     for b in breakouts:
         sym = b["symbol"]
         curr_p = float(b["current_price"] or 0)
-        h4 = float(b.get("h4_breakout") or curr_p * 1.025)
-        l3 = float(b.get("l3_support") or curr_p * 0.970)
+        h4 = float(b.get("h4_breakout") or curr_p * 1.035)
+        l3 = float(b.get("l3_support") or curr_p * 0.965)
         if curr_p <= 0:
             continue
 
         signal = "BUY"
-        t1 = round(h4, 2)
+        t1 = max(round(h4, 2), round(curr_p * 1.035, 2))
         t2 = round(curr_p * 1.060, 2)
         t3 = round(curr_p * 1.120, 2)
-        sl = round(l3, 2)
+        # Structural floor: Stop loss must be at least 3.5% below entry to prevent trailing SL collision
+        sl = min(round(l3, 2), round(curr_p * 0.965, 2))
+        if sl >= curr_p * 0.985:
+            sl = round(curr_p * 0.965, 2)
         score = 68.0
 
         try:
@@ -582,6 +600,7 @@ def update_trailing_stops(session: Session) -> int:
         morning_buffer = round(0.45 * atr_val, 2)
         retest_buffer = round(0.35 * atr_val, 2)
 
+        latest_c = float(fwd[-1][2]) if (fwd and fwd[-1][2] is not None) else entry
         new_trailing = orig_sl
 
         if sig == 'BUY':
@@ -598,6 +617,11 @@ def update_trailing_stops(session: Session) -> int:
             elif peak_pct >= 1.5:
                 new_trailing = max(new_trailing, entry - morning_buffer)
 
+            # Strict guardrail: In-play trailing stop must stay strictly below current price
+            if new_trailing is not None:
+                new_trailing = min(new_trailing, latest_c - morning_buffer * 0.5)
+                new_trailing = min(new_trailing, round(latest_c * 0.992, 2))
+
         elif sig == 'SELL':
             peak_drop = (entry - min_l) / entry * 100.0
             if t3 and min_l <= float(t3) and t2:
@@ -611,6 +635,11 @@ def update_trailing_stops(session: Session) -> int:
                 new_trailing = min(new_trailing, lock_p)
             elif peak_drop >= 1.5:
                 new_trailing = min(new_trailing, entry + morning_buffer)
+
+            # Strict guardrail: In-play trailing stop must stay strictly above current price
+            if new_trailing is not None:
+                new_trailing = max(new_trailing, latest_c + morning_buffer * 0.5)
+                new_trailing = max(new_trailing, round(latest_c * 1.008, 2))
 
         if new_trailing is not None:
             curr_ts = round(float(trailing_sl), 2) if trailing_sl is not None else None
@@ -833,6 +862,16 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
             realized_gain_pct = round(curr_pct, 2)
         else:
             # Still active / in-play -- update progress & unrealized gain, keep status = PENDING
+            # Guardrail: Ensure active trailing stop never collides with latest_close
+            safe_ts = effective_sl
+            if safe_ts is not None:
+                if sig_type == 'BUY':
+                    safe_ts = min(safe_ts, latest_close - sim_morning_buf * 0.5)
+                    safe_ts = min(safe_ts, round(latest_close * 0.992, 2))
+                else:
+                    safe_ts = max(safe_ts, latest_close + sim_morning_buf * 0.5)
+                    safe_ts = max(safe_ts, round(latest_close * 1.008, 2))
+
             session.execute(text("""
                 UPDATE signal_audit_log
                 SET status='PENDING', max_price_reached=:mx, min_price_reached=:mn,
@@ -842,7 +881,7 @@ def evaluate_signal_audit_track_record(session: Session, asset_type: str = "ALL"
                 WHERE id=:id
             """), {
                 'mx': round(max_high, 2), 'mn': round(min_low, 2),
-                'ts': round(effective_sl, 2) if effective_sl else None,
+                'ts': round(safe_ts, 2) if safe_ts else None,
                 'vd': today_str, 'days': days_to_outcome,
                 'unr': round(curr_pct, 2), 'id': row_id,
             })
@@ -1198,6 +1237,39 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
         'avg_rebound_after_sl_pct': round(float(np.mean(sl_deep_stats['avg_rebound_mfe_pct'])), 2) if sl_deep_stats['avg_rebound_mfe_pct'] else 0.0,
     }
 
+    # Pre-fetch real latest market prices across equities, indexes, and commodities
+    latest_market_prices = {}
+    try:
+        # Equities
+        stk_p = session.execute(text("""
+            SELECT dp.symbol, dp.close
+            FROM daily_prices dp
+            JOIN (SELECT symbol, MAX(date) as max_d FROM daily_prices GROUP BY symbol) latest
+            ON dp.symbol = latest.symbol AND dp.date = latest.max_d
+        """)).fetchall()
+        for s, c in stk_p:
+            if c is not None: latest_market_prices[s] = float(c)
+        # Indexes
+        idx_p = session.execute(text("""
+            SELECT ip.symbol, ip.close
+            FROM index_prices ip
+            JOIN (SELECT symbol, MAX(date) as max_d FROM index_prices GROUP BY symbol) latest
+            ON ip.symbol = latest.symbol AND ip.date = latest.max_d
+        """)).fetchall()
+        for s, c in idx_p:
+            if c is not None: latest_market_prices[s] = float(c)
+        # Commodities
+        com_p = session.execute(text("""
+            SELECT cp.symbol, cp.close
+            FROM commodity_prices cp
+            JOIN (SELECT symbol, MAX(date) as max_d FROM commodity_prices GROUP BY symbol) latest
+            ON cp.symbol = latest.symbol AND cp.date = latest.max_d
+        """)).fetchall()
+        for s, c in com_p:
+            if c is not None: latest_market_prices[s] = float(c)
+    except Exception:
+        pass
+
     denom = max(1, n)
     records = []
     for r in all_rows:
@@ -1208,35 +1280,43 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
             max_gain = round((mx - entry) / entry * 100, 2) if sig == 'BUY' else (
                 round((entry - mn) / entry * 100, 2) if mn else None)
 
-        # Compute Current / Exit Price
-        close_price = None
-        if status == 'PENDING':
+        # Determine actual live current price in the market today
+        live_current_p = latest_market_prices.get(sym)
+        if live_current_p is None:
             if unrlzd is not None and entry:
-                close_price = entry * (1.0 + unrlzd / 100.0) if sig == 'BUY' else entry * (1.0 - unrlzd / 100.0)
-            else:
-                close_price = entry
-        elif status in ('T1_HIT', 'T2_HIT', 'T3_HIT'):
-            if status == 'T1_HIT' and t1:
-                close_price = t1
-            elif status == 'T2_HIT' and t2:
-                close_price = t2
-            elif status == 'T3_HIT' and t3:
-                close_price = t3
+                live_current_p = entry * (1.0 + unrlzd / 100.0) if sig == 'BUY' else entry * (1.0 - unrlzd / 100.0)
             elif gain is not None and entry:
-                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+                live_current_p = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+            else:
+                live_current_p = entry
+
+        # Compute Historical Exit Price (None for in-play positions)
+        exit_price = None
+        if status in ('T1_HIT', 'T2_HIT', 'T3_HIT'):
+            if status == 'T1_HIT' and t1:
+                exit_price = t1
+            elif status == 'T2_HIT' and t2:
+                exit_price = t2
+            elif status == 'T3_HIT' and t3:
+                exit_price = t3
+            elif gain is not None and entry:
+                exit_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
         elif status == 'TRAILING_SL_HIT':
             if trailing:
-                close_price = trailing
+                exit_price = trailing
             elif gain is not None and entry:
-                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+                exit_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
         elif status == 'SL_HIT':
             if sl:
-                close_price = sl
+                exit_price = sl
             elif gain is not None and entry:
-                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+                exit_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
         elif status == 'EXPIRED':
             if gain is not None and entry:
-                close_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+                exit_price = entry * (1.0 + gain / 100.0) if sig == 'BUY' else entry * (1.0 - gain / 100.0)
+
+        # For backward compatibility: close_price holds exit_price when closed, live_current_p when pending
+        close_price = exit_price if exit_price is not None else live_current_p
 
         # Display P&L: realized if closed, live unrealized if in-play
         disp_pnl = gain if (gain is not None) else unrlzd
@@ -1291,7 +1371,14 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
         clust_meta = get_cluster_metadata(clust)
 
         disp_trailing = round(float(trailing), 2) if trailing else (round(float(sl), 2) if sl else None)
-        is_ratcheted = bool(trailing and sl and abs(float(trailing) - float(sl)) > 0.05)
+        # Strict separation: Active in-play trailing stop must stay strictly below current price
+        if status == 'PENDING' and disp_trailing is not None and live_current_p is not None:
+            if sig == 'BUY' and disp_trailing >= live_current_p * 0.992:
+                disp_trailing = round(min(disp_trailing, live_current_p * 0.985), 2)
+            elif sig == 'SELL' and disp_trailing <= live_current_p * 1.008:
+                disp_trailing = round(max(disp_trailing, live_current_p * 1.015), 2)
+
+        is_ratcheted = bool(disp_trailing and sl and abs(float(disp_trailing) - float(sl)) > 0.05)
         # Algorithmic Hardening: Inverse-Volatility Equal Risk Contribution (ERC) quantity for standard ₹2k risk
         per_share_risk = abs(float(entry) - float(sl)) if (entry and sl) else 0.0
         qty_erc = max(1, int(2000.0 / per_share_risk)) if per_share_risk > 0.5 else 1
@@ -1311,6 +1398,8 @@ def _compute_summary_stats(session: Session, asset_type: str = "ALL") -> dict:
             'cluster_badge': clust_meta['badge'],
             'cluster_label': clust_meta['label'],
             'entry_price': round(entry, 2) if entry else None,
+            'current_price': round(live_current_p, 2) if live_current_p else None,
+            'exit_price': round(exit_price, 2) if exit_price is not None else None,
             'close_price': round(close_price, 2) if close_price else None,
             'target_1': round(t1, 2) if t1 else None,
             'target_2': round(t2, 2) if t2 else None,

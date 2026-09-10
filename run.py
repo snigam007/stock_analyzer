@@ -97,80 +97,8 @@ def launch_streamlit(port: int = 8501, legacy: bool = False):
 
 def run_daily_delta(launch: bool = True):
     """Option 2: Daily Delta Update & Launch."""
-    start_time = time.time()
-    logger.info("\n" + "=" * 65)
-    logger.info("  ⚡ EXECUTING: DAILY DELTA UPDATE")
-    logger.info("=" * 65)
-    
-    from db.database import get_global_engine, get_session, Stock
-    from core.data_fetcher import (
-        download_historical_data, download_indexes_and_commodities,
-        cleanup_active_market_data, is_indian_market_closed
-    )
-    from core.indicators import compute_all_indicators
-    from core.scoring import compute_and_save_scores
-    from core.signals import generate_all_signals
-    from core.sector_analysis import compute_and_save_sector_analysis
-    from core.strategies import save_all_strategies
-    from core.ml_models import run_forecasts_for_top_stocks
-    from core.accuracy_tracker import log_current_signals_to_audit, evaluate_signal_audit_track_record
-    from core.sip_tracker import init_sip_log_table, update_sip_forward_performance
-
-    engine = get_global_engine()
-    session = get_session(engine)
-
-    # Clean any unfinalized data if market is active today
-    cleanup_active_market_data(session)
-
-    stocks = session.query(Stock).filter(Stock.is_active == True).all()
-    stock_list = [{"symbol": s.symbol, "yf_symbol": s.yf_symbol, "name": s.name} for s in stocks]
-    logger.info(f"Checking database for {len(stock_list)} stocks...")
-
-    logger.info("📊 Step 1/7: Updating Indexes & Commodities deltas...")
-    download_indexes_and_commodities(session)
-
-    logger.info("📥 Step 2/7: Checking & downloading stock price deltas...")
-    download_historical_data(stock_list, session)
-
-    logger.info("📐 Step 3/7: Updating Technical Indicators...")
-    compute_all_indicators(session)
-
-    logger.info("🎯 Step 4/7: Recomputing Composite Scores & Signals...")
-    compute_and_save_scores(session)
-    generate_all_signals(session)
-
-    logger.info("🏭 Step 5/7: Updating Sector Analysis & Strategies...")
-    compute_and_save_sector_analysis(session)
-    save_all_strategies(session)
-
-    logger.info("🤖 Step 6/7: Running ML Ensemble Forecasts for Top 50 Stocks...")
-    try:
-        run_forecasts_for_top_stocks(session, top_n=50)
-    except Exception as e:
-        logger.warning(f"ML forecasting notice: {e}")
-
-    logger.info("🎯 Step 7/7: Logging Daily Prediction Audit Snapshot...")
-    try:
-        logged = log_current_signals_to_audit(session)
-        evaluate_signal_audit_track_record(session)
-        logger.info(f"✅ Audit logged: {logged} daily signals snapshotted for future performance verification.")
-    except Exception as e:
-        logger.warning(f"Audit log notice: {e}")
-
-    logger.info("📋 Step 8/8: Updating SIP Suggestion Forward Performance...")
-    try:
-        init_sip_log_table(session)
-        sip_updated = update_sip_forward_performance(session)
-        logger.info(f"✅ SIP tracker: {sip_updated} open positions evaluated.")
-    except Exception as e:
-        logger.warning(f"SIP tracker notice: {e}")
-
-    session.close()
-    elapsed = time.time() - start_time
-    logger.info("=" * 65)
-    logger.info(f"✅ DAILY UPDATE COMPLETE in {elapsed:.1f}s ({elapsed/60:.1f} mins)")
-    logger.info("=" * 65)
-
+    from update_daily import run_daily_delta_update
+    run_daily_delta_update()
     if launch:
         launch_streamlit()
 

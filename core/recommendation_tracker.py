@@ -126,7 +126,11 @@ def save_active_recommendation_mandate(
 
         qty = int(asset.get("shares_to_buy", 1) or asset.get("qty", 1) or 1)
         sl = float(asset.get("stop_loss", 0.0)) if asset.get("stop_loss") else round(ep * 0.86, 2)
+        if sl <= 0 or sl >= ep * 0.96:
+            sl = round(ep * 0.86, 2)
         t1 = float(asset.get("target_price", 0.0) or asset.get("target_price_1", 0.0)) if (asset.get("target_price") or asset.get("target_price_1")) else round(ep * 1.15, 2)
+        if t1 <= ep * 1.02:
+            t1 = round(ep * 1.15, 2)
         t2 = round(ep * 1.30, 2)
 
         session.execute(text("""
@@ -302,7 +306,7 @@ def evaluate_mandate_live_status(session: Session, mandate_id: int) -> Dict:
             action_badge = "🔴 Stop Loss Hit"
             action_text = f"Price breached stop loss ₹{sl:,.2f}. Recommend capital preservation exit."
             severity = "CRITICAL"
-        elif calc_tsl and curr_p <= calc_tsl and pnl_pct > 5.0:
+        elif calc_tsl and curr_p <= calc_tsl and pnl_pct > 3.0:
             action_code = "TRAILING_STOP"
             action_badge = "🛑 Trailing Stop Hit"
             action_text = f"Price breached trailing stop ₹{calc_tsl:,.2f}. Protect accumulated gains of {pnl_pct:+.1f}%."
@@ -317,6 +321,10 @@ def evaluate_mandate_live_status(session: Session, mandate_id: int) -> Dict:
             action_badge = "🟡 Target 1 Hit"
             action_text = f"Target 1 (₹{t1:,.2f}) reached (+{pnl_pct:.1f}%). Book 30% partial profit, lock trailing stop."
             severity = "SUCCESS"
+
+        # Trailing Stop Separation: While actively riding, ensure dynamic trailing stop is safely below current price
+        if action_code == "RIDE" and calc_tsl >= curr_p * 0.985:
+            calc_tsl = round(curr_p * 0.95, 2)
 
         # Update DB if peak or trailing stop changed
         session.execute(text("""

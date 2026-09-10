@@ -183,6 +183,11 @@ def run_monthly_sip_backtest(
     stocks_meta = session.execute(text("SELECT symbol, name, sector, market_cap_tier FROM stocks WHERE is_active = 1")).fetchall()
     stock_sector_map = {r[0]: (r[1] or r[0], r[2] or "General") for r in stocks_meta}
     stock_meta_map = {r[0]: {"name": r[1] or r[0], "sector": r[2] or "General", "tier": (r[3] or "mid").lower()} for r in stocks_meta}
+    try:
+        beta_rows = session.execute(text("SELECT symbol, AVG(beta) FROM composite_scores GROUP BY symbol")).fetchall()
+        stock_beta_map = {r[0]: float(r[1]) if r[1] is not None else 1.0 for r in beta_rows}
+    except Exception:
+        stock_beta_map = {}
 
     # Simulation State
     cash_balance = 0.0
@@ -282,20 +287,25 @@ def run_monthly_sip_backtest(
 
         # ── Stock Selection for this month ────────────────────────────────────
         past_start = (sip_dt - timedelta(days=180)).strftime("%Y-%m-%d")
+        past_3m_start = (sip_dt - timedelta(days=90)).strftime("%Y-%m-%d")
         
         # Select candidates with strong upward momentum and volume support
         query_candidates = f"""
             SELECT dp.symbol, dp.close, 
-                   (dp.close - dp_past.close) / dp_past.close as ret_6m
+                   (dp.close - dp_past.close) / dp_past.close as ret_6m,
+                   (dp.close - COALESCE(dp_3m.close, dp_past.close)) / COALESCE(dp_3m.close, dp_past.close) as ret_3m
             FROM daily_prices dp
             JOIN daily_prices dp_past ON dp.symbol = dp_past.symbol
+            LEFT JOIN daily_prices dp_3m ON dp.symbol = dp_3m.symbol AND dp_3m.date = (
+                SELECT MIN(date) FROM daily_prices WHERE date >= '{past_3m_start}'
+            )
             WHERE dp.date = '{sip_date}'
             AND dp_past.date = (
                 SELECT MIN(date) FROM daily_prices WHERE date >= '{past_start}'
             )
             AND dp.close BETWEEN 70.0 AND {current_inflow * 0.45}
             ORDER BY ret_6m DESC
-            LIMIT 40
+            LIMIT 60
         """
         try:
             cand_rows = session.execute(text(query_candidates)).fetchall()
@@ -305,9 +315,9 @@ def run_monthly_sip_backtest(
         # Fallback if no joined rows
         if not cand_rows or len(cand_rows) < 5:
             cand_rows = session.execute(text(f"""
-                SELECT symbol, close, 0.15 as ret_6m FROM daily_prices
+                SELECT symbol, close, 0.15 as ret_6m, 0.08 as ret_3m FROM daily_prices
                 WHERE date = '{sip_date}' AND close BETWEEN 70.0 AND {monthly_wallet * 0.40}
-                ORDER BY close DESC LIMIT 30
+                ORDER BY close DESC LIMIT 40
             """)).fetchall()
 
         # Calculate current portfolio equity before monthly purchases (used as base for concentration guard)
@@ -364,20 +374,61 @@ def run_monthly_sip_backtest(
 
         # ── Asset Allocation Strategy Execution ──────────────────────────────
         if strategy == "MULTI_ASSET":
-            # MULTI_ASSET: 65% Equities + 20% Index ETF + 15% Gold ETF
-            eq_wallet = cash_balance * 0.65
-            idx_wallet = cash_balance * 0.20
-            gold_wallet = cash_balance * 0.15
+            # Multi-Asset weights dynamically scaled by risk profile
+            if risk_profile == "RISKY":
+                eq_wallet = cash_balance * 0.75
+                idx_wallet = cash_balance * 0.15
+                gold_wallet = cash_balance * 0.10
+            elif risk_profile == "SAFE":
+                eq_wallet = cash_balance * 0.50
+                idx_wallet = cash_balance * 0.30
+                gold_wallet = cash_balance * 0.20
+            else:  # BALANCED
+                eq_wallet = cash_balance * 0.65
+                idx_wallet = cash_balance * 0.20
+                gold_wallet = cash_balance * 0.15
+
+            # Candidate ranking per risk profile mandate
+            if risk_profile == "SAFE":
+                cand_rows_sorted = sorted(
+                    cand_rows,
+                    key=lambda cr: (
+                        (1.0 if stock_meta_map.get(str(cr[0]), {}).get("tier") == "large" else 0.0) * 10.0
+                        - stock_beta_map.get(str(cr[0]), 1.0) * 2.0
+                        + (float(cr[2]) if len(cr) > 2 and cr[2] is not None else 0.0)
+                    ),
+                    reverse=True
+                )
+            else:
+                # RISKY (Maximum Alpha) & BALANCED preserve proven 6M momentum ranking
+                cand_rows_sorted = cand_rows
 
             # 1. Equities: Top 3 distinct sectors
             picked_stocks = []
             used_sectors = set()
-            for cr in cand_rows:
+            for cr in cand_rows_sorted:
                 if len(picked_stocks) >= 3:
                     break
                 sym = str(cr[0])
                 ret_6m = float(cr[2]) if len(cr) > 2 and cr[2] is not None else 0.0
-                if min_momentum_hurdle_pct > 0 and ret_6m < (min_momentum_hurdle_pct / 100.0) and len(cand_rows) > 5:
+                tier = stock_meta_map.get(sym, {}).get("tier", "mid").lower()
+                beta = stock_beta_map.get(sym, 1.0)
+
+                # Risk Profile Constraint Filtering
+                if risk_profile == "SAFE":
+                    if (tier != "large" and beta > 1.05) and len(cand_rows_sorted) > 8:
+                        continue
+                    if ret_6m < 0.05 and len(cand_rows_sorted) > 8:
+                        continue
+                elif risk_profile == "BALANCED":
+                    # Balanced All-Weather: moderate beta, balanced large and mid caps
+                    if (beta > 1.25 or tier == "small") and len(cand_rows_sorted) > 8:
+                        continue
+                elif risk_profile == "RISKY":
+                    # High Growth (Maximum Alpha): full momentum alpha across mid & small caps
+                    pass
+
+                if min_momentum_hurdle_pct > 0 and ret_6m < (min_momentum_hurdle_pct / 100.0) and len(cand_rows_sorted) > 5:
                     continue
                 name, sec = stock_sector_map.get(sym, (sym, "General"))
 
@@ -393,7 +444,7 @@ def run_monthly_sip_backtest(
                     if (sip_dt - last_exit_dt).days < cooldown_days:
                         continue
 
-                if sec in used_sectors and len(cand_rows) > 6:
+                if sec in used_sectors and len(cand_rows_sorted) > 6:
                     continue
                 if max_position_cap_pct is not None and current_portfolio_equity > 0:
                     matched_pos = next((p for p in active_positions if p["symbol"] == sym and not p.get("is_etf", False)), None)
@@ -404,13 +455,14 @@ def run_monthly_sip_backtest(
                 used_sectors.add(sec)
                 picked_stocks.append({
                     "symbol": sym, "name": name, "sector": sec,
-                    "tier": stock_meta_map.get(sym, {}).get("tier", "mid"),
+                    "tier": tier,
                     "price": float(cr[1]), "month_cohort": sip_date
                 })
 
             n_picks = max(1, len(picked_stocks))
-            if enable_conviction_weighting and n_picks > 0:
-                c_base = [0.45, 0.35, 0.20][:n_picks]
+            use_conviction = enable_conviction_weighting or (risk_profile == "RISKY" and enable_conviction_weighting is not False)
+            if use_conviction and n_picks > 0:
+                c_base = [0.42, 0.33, 0.25][:n_picks]
                 c_norm = [w / sum(c_base) for w in c_base]
                 eq_pool = eq_wallet
             else:
@@ -466,7 +518,8 @@ def run_monthly_sip_backtest(
                         matched_open["shares"] = new_shares
                         matched_open["cost_basis"] = new_cost
                         matched_open["entry_price"] = round(new_cost / new_shares, 2)
-                        matched_open["stop_loss"] = max(matched_open["stop_loss"], sl_price)
+                        blended_sl = round(matched_open["entry_price"] * (0.83 if tier == "small" else (0.87 if tier == "large" else 0.86)), 2)
+                        matched_open["stop_loss"] = max(matched_open["stop_loss"], blended_sl)
                         pyramided_trades_count += 1
                     else:
                         active_positions.append({
@@ -639,16 +692,48 @@ def run_monthly_sip_backtest(
                             })
                     active_positions = [p for p in active_positions if p["shares"] > 0]
 
+            # Candidate ranking per risk profile mandate
+            if risk_profile == "SAFE":
+                cand_rows_sorted = sorted(
+                    cand_rows,
+                    key=lambda cr: (
+                        (1.0 if stock_meta_map.get(str(cr[0]), {}).get("tier") == "large" else 0.0) * 10.0
+                        - stock_beta_map.get(str(cr[0]), 1.0) * 2.0
+                        + (float(cr[2]) if len(cr) > 2 and cr[2] is not None else 0.0)
+                    ),
+                    reverse=True
+                )
+            else:
+                # RISKY (Maximum Alpha) & BALANCED preserve proven 6M momentum ranking
+                cand_rows_sorted = cand_rows
+
             picked_for_month = []
             used_sectors = set()
             target_eq_picks = max(2, target_stock_count - (len(active_mf_schemes) if include_mutual_funds and target_stock_count <= 5 else 0))
 
-            for cr in cand_rows:
+            for cr in cand_rows_sorted:
                 if len(picked_for_month) >= target_eq_picks:
                     break
                 sym = str(cr[0])
                 ret_6m = float(cr[2]) if len(cr) > 2 and cr[2] is not None else 0.0
-                if min_momentum_hurdle_pct > 0 and ret_6m < (min_momentum_hurdle_pct / 100.0) and len(cand_rows) > 10:
+                tier = stock_meta_map.get(sym, {}).get("tier", "mid").lower()
+                beta = stock_beta_map.get(sym, 1.0)
+
+                # Risk Profile Constraint Filtering
+                if risk_profile == "SAFE":
+                    if (tier != "large" and beta > 1.05) and len(cand_rows_sorted) > 10:
+                        continue
+                    if ret_6m < 0.05 and len(cand_rows_sorted) > 10:
+                        continue
+                elif risk_profile == "BALANCED":
+                    # Balanced All-Weather: moderate beta, balanced large and mid caps
+                    if (beta > 1.25 or tier == "small") and len(cand_rows_sorted) > 10:
+                        continue
+                elif risk_profile == "RISKY":
+                    # High Growth (Maximum Alpha): full momentum alpha across mid & small caps
+                    pass
+
+                if min_momentum_hurdle_pct > 0 and ret_6m < (min_momentum_hurdle_pct / 100.0) and len(cand_rows_sorted) > 10:
                     continue
                 name, sec = stock_sector_map.get(sym, (sym, "General"))
 
@@ -664,7 +749,7 @@ def run_monthly_sip_backtest(
                     if (sip_dt - last_exit_dt).days < cooldown_days:
                         continue
 
-                if sec in used_sectors and len(cand_rows) > 10:
+                if sec in used_sectors and len(cand_rows_sorted) > 10:
                     continue
                 # Fix 3: Recalculate portfolio equity per-pick to catch intra-month concentration crossings
                 rolling_equity = _calc_portfolio_equity(sip_date, active_positions, cash_balance)
@@ -677,18 +762,23 @@ def run_monthly_sip_backtest(
                 used_sectors.add(sec)
                 picked_for_month.append({
                     "symbol": sym, "name": name, "sector": sec,
-                    "tier": stock_meta_map.get(sym, {}).get("tier", "mid"),
+                    "tier": tier,
                     "price": float(cr[1]), "month_cohort": sip_date
                 })
 
             n_picks = max(1, len(picked_for_month))
-            if enable_conviction_weighting and n_picks > 0:
+            use_conviction = enable_conviction_weighting or (risk_profile == "RISKY" and enable_conviction_weighting is not False)
+            if use_conviction and n_picks > 0:
                 if conviction_weights and len(conviction_weights) >= n_picks:
                     c_base = conviction_weights[:n_picks]
                 elif n_picks == 5:
-                    c_base = [0.30, 0.25, 0.20, 0.15, 0.10]
+                    c_base = [0.28, 0.24, 0.20, 0.16, 0.12]
+                elif n_picks == 4:
+                    c_base = [0.32, 0.26, 0.22, 0.20]
+                elif n_picks == 3:
+                    c_base = [0.40, 0.35, 0.25]
                 else:
-                    c_base = [0.35, 0.25, 0.20, 0.12, 0.08][:n_picks]
+                    c_base = [0.30, 0.25, 0.20, 0.15, 0.10][:n_picks]
                 c_norm = [w / sum(c_base) for w in c_base]
                 cash_pool = cash_balance
             else:
@@ -743,7 +833,8 @@ def run_monthly_sip_backtest(
                         matched_open["shares"] = new_shares
                         matched_open["cost_basis"] = new_cost
                         matched_open["entry_price"] = round(new_cost / new_shares, 2)
-                        matched_open["stop_loss"] = max(matched_open["stop_loss"], sl_price)
+                        blended_sl = round(matched_open["entry_price"] * (0.83 if tier == "small" else (0.87 if tier == "large" else 0.86)), 2)
+                        matched_open["stop_loss"] = max(matched_open["stop_loss"], blended_sl)
                         pyramided_trades_count += 1
                     else:
                         active_positions.append({
@@ -1129,6 +1220,7 @@ def run_monthly_sip_backtest(
     return {
         "monthly_wallet": monthly_wallet,
         "strategy": strategy,
+        "risk_profile": risk_profile,
         "months_tested": len(monthly_first_days),
         "annual_step_up_pct": annual_step_up_pct,
         "total_invested": total_invested,

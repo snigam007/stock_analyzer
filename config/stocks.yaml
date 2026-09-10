@@ -564,6 +564,9 @@ sectors:
     - symbol: INOXWIND
       name: Inox Wind
       market_cap_tier: small
+    - symbol: MGL
+      name: Mahanagar Gas Ltd
+      market_cap_tier: mid
   Construction & Infrastructure:
     quota: 40
     risk_weight: medium
@@ -805,8 +808,8 @@ sectors:
     - symbol: RAYMOND
       name: Raymond Realty
       market_cap_tier: mid
-    - symbol: IBREALEST
-      name: Equinox India Developments
+    - symbol: EMBDL
+      name: Embassy Developments (formerly Indiabulls Real Estate)
       market_cap_tier: small
   Telecom & Media:
     quota: 15
@@ -1103,6 +1106,6 @@ sectors:
     - symbol: ALOKINDS
       name: Alok Industries
       market_cap_tier: small
-    - symbol: RAYMOND
+    - symbol: ICIL
       name: Indo Count Industries
       market_cap_tier: small

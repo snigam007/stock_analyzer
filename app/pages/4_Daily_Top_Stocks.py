@@ -1258,7 +1258,8 @@ if deck_category == "🐋 Institutional & Derivatives":
             st.caption(f"Showing **{len(filtered_audit)}** of {len(audit_df)} historical audit records for **{audit_asset_label}**")
 
             table_cols = [
-                "date", "symbol", "signal", "cluster_badge", "cap_tier", "risk_level", "entry_mode", "erc_qty", "entry_price", "close_price", "target_1", "target_2",
+                "date", "symbol", "signal", "cluster_badge", "cap_tier", "risk_level", "entry_mode", "erc_qty",
+                "entry_price", "current_price", "exit_price", "target_1", "target_2",
                 "stop_loss", "trailing_stop", "est_time_to_t1", "status", "max_gain_pct",
                 "realized_gain_pct", "days_to_outcome", "sl_diagnostic", "composite_score"
             ]
@@ -1275,10 +1276,12 @@ if deck_category == "🐋 Institutional & Derivatives":
                 "entry_mode": "Entry Trigger",
                 "erc_qty": "ERC Qty (₹2k Risk)",
                 "entry_price": "Entry (₹)",
+                "current_price": "Current Price (₹)",
+                "exit_price": "Exit Price (₹)",
                 "close_price": "Current / Exit (₹)",
                 "target_1": "Target 1 (₹)",
                 "target_2": "Target 2 (₹)",
-                "stop_loss": "Stop Loss (₹)",
+                "stop_loss": "Initial SL (₹)",
                 "trailing_stop": "Trailing SL (₹)",
                 "est_time_to_t1": "Est. Time to T1",
                 "status": "Live Audit Status",
@@ -1296,9 +1299,12 @@ if deck_category == "🐋 Institutional & Derivatives":
 
             fmt = {}
             if "Entry (₹)" in display_audit.columns:             fmt["Entry (₹)"]             = _fmt_price
+            if "Current Price (₹)" in display_audit.columns:     fmt["Current Price (₹)"]     = _fmt_price
+            if "Exit Price (₹)" in display_audit.columns:        fmt["Exit Price (₹)"]        = _fmt_price
             if "Current / Exit (₹)" in display_audit.columns:    fmt["Current / Exit (₹)"]    = _fmt_price
             if "Target 1 (₹)" in display_audit.columns:          fmt["Target 1 (₹)"]          = _fmt_price
             if "Target 2 (₹)" in display_audit.columns:          fmt["Target 2 (₹)"]          = _fmt_price
+            if "Initial SL (₹)" in display_audit.columns:        fmt["Initial SL (₹)"]        = _fmt_price
             if "Stop Loss (₹)" in display_audit.columns:         fmt["Stop Loss (₹)"]         = _fmt_price
             if "Trailing SL (₹)" in display_audit.columns:       fmt["Trailing SL (₹)"]       = _fmt_price
             if "Peak Move %" in display_audit.columns:           fmt["Peak Move %"]           = _fmt_pct

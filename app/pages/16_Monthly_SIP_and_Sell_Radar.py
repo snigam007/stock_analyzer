@@ -1403,8 +1403,33 @@ with tab4:
             help="Option 2A: Locks in progressive profit floors (+20% -> BE+2%, +50% -> +25%, +100% -> +60%, +200% -> +130%) under Adaptive Structural protocol."
         )
 
-    # Initialize or fetch backtest results
-    if "sip_backtest_res" not in st.session_state or run_bt_btn:
+    # Construct reactive parameter state fingerprint to auto-update simulation on any filter change
+    bt_params_key = (
+        monthly_wallet,
+        selected_bt_strategy,
+        months_val,
+        proto_code,
+        risk_code,
+        bt_step_up_val,
+        pyramid_choice,
+        hurdle_choice,
+        hurdle_val if hurdle_choice else 0.0,
+        cap_choice,
+        dip_choice,
+        skim_choice,
+        bt_mf_choice,
+        bt_mf_pct if bt_mf_choice else 0.0,
+        bt_loss_cooldown,
+        bt_sector_gate,
+        bt_macro_hedge,
+        float(bt_macro_hedge_pct),
+        bt_macro_rot,
+        bt_stepladder,
+        target_stocks
+    )
+
+    # Initialize or fetch backtest results (re-runs automatically on any filter change or button click)
+    if "sip_backtest_res" not in st.session_state or run_bt_btn or st.session_state.get("sip_backtest_params_key") != bt_params_key:
         with st.spinner(f"Simulating {months_val}-Month SIP execution across historical daily prices..."):
             session_bt = get_session(engine)
             st.session_state["sip_backtest_res"] = run_monthly_sip_backtest(
@@ -1440,12 +1465,14 @@ with tab4:
                 enable_stepladder_trailing=bt_stepladder
             )
             session_bt.close()
+            st.session_state["sip_backtest_params_key"] = bt_params_key
 
     bt = st.session_state.get("sip_backtest_res")
     if bt and "error" not in bt:
         strat_badge = "💎 100% Direct Stocks Basket" if bt.get("strategy") == "PURE_STOCKS" else "🌐 Multi-Asset Combination (65% Stocks + 20% Nifty Index ETF + 15% Gold ETF)"
         meta_items = [
             f"Asset Strategy: <b style='color: #38bdf8;'>{strat_badge}</b>",
+            f"Profile: <b style='color: #a855f7;'>{bt.get('risk_profile', risk_code).title()}</b>",
             f"Horizon: <b>{bt['months_tested']} Months</b>",
             f"Exit Protocol: <b>{proto_code.replace('_', ' ').title()}</b>",
             f"Step-Up: <b>{'+' + str(int(bt_step_up_val)) + '% / Year' if bt_step_up_val > 0 else 'Flat Monthly SIP'}</b>"
@@ -1645,7 +1672,18 @@ with tab5:
         st.write("")
         run_mc_btn = st.button("🎲 Run Simulation", type="primary", use_container_width=True)
 
-    if "mc_simulation_res" not in st.session_state or run_mc_btn:
+    # Reactive Monte Carlo parameter fingerprint
+    mc_params_key = (
+        monthly_wallet,
+        mc_sim_count,
+        mc_horizon_val,
+        selected_mc_strat,
+        protocol_code,
+        mc_shock_val,
+        step_up_val if "step_up_val" in locals() else 0.0
+    )
+
+    if "mc_simulation_res" not in st.session_state or run_mc_btn or st.session_state.get("mc_simulation_params_key") != mc_params_key:
         with st.spinner(f"Simulating {mc_sim_count} paths over {mc_horizon_val} months with bootstrap sampling..."):
             session_mc = get_session(engine)
             st.session_state["mc_simulation_res"] = run_monte_carlo_simulation(
@@ -1659,6 +1697,7 @@ with tab5:
                 stress_shock_pct=mc_shock_val
             )
             session_mc.close()
+            st.session_state["mc_simulation_params_key"] = mc_params_key
 
     mc = st.session_state.get("mc_simulation_res")
     if mc and "median_corpus" in mc:

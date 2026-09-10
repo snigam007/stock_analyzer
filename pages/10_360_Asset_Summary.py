@@ -22,7 +22,10 @@ BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-st.set_page_config(page_title="Master 360° Asset Cockpit", page_icon="🏛️", layout="wide")
+try:
+    st.set_page_config(page_title="Master 360° Asset Cockpit", page_icon="🏛️", layout="wide")
+except Exception:
+    pass
 
 from db.database import get_global_engine, get_session
 from sqlalchemy import text

@@ -24,30 +24,46 @@ BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
-st.set_page_config(page_title="Monthly SIP & Sell Radar", page_icon="💰", layout="wide")
-
-import importlib
-import db.database
-if not hasattr(db.database, "MutualFund"):
-    importlib.reload(db.database)
-import core.monthly_sip_advisor
-import core.sip_audit_backtester
-importlib.reload(core.monthly_sip_advisor)
-importlib.reload(core.sip_audit_backtester)
-
-from db.database import get_global_engine, get_session
-from sqlalchemy import text
-from core.monthly_sip_advisor import (
-    generate_monthly_sip_basket,
-    deploy_sip_basket_to_watchlist,
-    evaluate_sell_reminders,
-    scan_tactical_dip_boosters
-)
+try:
+    st.set_page_config(page_title="Monthly SIP & Sell Radar", page_icon="💰", layout="wide")
+    
+    import importlib
+    import db.database
+    if not hasattr(db.database, "MutualFund"):
+        importlib.reload(db.database)
+    import core.monthly_sip_advisor
+    import core.sip_audit_backtester
+    import core.sip_tracker
+    import core.recommendation_tracker
+    importlib.reload(core.monthly_sip_advisor)
+    importlib.reload(core.sip_audit_backtester)
+    importlib.reload(core.sip_tracker)
+    importlib.reload(core.recommendation_tracker)
+    
+    from db.database import get_global_engine, get_session
+    from sqlalchemy import text
+    from core.monthly_sip_advisor import (
+        generate_monthly_sip_basket,
+        deploy_sip_basket_to_watchlist,
+        evaluate_sell_reminders,
+        scan_tactical_dip_boosters
+    )
+except Exception:
+    pass
 from core.sip_tracker import (
     init_sip_log_table,
     log_sip_basket,
     update_sip_forward_performance,
     get_sip_accuracy_report,
+)
+from core.recommendation_tracker import (
+    init_recommendation_tracker_tables,
+    save_active_recommendation_mandate,
+    get_tracked_mandates,
+    evaluate_mandate_live_status,
+    compute_daily_recommendation_shifts,
+    get_recommendation_shift_timeline,
+    delete_or_retire_mandate,
 )
 from core.sip_audit_backtester import run_monthly_sip_backtest
 from core.monte_carlo_engine import run_monte_carlo_simulation
@@ -78,22 +94,28 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Top Control Bar ───────────────────────────────────────────────────────────
-c1, c2, c3, c4, c5, c6 = st.columns([1.1, 1.3, 1.0, 1.4, 0.8, 1.1])
+# ── Top Control Bar (Clean 2-Row Layout) ──────────────────────────────────────
+row1_c1, row1_c2, row1_c3 = st.columns(3)
 
-with c1:
+with row1_c1:
     monthly_wallet = st.number_input("Monthly Budget (₹)", min_value=5000.0, max_value=5000000.0, value=20000.0, step=5000.0, help="Your monthly investment amount.")
 
-with c2:
+with row1_c2:
     strategy_choice = st.selectbox(
         "Investment Strategy",
-        ["💎 100% Direct Stocks (Multi-Sector Alpha)", "🌐 Multi-Asset (Equities + Index + Gold)"],
+        [
+            "💎 100% Direct Stocks (Multi-Sector Alpha)",
+            "🌐 Multi-Asset All-Weather (Equities + Mutual Funds + Index + Gold)",
+            "🏛️ Core Mutual Funds Anchor (50% MFs + 50% Equities)",
+            "🛡️ Equities + Index + Gold ETF (No Mutual Funds)"
+        ],
         index=0,
-        help="Choose 100% direct equities or a multi-asset diversified basket."
+        help="Choose 100% direct equities, multi-asset with mutual funds, or core mutual fund anchor."
     )
+    is_mf_strategy = ("Mutual Funds" in strategy_choice or "MFs" in strategy_choice)
     strategy_code = "PURE_STOCKS" if "100%" in strategy_choice else "MULTI_ASSET"
 
-with c3:
+with row1_c3:
     risk_choice = st.selectbox(
         "Risk Profile",
         ["⚖️ Balanced All-Weather", "🛡️ Safe Fortress (Capital Preservation)", "⚡ High Growth (Maximum Alpha)"],
@@ -101,7 +123,9 @@ with c3:
     )
     risk_code = "SAFE" if "Safe" in risk_choice else ("RISKY" if "High Growth" in risk_choice else "BALANCED")
 
-with c4:
+row2_c1, row2_c2, row2_c3 = st.columns(3)
+
+with row2_c1:
     mgmt_protocol_choice = st.selectbox(
         "Exit & Surveillance Protocol",
         [
@@ -122,10 +146,10 @@ with c4:
     else:
         protocol_code = "STRUCTURAL_TRAILING"
 
-with c5:
+with row2_c2:
     target_stocks = st.slider("Stock Count", 3, 10, 5 if strategy_code == "PURE_STOCKS" else 6)
 
-with c6:
+with row2_c3:
     step_up_choice = st.selectbox(
         "Annual Step-Up",
         ["+10% / Year (Recommended)", "+5% / Year", "+15% / Year", "+20% / Year", "0% (Flat SIP)"],
@@ -192,10 +216,12 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
             cap_guard_val = None
 
     with b6:
+        default_mf_toggle = is_mf_strategy
+        default_mf_ratio = 50 if "50%" in strategy_choice else (40 if is_mf_strategy else 0)
         global_include_mf = st.toggle(
             "🏛️ Include Mutual Funds",
-            value=False,
-            key="global_include_mf",
+            value=default_mf_toggle,
+            key=f"global_include_mf_{is_mf_strategy}",
             help="Allocates chosen % to Top Direct-Growth Mutual Funds as institutional core anchor, and remaining % to direct stocks."
         )
         if global_include_mf:
@@ -203,9 +229,9 @@ with st.expander("🚀 35%+ Strategy Boosters & Alpha Engine Controls (Active ac
                 "Core MF %",
                 min_value=10,
                 max_value=90,
-                value=50,
+                value=default_mf_ratio if default_mf_ratio > 0 else 40,
                 step=5,
-                key="global_mf_pct",
+                key=f"global_mf_pct_{is_mf_strategy}",
                 help="Percentage of monthly wallet directed to Core Direct-Growth Mutual Funds (Flexi Cap, Mid Cap, Index, Small Cap)."
             )
             st.caption("💡 Prefer an independent dedicated MF budget or Quarterly/Yearly SIP? Open **Mutual Funds Radar (Tab 5)**.")
@@ -291,8 +317,9 @@ basket = generate_monthly_sip_basket(
 session_basket.close()
 
 # ── Main Tabs ─────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab_tracker, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "🛒 This Month's Recommended Basket",
+    "🎯 Active Mandate & Daily Shift Tracker",
     "🚨 Sell Reminder & Risk Radar",
     "📈 Compounding Trajectory & 10% Step-Up",
     "📊 Quantitative Audit & Backtest Simulator",
@@ -554,6 +581,76 @@ with tab1:
            * Automatically assigns a **-14% Structural Disaster Shield** (evaluated on daily close) to prevent severe -70% blowups.
            * Automatically activates a **+45% Breakeven Lock** and **30% Trailing Leash** so winning compounders can run to 5x–10x multi-baggers!
         """)
+    # ── Daily Recommendation Shift Radar ("What Changed Since Yesterday?") ───
+    session_shift = get_session(engine)
+    try:
+        shift_data = compute_daily_recommendation_shifts(session_shift, basket["assets"], strategy=strategy_code)
+        mkt_max_d = session_shift.execute(text("SELECT MAX(date) FROM daily_prices")).scalar() or date.today().isoformat()
+        mf_max_d = session_shift.execute(text("SELECT MAX(date) FROM mutual_fund_navs")).scalar() or date.today().isoformat()
+    except Exception as e:
+        shift_data = {"is_identical": True, "new_additions": [], "dropped_assets": [], "retained_assets": [], "action_summary": "", "prior_snapshot_date": None}
+        mkt_max_d = date.today().isoformat()
+        mf_max_d = date.today().isoformat()
+    session_shift.close()
+
+    st.markdown(f"""
+    <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #1e293b; padding: 7px 16px; border-radius: 6px; margin-bottom: 12px; font-size: 0.82em; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <span>📊 <b>Market Equities:</b> {mkt_max_d} (Latest Close) • 🏛️ <b>Mutual Fund NAVs:</b> {mf_max_d} (AMFI Official Feed — updates ~9 PM IST)</span>
+        <span>⚡ <b>SIP Model:</b> Live Multi-Factor Optimization on {mkt_max_d} Close</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not shift_data["is_identical"]:
+        with st.expander("⚡ Daily Recommendation Shift Alert: What Changed Today?", expanded=True):
+            st.markdown(f"""
+            <div style="background: linear-gradient(90deg, rgba(245, 158, 11, 0.15) 0%, rgba(234, 179, 8, 0.05) 100%); border-left: 4px solid #f59e0b; padding: 10px 16px; border-radius: 6px; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #fef08a; font-size: 1.0em;">📢 Algorithmic Recommendation Shifts Detected vs Previous Run ({shift_data.get('prior_snapshot_date') or 'Yesterday'})</div>
+                <div style="color: #cbd5e1; font-size: 0.88em; margin-top: 4px;">{shift_data['action_summary']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            b_c1, b_c2 = st.columns([1.5, 3.5])
+            with b_c1:
+                if st.button("💾 Lock In & Snapshot Today's Basket", key="tab1_snapshot_today", type="primary", use_container_width=True):
+                    s_snap = get_session(engine)
+                    from core.sip_tracker import log_sip_basket
+                    n_log = log_sip_basket(s_snap, basket, strategy=strategy_code, exit_protocol=protocol_code, force_relog=True)
+                    s_snap.close()
+                    st.success(f"✅ Snapshotted {n_log} assets for {date.today().isoformat()} to audit database!")
+                    st.rerun()
+            with b_c2:
+                st.caption("Locks in today's updated basket as the active forward baseline. Subsequent runs will track shifts and performance against today's prices.")
+
+            sc1, sc2, sc3 = st.columns(3)
+            with sc1:
+                st.markdown(f"**🆕 Newly Added Today ({len(shift_data['new_additions'])})**")
+                if shift_data['new_additions']:
+                    for itm in shift_data['new_additions']:
+                        st.markdown(f"- 🟢 **{itm['symbol']}** ({itm['sector']}) @ ₹{itm['current_price']:,.2f} — Score: {itm['composite_score']:.0f}/100")
+                else:
+                    st.caption("No new entrants today.")
+            with sc2:
+                st.markdown(f"**🔄 Rotated Out / Dropped ({len(shift_data['dropped_assets'])})**")
+                if shift_data['dropped_assets']:
+                    for itm in shift_data['dropped_assets']:
+                        st.markdown(f"- 🔴 **{itm['symbol']}** — *{itm['reason']}*")
+                else:
+                    st.caption("No assets dropped today.")
+            with sc3:
+                st.markdown(f"**🔒 Retained Core Compounders ({len(shift_data['retained_assets'])})**")
+                if shift_data['retained_assets']:
+                    for itm in shift_data['retained_assets']:
+                        diff_str = f"({itm['score_diff']:+.1f})" if itm['score_diff'] != 0 else ""
+                        st.markdown(f"- 💎 **{itm['symbol']}** — Score: {itm['composite_score']:.0f} {diff_str}")
+                else:
+                    st.caption("Freshly formed basket.")
+    else:
+        st.markdown(f"""
+        <div style="background: rgba(16, 185, 129, 0.08); border-left: 4px solid #10b981; padding: 8px 16px; border-radius: 6px; margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <span style="color: #6ee7b7; font-weight: 600; font-size: 0.9em;">🛡️ Recommendation Stability: 100% Unchanged vs Previous Run</span>
+            <span style="color: #94a3b8; font-size: 0.82em;">All {basket['n_assets']} picks remain top-tier quantitative leaders. No rebalances required today.</span>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Detailed Table
     st.subheader(f"📋 Exact Share Purchase Matrix & Online Consensus ({basket['n_assets']} Assets)")
@@ -649,6 +746,43 @@ with tab1:
 </div>"""
                 st.markdown(card_html, unsafe_allow_html=True)
 
+    # ── 1-Click Mandate Follower Bar ──────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 14px 20px; margin-top: 15px; margin-bottom: 12px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div>
+                <div style="font-weight: 800; color: #38bdf8; font-size: 1.05em;">📌 Follow & Track This Recommendation Basket as an Active Mandate</div>
+                <div style="color: #94a3b8; font-size: 0.86em; margin-top: 2px;">
+                    Far superior to a static watchlist! Tracks live trailing stops, profit targets, daily recommendation state shifts, and generates a concrete action checklist for today.
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_m1, col_m2 = st.columns([3, 1.2])
+    with col_m1:
+        default_mandate_title = f"Monthly SIP - {datetime.now().strftime('%b %Y')} ({strategy_code.replace('_', ' ').title()})"
+        mandate_name_input = st.text_input("Mandate Name to Track:", value=default_mandate_title, key="input_mandate_name")
+    with col_m2:
+        st.write("")
+        st.write("")
+        if st.button("📌 Lock & Track Mandate", type="primary", use_container_width=True, key="btn_lock_mandate"):
+            session_save = get_session(engine)
+            m_id = save_active_recommendation_mandate(
+                session_save,
+                name=mandate_name_input,
+                strategy=strategy_code,
+                assets=basket["assets"],
+                source="Monthly SIP Planner",
+                monthly_outlay=monthly_wallet,
+                notes=f"Locked on {date.today().isoformat()} with {len(basket['assets'])} assets"
+            )
+            session_save.close()
+            st.success(f"🎉 Mandate #{m_id} '{mandate_name_input}' is now actively tracked! View it in the '🎯 Active Mandate & Daily Shift Tracker' tab.")
+            st.rerun()
+
     st.markdown("---")
 
     # Donut Chart & Wealth Growth
@@ -677,6 +811,184 @@ with tab1:
         fig_comp.add_trace(go.Scatter(x=[f"Year {y}" if y > 0 else "Today" for y in years], y=cagr_curve, name=f"Target Value @ {basket['expected_cagr_pct']}% CAGR", line=dict(color="#00c875", width=3), mode="lines+markers+text", text=[f"₹{v:,.0f}" if v > 0 else "" for v in cagr_curve], textposition="top center"))
         fig_comp.update_layout(height=320, margin=dict(l=10, r=10, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"), yaxis_title="Rupees (₹)", legend=dict(orientation="h", y=1.15))
         st.plotly_chart(fig_comp, use_container_width=True)
+
+
+# ─── TAB: Active Mandate & Daily Shift Tracker ─────────────────────────────────
+with tab_tracker:
+    st.subheader("🎯 Active Recommendation Mandate & Daily Shift Tracker")
+    st.caption("A dynamic tracking cockpit far superior to static watchlists: tracks dynamic trailing stops, profit-taking milestones, daily algorithmic state shifts, and generates a concrete action checklist for today.")
+
+    session_tracker = get_session(engine)
+    tracked_mandates = get_tracked_mandates(session_tracker, status="ALL")
+
+    if not tracked_mandates:
+        st.info("💡 You have not locked any active recommendation mandates yet. Click the button below or in Tab 1 to lock this month's recommended basket as your first Active Mandate!")
+        col_start1, col_start2 = st.columns([2, 1])
+        with col_start1:
+            init_name = f"Monthly SIP - {datetime.now().strftime('%b %Y')} ({strategy_code.replace('_', ' ').title()})"
+            st.markdown(f"**Recommended Action:** Track current basket of **{len(basket['assets'])} assets** (Outlay: ₹{basket['total_spent']:,.2f})")
+        with col_start2:
+            if st.button("📌 Lock & Follow Current Recommended Basket Now", type="primary", use_container_width=True, key="quick_start_mandate"):
+                new_mid = save_active_recommendation_mandate(
+                    session_tracker,
+                    name=init_name,
+                    strategy=strategy_code,
+                    assets=basket["assets"],
+                    source="Monthly SIP Planner",
+                    monthly_outlay=monthly_wallet,
+                    notes=f"Locked from recommended basket on {date.today().isoformat()}"
+                )
+                session_tracker.close()
+                st.success(f"✅ Mandate #{new_mid} locked! Reloading...")
+                st.rerun()
+    else:
+        # Selector
+        mandate_options = {f"#{m['id']} - {m['name']} ({m['strategy']} • {m['item_count']} Assets)": m['id'] for m in tracked_mandates}
+        sel_mandate_label = st.selectbox("📂 Select Tracked Recommendation Mandate to Inspect:", list(mandate_options.keys()), index=0)
+        sel_mandate_id = mandate_options[sel_mandate_label]
+
+        # Evaluate Live Status
+        m_eval = evaluate_mandate_live_status(session_tracker, sel_mandate_id)
+        
+        # Top KPI Scoreboard
+        kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+        with kpi1:
+            st.metric("Total Invested Outlay", f"₹{m_eval.get('total_invested', 0):,.2f}", f"Inception: {m_eval.get('inception_date', '—')}")
+        with kpi2:
+            st.metric("Current Mandate Value", f"₹{m_eval.get('current_value', 0):,.2f}", f"{m_eval.get('total_items', 0)} Active Holdings")
+        with kpi3:
+            st.metric("Total Unrealized P&L", f"₹{m_eval.get('total_pnl_inr', 0):+,.2f}", f"{m_eval.get('total_pnl_pct', 0):+.2f}%")
+        with kpi4:
+            st.metric("Benchmark Alpha (vs NIFTY)", f"{m_eval.get('alpha_pct', 0):+.2f}%", f"NIFTY: {m_eval.get('benchmark_return_pct', 0):+.2f}%")
+        with kpi5:
+            st.metric("Strategy / Source", str(m_eval.get('strategy', '—')), str(m_eval.get('source', '—')))
+
+        st.markdown("---")
+
+        # ── 1. Daily Action Checklist for Today ──────────────────────────────
+        st.markdown("##### ⚡ Daily Action Checklist for Today")
+        action_items = m_eval.get("action_items", [])
+        if action_items:
+            for act in action_items:
+                act_color = "#ef4444" if act["severity"] == "CRITICAL" else ("#eab308" if act["severity"] == "WARNING" else "#10b981")
+                st.markdown(f"""
+                <div style="background: rgba(15, 23, 42, 0.85); border-left: 5px solid {act_color}; border-radius: 8px; padding: 12px 18px; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div>
+                            <span style="font-weight: 800; color: #fff; font-size: 1.1em;">{act['symbol']}</span>
+                            <span style="color: #94a3b8; font-size: 0.9em; margin-left: 8px;">{act['name']}</span>
+                        </div>
+                        <div>
+                            <span style="background: {act_color}22; color: {act_color}; border: 1px solid {act_color}55; font-weight: 700; padding: 3px 12px; border-radius: 4px; font-size: 0.88em;">{act['action_badge']}</span>
+                            <span style="background: rgba(255,255,255,0.08); color: #fff; font-weight: bold; padding: 3px 10px; border-radius: 4px; font-size: 0.85em; margin-left: 8px;">P&L: {act['pnl_pct']:+.1f}%</span>
+                        </div>
+                    </div>
+                    <div style="color: #e2e8f0; font-size: 0.92em; margin-top: 6px;">
+                        👉 <b>Recommended Brokerage Action:</b> {act['instruction']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div style="background: rgba(16, 185, 129, 0.12); border-left: 4px solid #10b981; border-radius: 6px; padding: 10px 16px; margin-bottom: 12px;">
+                <span style="color: #6ee7b7; font-weight: 700;">✅ All Clear Today:</span>
+                <span style="color: #cbd5e1; font-size: 0.92em; margin-left: 6px;">All active positions are compounding safely above their trailing stops. No sells or trims required today!</span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # ── 2. Live Holdings & Trailing Stop Matrix ──────────────────────────
+        st.markdown("##### 📋 Live Holdings, Dynamic Trailing Stops & Targets")
+        st.caption("Trailing stops automatically rachet upward as your winning compounders hit milestones to protect accumulated capital.")
+
+        df_items = pd.DataFrame(m_eval.get("items", []))
+        if not df_items.empty:
+            st.dataframe(
+                df_items[[
+                    "symbol", "name", "asset_class", "recommended_qty", "entry_price", "current_price",
+                    "trailing_stop", "target_1", "target_2", "pnl_pct", "pnl_inr", "action_badge"
+                ]].rename(columns={
+                    "symbol": "Symbol",
+                    "name": "Asset Name",
+                    "asset_class": "Asset Class",
+                    "recommended_qty": "Qty",
+                    "entry_price": "Inception Price (₹)",
+                    "current_price": "Current Price (₹)",
+                    "trailing_stop": "Dynamic Trailing Stop (₹)",
+                    "target_1": "Target 1 (₹)",
+                    "target_2": "Target 2 (₹)",
+                    "pnl_pct": "P&L %",
+                    "pnl_inr": "P&L (₹)",
+                    "action_badge": "Action Trigger"
+                }).style.format({
+                    "Qty": "{:,}",
+                    "Inception Price (₹)": "₹{:,.2f}",
+                    "Current Price (₹)": "₹{:,.2f}",
+                    "Dynamic Trailing Stop (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
+                    "Target 1 (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
+                    "Target 2 (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) else "—",
+                    "P&L %": "{:+.2f}%",
+                    "P&L (₹)": "₹{:,.2f}"
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+
+        # ── 3. Chronological Shift Audit Feed & Mandate Timeline ─────────────
+        st.markdown("##### 📜 Chronological Recommendation Shift & Milestone Journal")
+        events = get_recommendation_shift_timeline(session_tracker, mandate_id=sel_mandate_id, limit=15)
+        if events:
+            for ev in events:
+                e_color = "#38bdf8" if ev["severity"] == "INFO" else ("#10b981" if ev["severity"] == "SUCCESS" else "#f59e0b")
+                st.markdown(f"""
+                <div style="border-left: 3px solid {e_color}; padding: 6px 14px; margin-bottom: 8px; background: rgba(30, 41, 59, 0.4); border-radius: 4px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.82em; color: #94a3b8;">
+                        <span>📅 {ev['event_date']} • <b>{ev['symbol']}</b></span>
+                        <span style="color: {e_color}; font-weight: 700;">{ev['event_type']}</span>
+                    </div>
+                    <div style="font-weight: 600; color: #f1f5f9; font-size: 0.92em; margin-top: 2px;">{ev['headline']}</div>
+                    <div style="color: #cbd5e1; font-size: 0.85em; margin-top: 2px;">{ev['action_instruction']}</div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.caption("No shift events recorded yet for this mandate.")
+
+        # ── 4. Mandate Operations ───────────────────────────────────────────
+        st.markdown("---")
+        op_col1, op_col2, op_col3 = st.columns([1.5, 1.5, 1])
+        with op_col1:
+            if not df_items.empty:
+                csv_mandate = df_items.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "📥 Export Mandate Live Audit (CSV)",
+                    data=csv_mandate,
+                    file_name=f"active_mandate_{sel_mandate_id}_{date.today().strftime('%Y_%m_%d')}.csv",
+                    mime="text/csv",
+                    use_container_width=True
+                )
+        with op_col2:
+            if st.button("🚀 Sync Holdings to Paper Trading Ledger", use_container_width=True, key="sync_paper_mandate"):
+                deploy_cnt = 0
+                for itm in m_eval.get("items", []):
+                    if itm["asset_class"] in ("Stock", "Equity") and itm["recommended_qty"] > 0:
+                        execute_paper_buy(
+                            session=session_tracker,
+                            symbol=itm["symbol"],
+                            shares=itm["recommended_qty"],
+                            buy_price=itm["current_price"],
+                            stop_loss=itm["trailing_stop"],
+                            target_1=itm["target_1"],
+                            target_2=itm["target_2"]
+                        )
+                        deploy_cnt += 1
+                st.success(f"🎉 Synced {deploy_cnt} mandate positions to Live Paper Trading Ledger (Page 8)!")
+        with op_col3:
+            if st.button("🗑️ Retire / Delete Mandate", type="secondary", use_container_width=True, key="del_mandate_btn"):
+                delete_or_retire_mandate(session_tracker, sel_mandate_id, action="DELETE")
+                session_tracker.close()
+                st.warning("Mandate deleted.")
+                st.rerun()
+
+    session_tracker.close()
 
 
 # ─── TAB 2: Sell Reminder & Risk Radar ─────────────────────────────────────────
@@ -1091,8 +1403,33 @@ with tab4:
             help="Option 2A: Locks in progressive profit floors (+20% -> BE+2%, +50% -> +25%, +100% -> +60%, +200% -> +130%) under Adaptive Structural protocol."
         )
 
-    # Initialize or fetch backtest results
-    if "sip_backtest_res" not in st.session_state or run_bt_btn:
+    # Construct reactive parameter state fingerprint to auto-update simulation on any filter change
+    bt_params_key = (
+        monthly_wallet,
+        selected_bt_strategy,
+        months_val,
+        proto_code,
+        risk_code,
+        bt_step_up_val,
+        pyramid_choice,
+        hurdle_choice,
+        hurdle_val if hurdle_choice else 0.0,
+        cap_choice,
+        dip_choice,
+        skim_choice,
+        bt_mf_choice,
+        bt_mf_pct if bt_mf_choice else 0.0,
+        bt_loss_cooldown,
+        bt_sector_gate,
+        bt_macro_hedge,
+        float(bt_macro_hedge_pct),
+        bt_macro_rot,
+        bt_stepladder,
+        target_stocks
+    )
+
+    # Initialize or fetch backtest results (re-runs automatically on any filter change or button click)
+    if "sip_backtest_res" not in st.session_state or run_bt_btn or st.session_state.get("sip_backtest_params_key") != bt_params_key:
         with st.spinner(f"Simulating {months_val}-Month SIP execution across historical daily prices..."):
             session_bt = get_session(engine)
             st.session_state["sip_backtest_res"] = run_monthly_sip_backtest(
@@ -1128,12 +1465,14 @@ with tab4:
                 enable_stepladder_trailing=bt_stepladder
             )
             session_bt.close()
+            st.session_state["sip_backtest_params_key"] = bt_params_key
 
     bt = st.session_state.get("sip_backtest_res")
     if bt and "error" not in bt:
         strat_badge = "💎 100% Direct Stocks Basket" if bt.get("strategy") == "PURE_STOCKS" else "🌐 Multi-Asset Combination (65% Stocks + 20% Nifty Index ETF + 15% Gold ETF)"
         meta_items = [
             f"Asset Strategy: <b style='color: #38bdf8;'>{strat_badge}</b>",
+            f"Profile: <b style='color: #a855f7;'>{bt.get('risk_profile', risk_code).title()}</b>",
             f"Horizon: <b>{bt['months_tested']} Months</b>",
             f"Exit Protocol: <b>{proto_code.replace('_', ' ').title()}</b>",
             f"Step-Up: <b>{'+' + str(int(bt_step_up_val)) + '% / Year' if bt_step_up_val > 0 else 'Flat Monthly SIP'}</b>"
@@ -1333,7 +1672,18 @@ with tab5:
         st.write("")
         run_mc_btn = st.button("🎲 Run Simulation", type="primary", use_container_width=True)
 
-    if "mc_simulation_res" not in st.session_state or run_mc_btn:
+    # Reactive Monte Carlo parameter fingerprint
+    mc_params_key = (
+        monthly_wallet,
+        mc_sim_count,
+        mc_horizon_val,
+        selected_mc_strat,
+        protocol_code,
+        mc_shock_val,
+        step_up_val if "step_up_val" in locals() else 0.0
+    )
+
+    if "mc_simulation_res" not in st.session_state or run_mc_btn or st.session_state.get("mc_simulation_params_key") != mc_params_key:
         with st.spinner(f"Simulating {mc_sim_count} paths over {mc_horizon_val} months with bootstrap sampling..."):
             session_mc = get_session(engine)
             st.session_state["mc_simulation_res"] = run_monte_carlo_simulation(
@@ -1347,6 +1697,7 @@ with tab5:
                 stress_shock_pct=mc_shock_val
             )
             session_mc.close()
+            st.session_state["mc_simulation_params_key"] = mc_params_key
 
     mc = st.session_state.get("mc_simulation_res")
     if mc and "median_corpus" in mc:
@@ -1476,11 +1827,11 @@ with tab5:
             """, unsafe_allow_html=True)
 
 
-# ─── TAB 6: Empirical SIP Track Record & Forward Accuracy ─────────────────────
+# ─── TAB 6: Empirical Multi-Asset SIP Track Record & Forward Accuracy ────────
 with tab6:
-    st.markdown("### 📋 Empirical SIP Suggestion Track Record & Accuracy Verification")
-    st.caption("Forward-tracking all monthly SIP recommendations against actual market execution. "
-               "Audits real-world win rate, hit rate, and live XIRR against theoretical backtests.")
+    st.markdown("### 📋 Empirical Multi-Asset SIP Suggestion Track Record & Accuracy Verification")
+    st.caption("Forward-tracking monthly SIP recommendations across Stocks, Indexes, Commodities, and Mutual Funds. "
+               "Audits real-world win rate, hit rate, benchmark alpha against NIFTY 50, and live XIRR.")
 
     t6_c1, t6_c2, t6_c3 = st.columns([1.5, 1.5, 3])
     with t6_c1:
@@ -1489,7 +1840,7 @@ with tab6:
             from core.sip_tracker import log_sip_basket
             n_logged = log_sip_basket(s_trk, basket, strategy=strategy_code, exit_protocol=protocol_code, force_relog=True)
             s_trk.close()
-            st.success(f"✅ Logged {n_logged} picks for {datetime.now().strftime('%b %Y')} to audit log!")
+            st.success(f"✅ Logged {n_logged} multi-asset picks for {datetime.now().strftime('%b %Y')} to audit log!")
             st.rerun()
 
     with t6_c2:
@@ -1498,121 +1849,181 @@ with tab6:
             from core.sip_tracker import update_sip_forward_performance
             n_eval = update_sip_forward_performance(s_trk)
             s_trk.close()
-            st.info(f"Evaluated positions: {n_eval} changed status.")
+            st.info(f"Evaluated multi-asset positions: {n_eval} changed status.")
             st.rerun()
 
-    # Load Accuracy Report
+    # Load Multi-Asset Accuracy Report
     s_rep = get_session(engine)
-    from core.sip_tracker import get_sip_accuracy_report
-    acc_rep = get_sip_accuracy_report(s_rep, months=24)
+    from core.sip_tracker import evaluate_multi_asset_sip_accuracy
+    acc_rep = evaluate_multi_asset_sip_accuracy(s_rep, months=24)
     s_rep.close()
 
     total_sug = acc_rep["total_suggestions"]
     if total_sug == 0:
         st.markdown("""
         <div style="background: rgba(56, 189, 248, 0.08); border-left: 4px solid #38bdf8; padding: 18px 22px; border-radius: 8px; margin-top: 14px; font-size: 0.95em; line-height: 1.6; color: #cbd5e1;">
-            <b>ℹ️ No SIP suggestions have been logged yet.</b><br><br>
-            To begin forward-testing and tracking accuracy:<br>
-            1. Click <b>"💾 Snapshot Current Basket to Log"</b> above to snapshot today's recommended basket into the persistent database.<br>
+            <b>ℹ️ No multi-asset SIP suggestions have been logged yet.</b><br><br>
+            To begin forward-testing and tracking accuracy across <b>Stocks, Indexes, Commodities, and Mutual Funds</b>:<br>
+            1. Click <b>"💾 Snapshot Current Basket to Log"</b> above to snapshot today's recommended basket into the persistent audit database.<br>
             2. Or use <b>"⭐ 1-Click Direct Add to Watchlist"</b> in Tab 1, which automatically logs all picks.<br>
-            3. The daily scheduler will track prices daily to calculate real-world hit rates, stop-loss triggers, and live XIRR!
+            3. The daily update cycle will automatically track prices and NAVs daily to calculate real-world hit rates, stop-loss triggers, benchmark alpha, and live XIRR!
         </div>
         """, unsafe_allow_html=True)
     else:
         # Scorecard Row 1: Core Performance Metrics
+        df_log = acc_rep["df"]
+        avg_days = df_log["days_held"].mean() if "days_held" in df_log.columns and len(df_log) > 0 else 0
+        if acc_rep['completed_count'] == 0:
+            st.caption(f"⏳ **Early Incubation Horizon**: Current picks have an average holding period of **{avg_days:.1f} days** (1 trading session elapsed since snapshot). Targets (T1: +15% to +50%) are calibrated for 3–12 month holding periods.")
+
         m1, m2, m3, m4, m5 = st.columns(5)
         with m1:
-            st.metric("Total Picks Tracked", f"{total_sug}", f"Active Open: {acc_rep['open_count']}")
+            st.metric("Total Picks Tracked", f"{total_sug}", f"Open: {acc_rep['open_count']} | Closed: {acc_rep['completed_count']}")
         with m2:
-            st.metric("Target Hit Rate (Win %)", f"{acc_rep['win_rate_pct']:.1f}%", f"T1 Hits: {acc_rep['t1_count']}")
+            win_label = "Current Win Rate (Open)" if acc_rep['completed_count'] == 0 else "Target Hit Rate (Win %)"
+            t1_sub = f"T1 Hits: {acc_rep['t1_count']}" if acc_rep['completed_count'] > 0 else f"Green: {int(round(acc_rep['win_rate_pct']/100*total_sug))} / {total_sug} (T1: 0)"
+            st.metric(win_label, f"{acc_rep['win_rate_pct']:.1f}%", t1_sub)
         with m3:
-            st.metric("Profit Factor", f"{acc_rep['profit_factor']:.2f}x", f"Avg Win: +{acc_rep['avg_winner_gain_pct']:.1f}%")
+            st.metric("Benchmark Beat Rate", f"{acc_rep['benchmark_beat_rate_pct']:.1f}%", f"Avg Alpha: {acc_rep['avg_alpha_pct']:+.1f}%")
         with m4:
-            st.metric("Avg Loss on SL", f"{acc_rep['avg_loser_loss_pct']:.1f}%", f"SL Hits: {acc_rep['sl_count']}")
+            st.metric("Profit Factor", f"{acc_rep['profit_factor']:.2f}x", f"Avg Win: +{acc_rep['avg_winner_gain_pct']:.1f}%")
         with m5:
-            st.metric("Live Realized XIRR", f"{acc_rep['live_xirr_pct']:.1f}%", "vs ~35% Backtest")
+            xirr_title = "Live Portfolio XIRR" if acc_rep['completed_count'] == 0 else "Live Realized XIRR"
+            st.metric(xirr_title, f"{acc_rep['live_xirr_pct']:.1f}%", "vs ~35% Backtest")
 
         st.markdown("---")
 
-        # Diagnostics & Charts
-        col_ch1, col_ch2 = st.columns([1, 1.1])
-        with col_ch1:
-            st.markdown("##### 🎯 Suggestion Status Distribution")
-            status_map = {
-                "Active Open": acc_rep['open_count'],
-                "Target 1 Hit": acc_rep['t1_count'],
-                "Trailing SL Hit": acc_rep['trailing_sl_count'],
-                "Stop-Loss Hit": acc_rep['sl_count'],
-                "Expired (>365d)": acc_rep['expired_count'],
-            }
-            active_counts = {k: v for k, v in status_map.items() if v > 0}
-            if active_counts:
-                fig_donut = go.Figure(data=[go.Pie(
-                    labels=list(active_counts.keys()),
-                    values=list(active_counts.values()),
-                    hole=0.45,
-                    marker=dict(colors=["#38bdf8", "#00c875", "#f59e0b", "#ef4444", "#94a3b8"])
-                )])
-                fig_donut.update_layout(
-                    height=280,
-                    template="plotly_dark",
-                    margin=dict(l=10, r=10, t=10, b=10),
-                    showlegend=True,
-                    legend=dict(orientation="h", yanchor="bottom", y=-0.2)
+        # Multi-Asset & Strategy Accuracy Teardown
+        col_ac_breakdown, col_st_breakdown = st.columns(2)
+
+        with col_ac_breakdown:
+            st.markdown("##### 🏛️ Accuracy Breakdown by Asset Class")
+            if acc_rep.get("asset_class_stats"):
+                ac_rows = []
+                for ac, stats in acc_rep["asset_class_stats"].items():
+                    ac_rows.append({
+                        "Asset Class": ac,
+                        "Total Picks": stats["count"],
+                        "Win Rate %": stats["win_rate_pct"],
+                        "Beat NIFTY %": stats["benchmark_beat_pct"],
+                        "Avg Return %": stats["avg_return_pct"],
+                        "Avg Alpha %": stats["avg_alpha_pct"],
+                    })
+                df_ac = pd.DataFrame(ac_rows)
+                for c in ["Total Picks", "Win Rate %", "Beat NIFTY %", "Avg Return %", "Avg Alpha %"]:
+                    if c in df_ac.columns:
+                        df_ac[c] = pd.to_numeric(df_ac[c], errors="coerce")
+                st.dataframe(
+                    df_ac.style.format({
+                        "Total Picks": lambda x: f"{int(x)}" if pd.notnull(x) and not pd.isna(x) else "0",
+                        "Win Rate %": "{:.1f}%",
+                        "Beat NIFTY %": "{:.1f}%",
+                        "Avg Return %": "{:+.2f}%",
+                        "Avg Alpha %": "{:+.2f}%",
+                    }, na_rep="—"),
+                    use_container_width=True,
+                    hide_index=True
                 )
-                st.plotly_chart(fig_donut, use_container_width=True)
             else:
-                st.write("No active statuses.")
+                st.info("No asset class breakdown available.")
 
-        with col_ch2:
-            st.markdown("##### 🔬 Backtest vs Live Reality Comparison")
-            st.markdown(f"""
-            <div style="background: #101c28; border-left: 4px solid #38bdf8; padding: 14px 18px; border-radius: 8px; font-size: 0.9em; line-height: 1.7; color: #cbd5e1;">
-                <b>Empirical Alignment Audit:</b><br>
-                • <b>Simulated Strategy CAGR:</b> <code>35.63%</code> (Historical Simulation)<br>
-                • <b>Forward-Tracked Live XIRR:</b> <code>{acc_rep['live_xirr_pct']:.1f}%</code><br>
-                • <b>Resolved Win Rate:</b> <code>{acc_rep['win_rate_pct']:.1f}%</code> (Targets vs Stops)<br>
-                • <b>Profit Factor:</b> <code>{acc_rep['profit_factor']:.2f}</code> (Gross Gains / Losses)<br>
-                • <b>Lookahead Bias Prevention:</b> Recommendations are permanently timestamped with entry, stop-loss, and multi-tier targets at generation time.
-            </div>
-            """, unsafe_allow_html=True)
+        with col_st_breakdown:
+            st.markdown("##### 🎯 Accuracy Breakdown by Strategy")
+            if acc_rep.get("strategy_stats"):
+                st_rows = []
+                for st_name, stats in acc_rep["strategy_stats"].items():
+                    st_rows.append({
+                        "Strategy": st_name,
+                        "Total Picks": stats["count"],
+                        "Win Rate %": stats["win_rate_pct"],
+                        "Beat NIFTY %": stats["benchmark_beat_pct"],
+                        "Avg Return %": stats["avg_return_pct"],
+                        "Avg Alpha %": stats["avg_alpha_pct"],
+                    })
+                df_st = pd.DataFrame(st_rows)
+                for c in ["Total Picks", "Win Rate %", "Beat NIFTY %", "Avg Return %", "Avg Alpha %"]:
+                    if c in df_st.columns:
+                        df_st[c] = pd.to_numeric(df_st[c], errors="coerce")
+                st.dataframe(
+                    df_st.style.format({
+                        "Total Picks": lambda x: f"{int(x)}" if pd.notnull(x) and not pd.isna(x) else "0",
+                        "Win Rate %": "{:.1f}%",
+                        "Beat NIFTY %": "{:.1f}%",
+                        "Avg Return %": "{:+.2f}%",
+                        "Avg Alpha %": "{:+.2f}%",
+                    }, na_rep="—"),
+                    use_container_width=True,
+                    hide_index=True
+                )
+            else:
+                st.info("No strategy breakdown available.")
 
         st.markdown("---")
-        st.markdown("##### 📜 Detailed Forward Tracking Log")
+
+        # Detailed Multi-Asset Forward Tracking Log
+        st.markdown("##### 📜 Detailed Multi-Asset Forward Tracking Log")
         df_log = acc_rep["df"]
         if not df_log.empty:
-            f_col1, f_col2 = st.columns(2)
+            f_col1, f_col2, f_col3 = st.columns(3)
             with f_col1:
+                ac_available = ["All Asset Classes"] + sorted(list(df_log["asset_class"].dropna().unique()))
+                sel_ac = st.selectbox("Filter Asset Class:", ac_available, key="trk_ac_sel")
+            with f_col2:
                 months_available = ["All Months"] + sorted(list(df_log["month_label"].dropna().unique()), reverse=True)
                 sel_month = st.selectbox("Filter by Month:", months_available, key="trk_m_sel")
-            with f_col2:
+            with f_col3:
                 statuses_available = ["All Statuses"] + sorted(list(df_log["status"].dropna().unique()))
                 sel_status = st.selectbox("Filter by Status:", statuses_available, key="trk_s_sel")
 
             filtered_df = df_log.copy()
+            if sel_ac != "All Asset Classes":
+                filtered_df = filtered_df[filtered_df["asset_class"] == sel_ac]
             if sel_month != "All Months":
                 filtered_df = filtered_df[filtered_df["month_label"] == sel_month]
             if sel_status != "All Statuses":
                 filtered_df = filtered_df[filtered_df["status"] == sel_status]
 
             disp_cols = [
-                "month_label", "symbol", "name", "sector", "strategy",
-                "entry_price", "stop_loss", "target_price", "composite_score",
-                "status", "exit_price", "realized_gain_pct", "days_held"
+                "month_label", "symbol", "name", "asset_class", "sector", "strategy",
+                "entry_price", "target_price", "stop_loss", "status",
+                "effective_gain_pct", "benchmark_gain_pct", "alpha_pct", "days_held"
             ]
             avail_cols = [c for c in disp_cols if c in filtered_df.columns]
 
+            rename_map = {
+                "month_label": "Month",
+                "symbol": "Symbol",
+                "name": "Name",
+                "asset_class": "Asset Class",
+                "sector": "Sector",
+                "strategy": "Strategy",
+                "entry_price": "Entry (₹)",
+                "target_price": "Target (₹)",
+                "stop_loss": "Stop Loss (₹)",
+                "status": "Status",
+                "effective_gain_pct": "Net Gain %",
+                "benchmark_gain_pct": "Nifty 50 %",
+                "alpha_pct": "Alpha %",
+                "days_held": "Days Held"
+            }
+            sub_df = filtered_df[avail_cols].rename(columns=rename_map).copy()
+            for num_col in ["Entry (₹)", "Target (₹)", "Stop Loss (₹)", "Net Gain %", "Nifty 50 %", "Alpha %", "Days Held"]:
+                if num_col in sub_df.columns:
+                    sub_df[num_col] = pd.to_numeric(sub_df[num_col], errors="coerce")
+
             st.dataframe(
-                filtered_df[avail_cols].style.format({
-                    "entry_price": "₹{:.2f}",
-                    "stop_loss": "₹{:.2f}",
-                    "target_price": "₹{:.2f}",
-                    "exit_price": "₹{:.2f}",
-                    "composite_score": "{:.1f}",
-                    "realized_gain_pct": "{:+.2f}%",
-                    "days_held": "{:.0f}"
+                sub_df.style.format({
+                    "Entry (₹)": lambda x: f"₹{float(x):,.2f}" if pd.notnull(x) and not pd.isna(x) and float(x) > 0 else "—",
+                    "Target (₹)": lambda x: f"₹{float(x):,.2f}" if pd.notnull(x) and not pd.isna(x) and float(x) > 0 else "—",
+                    "Stop Loss (₹)": lambda x: f"₹{float(x):,.2f}" if pd.notnull(x) and not pd.isna(x) and float(x) > 0 else "—",
+                    "Net Gain %": lambda x: f"{float(x):+.2f}%" if pd.notnull(x) and not pd.isna(x) else "—",
+                    "Nifty 50 %": lambda x: f"{float(x):+.2f}%" if pd.notnull(x) and not pd.isna(x) else "—",
+                    "Alpha %": lambda x: f"{float(x):+.2f}%" if pd.notnull(x) and not pd.isna(x) else "—",
+                    "Days Held": lambda x: f"{int(x)}" if pd.notnull(x) and not pd.isna(x) else "0"
                 }, na_rep="—"),
                 use_container_width=True,
-                height=350
+                height=380,
+                hide_index=True
             )
+
 

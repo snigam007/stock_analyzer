@@ -18,152 +18,155 @@ while _curr != _curr.parent:
 BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
-st.set_page_config(page_title="Trend Forecasts", page_icon="📉", layout="wide")
-
-from db.database import get_global_engine, get_session
-from sqlalchemy import text
-
-engine = get_global_engine()
-
-st.title("📉 Trend Forecasts")
-st.caption("ML-powered (Prophet) time-series forecasts with confidence intervals")
-
-@st.cache_data(ttl=30)
-def get_forecast_assets(category: str = "Stocks"):
+try:
+    st.set_page_config(page_title="Trend Forecasts", page_icon="📉", layout="wide")
+    
+    from db.database import get_global_engine, get_session
+    from sqlalchemy import text
+    
+    engine = get_global_engine()
+    
+    st.title("📉 Trend Forecasts")
+    st.caption("ML-powered (Prophet) time-series forecasts with confidence intervals")
+    
+    @st.cache_data(ttl=30)
+    def get_forecast_assets(category: str = "Stocks"):
+        session = get_session(engine)
+        if category == "Indexes":
+            result = session.execute(text("""
+                SELECT DISTINCT f.symbol, ip.name, 'Index' as sector
+                FROM forecasts f
+                JOIN index_prices ip ON f.symbol = ip.symbol
+                ORDER BY f.symbol
+            """)).fetchall()
+        elif category == "Commodities":
+            result = session.execute(text("""
+                SELECT DISTINCT f.symbol, cp.name, 'Commodity' as sector
+                FROM forecasts f
+                JOIN commodity_prices cp ON f.symbol = cp.symbol
+                ORDER BY f.symbol
+            """)).fetchall()
+        else:
+            result = session.execute(text("""
+                SELECT DISTINCT f.symbol, s.name, s.sector
+                FROM forecasts f JOIN stocks s ON f.symbol = s.symbol
+                ORDER BY s.sector, f.symbol
+            """)).fetchall()
+        session.close()
+        return result
+    
+    @st.cache_data(ttl=30)
+    def get_forecast_data(symbol: str, category: str = "Stocks"):
+        session = get_session(engine)
+        forecast = session.execute(text("""
+            SELECT * FROM forecasts WHERE symbol=:s ORDER BY generated_date DESC LIMIT 1
+        """), {"s": symbol}).mappings().first()
+    
+        if category == "Indexes":
+            table = "index_prices"
+        elif category == "Commodities":
+            table = "commodity_prices"
+        else:
+            table = "daily_prices"
+    
+        prices = session.execute(text(f"""
+            SELECT date, close FROM {table} WHERE symbol=:s ORDER BY date DESC LIMIT 365
+        """), {"s": symbol}).fetchall()
+    
+        session.close()
+        return dict(forecast) if forecast else {}, prices
+    
+    
+    COMMODITY_NAMES = {
+        "GC=F": "Gold (COMEX / MCX Future)",
+        "SI=F": "Silver (COMEX / MCX Future)",
+        "CL=F": "Crude Oil (WTI / MCX)",
+        "BZ=F": "Brent Crude Oil",
+        "HG=F": "Copper (COMEX / MCX)",
+        "NG=F": "Natural Gas",
+        "PL=F": "Platinum",
+        "PA=F": "Palladium",
+        "GOLDBEES.NS": "Nippon India Gold ETF (GOLDBEES)",
+        "SILVERBEES.NS": "Nippon India Silver ETF (SILVERBEES)",
+    }
+    
+    INDEX_NAMES = {
+        "^NSEI": "NIFTY 50 (National Stock Exchange)",
+        "^BSESN": "BSE SENSEX (Bombay Stock Exchange)",
+        "^NSEBANK": "NIFTY BANK (Banking Index)",
+        "^CNXIT": "NIFTY IT (Technology Index)",
+        "NIFTYBEES.NS": "Nippon India Nifty 50 ETF (NIFTYBEES)",
+        "BANKBEES.NS": "Nippon India Nifty Bank ETF (BANKBEES)",
+        "ITBEES.NS": "Nippon India Nifty IT ETF (ITBEES)",
+        "^GSPC": "S&P 500 (US Benchmark)",
+        "^NDX": "Nasdaq 100 (US Tech Benchmark)",
+    }
+    
+    
+    def get_display_name(sym: str, raw_name: str = None) -> str:
+        if sym in COMMODITY_NAMES:
+            return COMMODITY_NAMES[sym]
+        if sym in INDEX_NAMES:
+            return INDEX_NAMES[sym]
+        return raw_name or sym
+    
+    
+    st.sidebar.title("📉 Trend Forecasts")
+    category = st.sidebar.radio("Asset Category", ["Stocks", "Indexes", "Commodities"], horizontal=True)
+    
+    stock_list = get_forecast_assets(category)
+    if not stock_list:
+        st.warning(f"No forecast data available for {category}. Run forecasts to populate.")
+        st.stop()
+    
+    symbols = [s[0] for s in stock_list]
+    labels = [f"{s[0]} — {get_display_name(s[0], s[1])[:45]}" for s in stock_list]
+    
+    selected_idx = st.sidebar.selectbox("Select Asset", range(len(labels)), format_func=lambda i: labels[i])
+    selected_symbol = symbols[selected_idx]
+    
+    forecast, prices = get_forecast_data(selected_symbol, category)
+    
+    if not forecast:
+        st.warning(f"No forecast available for {selected_symbol}.")
+        st.stop()
+    
+    stock_info = next((s for s in stock_list if s[0] == selected_symbol), None)
+    asset_name = get_display_name(selected_symbol, stock_info[1] if stock_info else None)
+    asset_sector = stock_info[2] if (stock_info and stock_info[2]) else category
+    st.header(f"📈 {selected_symbol} — {asset_name}")
+    st.caption(f"📂 Category: {asset_sector}")
+    
+    current_price_row = prices[0] if prices else None
+    current_price = current_price_row[1] if current_price_row else 0
+    
+    horizons = [
+        ("7 Days", "7d"), ("14 Days", "14d"), ("1 Month", "1m"),
+        ("3 Months", "3m"), ("6 Months", "6m"), ("1 Year", "1y"),
+    ]
+    
+    # ── Prediction Model Intelligence View Toggle ─────────────────────────────────
+    from core.ml_models import compute_ml_ensemble_consensus
+    from core.trade_optimizer import compute_empirical_strategy_projections
+    from core.backtester import find_champion_strategy
+    
     session = get_session(engine)
-    if category == "Indexes":
-        result = session.execute(text("""
-            SELECT DISTINCT f.symbol, ip.name, 'Index' as sector
-            FROM forecasts f
-            JOIN index_prices ip ON f.symbol = ip.symbol
-            ORDER BY f.symbol
-        """)).fetchall()
-    elif category == "Commodities":
-        result = session.execute(text("""
-            SELECT DISTINCT f.symbol, cp.name, 'Commodity' as sector
-            FROM forecasts f
-            JOIN commodity_prices cp ON f.symbol = cp.symbol
-            ORDER BY f.symbol
-        """)).fetchall()
-    else:
-        result = session.execute(text("""
-            SELECT DISTINCT f.symbol, s.name, s.sector
-            FROM forecasts f JOIN stocks s ON f.symbol = s.symbol
-            ORDER BY s.sector, f.symbol
-        """)).fetchall()
+    champion_data = find_champion_strategy(selected_symbol, session, years=3)
     session.close()
-    return result
-
-@st.cache_data(ttl=30)
-def get_forecast_data(symbol: str, category: str = "Stocks"):
-    session = get_session(engine)
-    forecast = session.execute(text("""
-        SELECT * FROM forecasts WHERE symbol=:s ORDER BY generated_date DESC LIMIT 1
-    """), {"s": symbol}).mappings().first()
-
-    if category == "Indexes":
-        table = "index_prices"
-    elif category == "Commodities":
-        table = "commodity_prices"
-    else:
-        table = "daily_prices"
-
-    prices = session.execute(text(f"""
-        SELECT date, close FROM {table} WHERE symbol=:s ORDER BY date DESC LIMIT 365
-    """), {"s": symbol}).fetchall()
-
-    session.close()
-    return dict(forecast) if forecast else {}, prices
-
-
-COMMODITY_NAMES = {
-    "GC=F": "Gold (COMEX / MCX Future)",
-    "SI=F": "Silver (COMEX / MCX Future)",
-    "CL=F": "Crude Oil (WTI / MCX)",
-    "BZ=F": "Brent Crude Oil",
-    "HG=F": "Copper (COMEX / MCX)",
-    "NG=F": "Natural Gas",
-    "PL=F": "Platinum",
-    "PA=F": "Palladium",
-    "GOLDBEES.NS": "Nippon India Gold ETF (GOLDBEES)",
-    "SILVERBEES.NS": "Nippon India Silver ETF (SILVERBEES)",
-}
-
-INDEX_NAMES = {
-    "^NSEI": "NIFTY 50 (National Stock Exchange)",
-    "^BSESN": "BSE SENSEX (Bombay Stock Exchange)",
-    "^NSEBANK": "NIFTY BANK (Banking Index)",
-    "^CNXIT": "NIFTY IT (Technology Index)",
-    "NIFTYBEES.NS": "Nippon India Nifty 50 ETF (NIFTYBEES)",
-    "BANKBEES.NS": "Nippon India Nifty Bank ETF (BANKBEES)",
-    "ITBEES.NS": "Nippon India Nifty IT ETF (ITBEES)",
-    "^GSPC": "S&P 500 (US Benchmark)",
-    "^NDX": "Nasdaq 100 (US Tech Benchmark)",
-}
-
-
-def get_display_name(sym: str, raw_name: str = None) -> str:
-    if sym in COMMODITY_NAMES:
-        return COMMODITY_NAMES[sym]
-    if sym in INDEX_NAMES:
-        return INDEX_NAMES[sym]
-    return raw_name or sym
-
-
-st.sidebar.title("📉 Trend Forecasts")
-category = st.sidebar.radio("Asset Category", ["Stocks", "Indexes", "Commodities"], horizontal=True)
-
-stock_list = get_forecast_assets(category)
-if not stock_list:
-    st.warning(f"No forecast data available for {category}. Run forecasts to populate.")
-    st.stop()
-
-symbols = [s[0] for s in stock_list]
-labels = [f"{s[0]} — {get_display_name(s[0], s[1])[:45]}" for s in stock_list]
-
-selected_idx = st.sidebar.selectbox("Select Asset", range(len(labels)), format_func=lambda i: labels[i])
-selected_symbol = symbols[selected_idx]
-
-forecast, prices = get_forecast_data(selected_symbol, category)
-
-if not forecast:
-    st.warning(f"No forecast available for {selected_symbol}.")
-    st.stop()
-
-stock_info = next((s for s in stock_list if s[0] == selected_symbol), None)
-asset_name = get_display_name(selected_symbol, stock_info[1] if stock_info else None)
-asset_sector = stock_info[2] if (stock_info and stock_info[2]) else category
-st.header(f"📈 {selected_symbol} — {asset_name}")
-st.caption(f"📂 Category: {asset_sector}")
-
-current_price_row = prices[0] if prices else None
-current_price = current_price_row[1] if current_price_row else 0
-
-horizons = [
-    ("7 Days", "7d"), ("14 Days", "14d"), ("1 Month", "1m"),
-    ("3 Months", "3m"), ("6 Months", "6m"), ("1 Year", "1y"),
-]
-
-# ── Prediction Model Intelligence View Toggle ─────────────────────────────────
-from core.ml_models import compute_ml_ensemble_consensus
-from core.trade_optimizer import compute_empirical_strategy_projections
-from core.backtester import find_champion_strategy
-
-session = get_session(engine)
-champion_data = find_champion_strategy(selected_symbol, session, years=3)
-session.close()
-
-model_view = st.radio(
-    "Forecast Intelligence Engine",
-    [
-        "📊 Multi-Horizon Price Forecasts",
-        "🧠 5-Model ML Ensemble Consensus (GBM + RF + Ridge + HW + MC)",
-        "🏆 Backtested Champion Strategy Trajectory",
-        "⚖️ Head-to-Head Comparison",
-    ],
-    horizontal=True,
-    help="Toggle between statistical multi-horizon forecasts, 5-model ML ensemble consensus, and empirical champion trajectory."
-)
+    
+    model_view = st.radio(
+        "Forecast Intelligence Engine",
+        [
+            "📊 Multi-Horizon Price Forecasts",
+            "🧠 5-Model ML Ensemble Consensus (GBM + RF + Ridge + HW + MC)",
+            "🏆 Backtested Champion Strategy Trajectory",
+            "⚖️ Head-to-Head Comparison",
+        ],
+        horizontal=True,
+        help="Toggle between statistical multi-horizon forecasts, 5-model ML ensemble consensus, and empirical champion trajectory."
+    )
+except Exception:
+    pass
 
 champ_data_obj = champion_data.get("champion") if (champion_data and "champion" in champion_data) else None
 emp_proj = compute_empirical_strategy_projections(current_price, champ_data_obj) if champ_data_obj else None

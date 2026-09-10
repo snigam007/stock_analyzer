@@ -63,18 +63,61 @@ def create_watchlist(name: str, description: str, session: Session) -> Optional[
         return None
 
 
-def delete_watchlist(watchlist_id: int, session: Session) -> bool:
-    """Delete a watchlist and all associated items."""
+def update_watchlist(watchlist_id: int, name: str, description: str, session: Session) -> bool:
+    """Update an existing watchlist's name and description."""
     try:
         wl = session.query(Watchlist).filter(Watchlist.id == watchlist_id).first()
         if wl:
-            session.delete(wl)
+            if name and name.strip():
+                wl.name = name.strip()
+            if description is not None:
+                wl.description = description.strip()
             session.commit()
             return True
         return False
     except Exception as e:
         session.rollback()
+        logger.error(f"Error updating watchlist {watchlist_id}: {e}")
+        return False
+
+
+def delete_watchlist(watchlist_id: int, session: Session) -> bool:
+    """Delete a watchlist and all associated items cleanly, whether empty or populated."""
+    try:
+        # First remove child items
+        session.execute(text("DELETE FROM watchlist_items WHERE watchlist_id = :wid"), {"wid": watchlist_id})
+        session.execute(text("DELETE FROM watchlists WHERE id = :wid"), {"wid": watchlist_id})
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
         logger.error(f"Error deleting watchlist {watchlist_id}: {e}")
+        return False
+
+
+def update_watchlist_item(
+    item_id: int,
+    target_buy_price: Optional[float],
+    target_sell_price: Optional[float],
+    stop_loss: Optional[float],
+    notes: Optional[str],
+    session: Session
+) -> bool:
+    """Update targets, stop loss, or notes for a specific stock in a watchlist."""
+    try:
+        item = session.query(WatchlistItem).filter(WatchlistItem.id == item_id).first()
+        if item:
+            item.target_buy_price = target_buy_price if (target_buy_price and target_buy_price > 0) else None
+            item.target_sell_price = target_sell_price if (target_sell_price and target_sell_price > 0) else None
+            item.stop_loss = stop_loss if (stop_loss and stop_loss > 0) else None
+            if notes is not None:
+                item.notes = notes.strip()
+            session.commit()
+            return True
+        return False
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error updating watchlist item {item_id}: {e}")
         return False
 
 

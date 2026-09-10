@@ -10,7 +10,7 @@ import logging
 import warnings
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 import sys
 
 import numpy as np
@@ -35,6 +35,98 @@ from core.news_sentiment import get_asset_specific_news_sentiment
 from core.sector_clusters import get_sector_cluster, get_tier_parameters
 
 logger = logging.getLogger(__name__)
+
+
+def verify_momentum_vs_ml_projection(
+    symbol: str,
+    momentum_pct: Optional[float] = None,
+    session: Optional[Session] = None,
+    ml_forecast_pct: Optional[float] = None,
+) -> Dict[str, Any]:
+    """
+    Cross-validates trailing intermediate momentum against forward-looking ML projections.
+
+    Identifies key market dynamics:
+    - 🚀 Bullish Confluence: Strong trailing momentum + positive forward ML projection.
+    - ⚠️ Bull Trap / Exhaustion: High trailing momentum + negative ML projection (mean reversion).
+    - 🌱 Value Reversal: Negative trailing momentum + positive forward ML projection (oversold bounce).
+    - 🔴 Bearish Confluence: Negative trailing momentum + negative ML projection (breakdown).
+    - ⚖️ Balanced: Within normal drift bands.
+    """
+    # 1. Resolve ML forecast if not passed
+    if ml_forecast_pct is None and session is not None:
+        try:
+            fc_row = session.execute(text("""
+                SELECT forecast_1m_change_pct, forecast_7d_change_pct, forecast_3m_change_pct
+                FROM forecasts
+                WHERE symbol = :s
+                ORDER BY generated_date DESC LIMIT 1
+            """), {"s": symbol}).mappings().first()
+            if fc_row:
+                ml_forecast_pct = fc_row.get("forecast_1m_change_pct") or fc_row.get("forecast_7d_change_pct")
+        except Exception as e:
+            logger.debug(f"Could not load forecast for {symbol}: {e}")
+
+    # 2. Resolve momentum if not passed
+    if momentum_pct is None and session is not None:
+        try:
+            p_rows = session.execute(text("""
+                SELECT close FROM daily_prices
+                WHERE symbol = :s AND close IS NOT NULL
+                ORDER BY date DESC LIMIT 130
+            """), {"s": symbol}).fetchall()
+            if len(p_rows) >= 20:
+                curr = float(p_rows[0][0])
+                past = float(p_rows[-1][0])
+                if past > 0:
+                    momentum_pct = round((curr - past) / past * 100.0, 1)
+        except Exception as e:
+            logger.debug(f"Could not calculate momentum for {symbol}: {e}")
+
+    mom = float(momentum_pct) if momentum_pct is not None else 0.0
+    ml_f = float(ml_forecast_pct) if ml_forecast_pct is not None else 0.0
+
+    if mom >= 8.0 and ml_f >= 1.5:
+        status = "BULLISH_CONFLUENCE"
+        badge = "🚀 Bullish Confluence"
+        color = "#00c875"
+        score_adj = +2.0
+        explanation = f"Trailing momentum (+{mom:.1f}%) is validated by forward ML forecast (+{ml_f:.1f}%). High conviction trend continuation."
+    elif mom >= 14.0 and ml_f <= -1.5:
+        status = "BULL_TRAP_DIVERGENCE"
+        badge = "⚠️ Bull Trap Risk (Momentum Exhaustion)"
+        color = "#ff9800"
+        score_adj = -2.5
+        explanation = f"Divergence Warning: Trailing momentum (+{mom:.1f}%) is extended, but ML projects mean reversion ({ml_f:.1f}%). Risk of exhaustion trap."
+    elif mom <= -5.0 and ml_f >= 2.5:
+        status = "ACCUMULATION_REVERSAL"
+        badge = "🌱 Value Reversal (Oversold Springboard)"
+        color = "#58a6ff"
+        score_adj = +1.5
+        explanation = f"Contrarian Setup: Trailing drawdown ({mom:.1f}%) meets bullish ML recovery trajectory (+{ml_f:.1f}%). Early accumulation candidate."
+    elif mom <= -5.0 and ml_f <= -1.5:
+        status = "BEARISH_CONFLUENCE"
+        badge = "🔴 Bearish Confluence"
+        color = "#ff4b4b"
+        score_adj = -2.0
+        explanation = f"Negative trailing momentum ({mom:.1f}%) confirmed by downward ML forecast ({ml_f:.1f}%). Avoid catching falling knives."
+    else:
+        status = "NEUTRAL"
+        badge = "⚖️ Balanced Momentum & ML"
+        color = "#8b949e"
+        score_adj = 0.0
+        explanation = f"Trailing momentum ({mom:+.1f}%) and forward ML projection ({ml_f:+.1f}%) within standard dispersion."
+
+    return {
+        "status": status,
+        "badge": badge,
+        "color": color,
+        "score_adj": score_adj,
+        "explanation": explanation,
+        "momentum_pct": mom,
+        "ml_forecast_pct": ml_f,
+    }
+
 
 
 # ─── Individual Technical Indicator Signals ───────────────────────────────────
@@ -245,6 +337,7 @@ def generate_signal_for_stock(
     ml_confidence: float = 0.5,
     price_df: Optional[pd.DataFrame] = None,
     regime: Optional[dict] = None,
+    ml_forecast_chg: Optional[float] = None,
 ) -> Optional[Dict]:
     """Generates full 5-Pillar institutional signal dictionary with quantitative guardrails."""
     today = ind.get("date") if ind.get("date") else date.today()
@@ -312,6 +405,11 @@ def generate_signal_for_stock(
     elif any(s in sector_name for s in ["METAL", "MINING", "AUTO"]):
         sector_boost = -1.5
 
+    # Defensive RS Bonus: Institutional safe-haven rotation during Risk-Off regimes
+    if not nifty_bullish or vix_level > 20:
+        if any(s in sector_name for s in ["PHARMA", "HEALTH", "FMCG"]):
+            sector_boost += 3.0
+
     # Live sector A/D momentum overlay — query sector_analysis for today
     try:
         sa_row = session.execute(text("""
@@ -336,9 +434,29 @@ def generate_signal_for_stock(
     except Exception:
         pass
 
-    final_score = float(np.clip(composite_score + sector_boost, 0.0, 100.0))
+    # Candlestick Pattern Score Booster: Grant +3 to +5 score points for high-reliability reversal formations
+    candlestick_boost = 0.0
+    candlestick_catalyst = ""
+    pats = []
+    if price_df is not None and not price_df.empty and len(price_df) >= 5:
+        try:
+            from core.candlestick_patterns import analyze_candlestick_patterns
+            all_pats = analyze_candlestick_patterns(price_df)
+            if all_pats:
+                # Get the most recent pattern
+                sorted_pats = sorted(all_pats, key=lambda x: str(x.get("date", "")), reverse=True)
+                top_p = sorted_pats[0]
+                pats = [top_p]
+                if top_p.get("sentiment") == "BULLISH":
+                    rel = int(top_p.get("reliability", 3) or 3)
+                    candlestick_boost = 5.0 if rel >= 4 else 3.0
+                    candlestick_catalyst = f"🕯️ {top_p.get('pattern_name', 'Bullish Reversal')} (+{candlestick_boost:.1f} pts)"
+        except Exception as e:
+            logger.debug(f"Candlestick analysis notice for {stock.symbol}: {e}")
 
-    # ── Tier-Adaptive Thresholds (57.0 Large, 59.5 Mid, 63.5 Small) ──────────
+    final_score = float(np.clip(composite_score + sector_boost + candlestick_boost, 0.0, 100.0))
+
+    # ── Tier-Adaptive Thresholds (57.0 Large, 58.0 Mid, 58.0 Small) ──────────
     base_buy_th = tier_cfg["buy_threshold"]
     base_sell_th = tier_cfg["sell_threshold"]
     min_vol_ratio = tier_cfg["min_volume_ratio"]
@@ -351,33 +469,35 @@ def generate_signal_for_stock(
     reversal_reason = ""
     # For banks, alt_z is exempt; otherwise requires alt_z >= 2.0
     z_ok = is_bank_exempt or alt_z >= 2.0
-    if not is_above_50_ema and pio_score >= 7 and z_ok and rsi_val <= 32.0 and adx_val >= 18.0:
-        if price_df is not None and not price_df.empty and len(price_df) >= 5:
-            from core.candlestick_patterns import analyze_candlestick_patterns
-            pats = analyze_candlestick_patterns(price_df)
-            has_bullish_pat = any(p.get("sentiment") == "BULLISH" for p in pats)
-            if has_bullish_pat and final_score >= (effective_buy_threshold - 1.5):
-                is_quality_oversold_reversal = True
-                reversal_reason = f"🏛️ Contrarian Alpha: High Quality Mean-Reversion (Piotroski {pio_score}/9, RSI={rsi_val:.1f})"
+    if not is_above_50_ema and pio_score >= 7 and z_ok and rsi_val <= 38.0 and adx_val >= 18.0:
+        has_bullish_pat = any(p.get("sentiment") == "BULLISH" for p in pats)
+        if has_bullish_pat and final_score >= (effective_buy_threshold - 3.5):
+            is_quality_oversold_reversal = True
+            reversal_reason = f"🏛️ Contrarian Alpha: High Quality Mean-Reversion (Piotroski {pio_score}/9, RSI={rsi_val:.1f})"
 
     # 4. Volume Contraction Pattern (VCP) Breakout Trigger
     is_vcp_breakout = False
     vcp_reason = ""
     vol_ratio_val = float(ind.get("volume_ratio") or 1.0)
-    # Tier-adaptive volume expansion requirement (1.15x Large, 1.25x Mid, 1.75x Small)
-    if is_above_50_ema and vol_ratio_val >= min_vol_ratio and (rsi_val >= 52.0 and rsi_val <= 75.0):
+    # Tier-adaptive volume expansion requirement OR tight coiling incubation (<= 0.65x)
+    if (rsi_val >= 50.0 and rsi_val <= 75.0):
         if price_df is not None and not price_df.empty and len(price_df) >= 10:
             past_vols = price_df["volume"].tail(5).iloc[:-1]
             avg_vol = price_df["volume"].tail(20).mean()
-            if avg_vol > 0 and (past_vols.min() / avg_vol <= 0.70 or adx_val >= 22.0):
+            # Scenario A: Expansion post Volatility Contraction
+            if is_above_50_ema and vol_ratio_val >= min_vol_ratio and avg_vol > 0 and (past_vols.min() / avg_vol <= 0.70 or adx_val >= 22.0):
                 is_vcp_breakout = True
                 vcp_reason = f"⚡ VCP Breakout: Volume Expansion ({vol_ratio_val:.2f}x >= {min_vol_ratio}x) post Volatility Contraction"
+            # Scenario B: Low-Volume Quiet Coil prior to blast-off (incubation setup)
+            elif vol_ratio_val <= 0.65 and final_score >= 52.0 and (is_above_50_ema or bullish_count >= 3):
+                is_vcp_breakout = True
+                vcp_reason = f"⚡ VCP Incubation: Low-Volume Quiet Coil ({vol_ratio_val:.2f}x avg) with Strong Structure"
 
     # 5. Primary Signal Decision
     if (final_score >= effective_buy_threshold and (is_above_50_ema or bullish_count >= 4)) or \
        (final_score >= effective_buy_threshold - 1.0 and bullish_count >= 5 and is_above_50_ema and is_above_200_ema) or \
-       (is_vcp_breakout and final_score >= effective_buy_threshold - 1.5) or \
-       (is_quality_oversold_reversal and final_score >= effective_buy_threshold - 1.5):
+       (is_vcp_breakout and final_score >= 52.0) or \
+       (is_quality_oversold_reversal and final_score >= (effective_buy_threshold - 3.5)):
         candidate_signal = "BUY"
     elif (final_score <= effective_sell_threshold and (not is_above_50_ema or bearish_count >= 4)) or \
          (not is_above_50_ema and not is_above_200_ema and bearish_count >= 4 and final_score <= (effective_sell_threshold + 1.5)) or \
@@ -467,8 +587,9 @@ def generate_signal_for_stock(
 
     # Multi-Pillar Reason Generation
     all_reasons = []
-    if reversal_reason: all_reasons.append(reversal_reason)
-    if vcp_reason:      all_reasons.append(vcp_reason)
+    if reversal_reason:       all_reasons.append(reversal_reason)
+    if vcp_reason:            all_reasons.append(vcp_reason)
+    if candlestick_catalyst:  all_reasons.append(candlestick_catalyst)
     if primary_signal == "BUY" and momentum_6m_pct >= 20.0:
         all_reasons.append(f"🚀 Elite Momentum: +{momentum_6m_pct:.1f}% 6M Intermediate Upcycle")
     elif primary_signal == "BUY" and momentum_6m_pct < -5.0:
@@ -502,9 +623,22 @@ def generate_signal_for_stock(
     if opt.get("pcr", 1.0) >= 1.15:
         all_reasons.append(f"🎯 F&O Derivatives: Bullish Put-Call Ratio ({opt['pcr']:.2f}) above Max Pain ₹{opt.get('max_pain_strike', close):,.0f}")
 
+    # ── Momentum vs. ML Projection Cross-Validation ──────────────────────────
+    mom_ml_val = verify_momentum_vs_ml_projection(
+        symbol=stock.symbol,
+        momentum_pct=momentum_6m_pct,
+        ml_forecast_pct=ml_forecast_chg,
+    )
+    if mom_ml_val["status"] == "BULL_TRAP_DIVERGENCE" and primary_signal == "BUY":
+        # Guardrail: Downgrade strength to prevent over-sizing into momentum exhaustion
+        if strength in ["CONVICTION", "STRONG"]:
+            strength = "MODERATE"
+
     # AI & News Pillar
     if ml_signal == primary_signal:
         all_reasons.append(f"🤖 AI Forecast: {ml_signal} with {ml_confidence:.0%} confidence")
+    if mom_ml_val["status"] != "NEUTRAL":
+        all_reasons.append(f"🤖 Trend vs ML: {mom_ml_val['badge']} — {mom_ml_val['explanation']}")
     news = get_asset_specific_news_sentiment(stock.symbol, stock.name)
     if abs(news.get("sentiment_score", 0.0)) > 15.0:
         all_reasons.append(f"📰 News Sentiment: {news['sentiment_verdict']} ({news['sentiment_score']:+.1f}/100)")
@@ -569,6 +703,8 @@ def generate_signal_for_stock(
         "ml_signal": ml_signal,
         "sector_alignment": round(sector_alignment, 2),
         "signal_age_days": 0,  # freshness tracking — will be updated by audit updater
+        "momentum_vs_ml": mom_ml_val["status"],
+        "momentum_6m_pct": momentum_6m_pct,
     }
 
 
@@ -617,10 +753,16 @@ def compute_and_save_signals(session: Session, progress_callback=None):
     as_of_date = session.execute(text("SELECT MAX(date) FROM daily_prices")).scalar()
     today = as_of_date if as_of_date else date.today()
 
-    # Fix 7: Load regime context once (not per stock)
+    # Regime context
     regime = _load_market_regime(session)
     logger.info(f"Generating 5-Pillar Apex Signals for {total} stocks (regime: {'BULL' if regime['nifty_above_50ema'] else 'BEAR'}, VIX={regime['vix']:.1f})...")
     db_cols = None
+
+    try:
+        session.execute(text("ALTER TABLE signals ADD COLUMN momentum_vs_ml VARCHAR(50)"))
+        session.commit()
+    except Exception:
+        session.rollback()
 
     for i, stock in enumerate(stocks):
         try:
@@ -646,21 +788,23 @@ def compute_and_save_signals(session: Session, progress_callback=None):
             price_df = get_price_dataframe(stock.symbol, session, days=120)
 
             # Fix 4: Use actual ML forecast from Forecast table (not circular composite_score)
-            ml_sig, ml_conf = "WATCH", 0.5
+            ml_sig, ml_conf, ml_chg_val = "WATCH", 0.5, None
             try:
                 fc_row = session.query(Forecast).filter(
                     Forecast.symbol == stock.symbol
                 ).order_by(Forecast.generated_date.desc()).first()
-                if fc_row and fc_row.forecast_7d_change_pct is not None:
-                    chg = float(fc_row.forecast_7d_change_pct)
-                    if chg > 1.5:
-                        ml_sig  = "BUY"
-                        ml_conf = min(0.95, 0.5 + chg / 20.0)
-                    elif chg < -1.5:
-                        ml_sig  = "SELL"
-                        ml_conf = min(0.95, 0.5 + abs(chg) / 20.0)
-                    else:
-                        ml_sig, ml_conf = "WATCH", 0.5
+                if fc_row:
+                    ml_chg_val = float(fc_row.forecast_1m_change_pct if fc_row.forecast_1m_change_pct is not None else (fc_row.forecast_7d_change_pct or 0.0))
+                    if fc_row.forecast_7d_change_pct is not None:
+                        chg = float(fc_row.forecast_7d_change_pct)
+                        if chg > 1.5:
+                            ml_sig  = "BUY"
+                            ml_conf = min(0.95, 0.5 + chg / 20.0)
+                        elif chg < -1.5:
+                            ml_sig  = "SELL"
+                            ml_conf = min(0.95, 0.5 + abs(chg) / 20.0)
+                        else:
+                            ml_sig, ml_conf = "WATCH", 0.5
             except Exception:
                 # Fallback to score-based proxy if Forecast table missing
                 ml_sig  = "BUY" if comp_score >= 65 else ("SELL" if comp_score <= 35 else "WATCH")
@@ -676,6 +820,7 @@ def compute_and_save_signals(session: Session, progress_callback=None):
                 ml_confidence=ml_conf,
                 price_df=price_df,
                 regime=regime,
+                ml_forecast_chg=ml_chg_val,
             )
 
             if sig_dict:

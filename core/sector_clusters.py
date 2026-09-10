@@ -88,9 +88,9 @@ CAP_TIER_PARAMETERS = {
         "default_atr_pct": 0.016,
     },
     "mid": {
-        "buy_threshold": 59.5,        # Standard momentum sweet spot
+        "buy_threshold": 58.0,        # Calibrated momentum sweet spot
         "sell_threshold": 52.0,       # Structural breakdown / hedge trigger
-        "min_volume_ratio": 1.25,
+        "min_volume_ratio": 1.20,
         "target_1_floor_pct": 0.038,  # 3.8% Target 1 floor
         "target_1_atr_mult": 1.8,
         "target_2_floor_pct": 0.075,  # 7.5% Target 2 floor
@@ -101,9 +101,9 @@ CAP_TIER_PARAMETERS = {
         "default_atr_pct": 0.026,
     },
     "small": {
-        "buy_threshold": 63.5,        # Strict filter against low-volume retail traps/fakeouts
+        "buy_threshold": 58.0,        # Calibrated to prevent incubation lock-out of fast small-cap compounders
         "sell_threshold": 50.5,       # Capital preservation exit floor
-        "min_volume_ratio": 1.75,     # High volume expansion required before confirming small-cap breakout
+        "min_volume_ratio": 1.35,     # Calibrated volume expansion hurdle (complemented by VCP coiling trigger)
         "target_1_floor_pct": 0.060,  # 6.0% Target 1 floor (high beta compensates for risk)
         "target_1_atr_mult": 2.4,
         "target_2_floor_pct": 0.120,  # 12.0% Target 2 floor

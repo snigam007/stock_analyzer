@@ -167,7 +167,7 @@ def audit_mf_signals(session: Session) -> Dict:
     sig_rows = session.execute(text("""
         SELECT s.id, s.scheme_code, s.date, s.nav, s.signal, s.strength_score
         FROM mutual_fund_signals s
-        ORDER BY s.date ASC
+        ORDER BY s.date DESC
     """)).fetchall()
 
     if not sig_rows:
@@ -333,19 +333,21 @@ def compute_mf_rolling_metrics(scheme_code: int, session: Session, window_days: 
 def backfill_historical_mf_signals(session: Session, sample_dates_count: int = 30) -> int:
     """
     Backfills historical daily MF signals across periodic dates to build an extensive audit log.
+    Includes recent months (e.g. July, August) so realized forward outcomes are available up to 28 days ago.
     """
     date_rows = session.execute(text("""
         SELECT DISTINCT date FROM mutual_fund_navs
-        WHERE date <= '2026-06-01'
+        WHERE date <= (SELECT date(MAX(date), '-28 days') FROM mutual_fund_navs)
         ORDER BY date DESC
     """)).scalars().all()
 
     if not date_rows:
         return 0
 
-    # Sample dates evenly spaced by ~20-30 trading days
+    # Ensure recent landmark trading dates (May, June, July, August 2026) are included
+    recent_dates = [d for d in date_rows if str(d) >= "2026-05-01"]
     step = max(1, len(date_rows) // sample_dates_count)
-    sample_dates = date_rows[::step][:sample_dates_count]
+    sample_dates = sorted(list(set(date_rows[::step][:sample_dates_count] + recent_dates[::15])), reverse=True)
 
     total_created = 0
     for d in sample_dates:

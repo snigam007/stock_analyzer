@@ -19,7 +19,10 @@ while _curr != _curr.parent:
 BASE_DIR = _curr
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
-st.set_page_config(page_title="Live Dashboard", page_icon="📈", layout="wide")
+try:
+    st.set_page_config(page_title="Live Dashboard", page_icon="📈", layout="wide")
+except Exception:
+    pass
 
 import importlib
 import core.macro_regime
@@ -207,9 +210,9 @@ def get_dashboard_data():
     breadth = session.execute(text("""
         SELECT
             COUNT(*) as total,
-            SUM(CASE WHEN daily_return > 0 THEN 1 ELSE 0 END) as up,
-            SUM(CASE WHEN daily_return < 0 THEN 1 ELSE 0 END) as down,
-            AVG(daily_return) as avg_return
+            SUM(CASE WHEN COALESCE(daily_return, (close - open) / NULLIF(open, 0) * 100.0) > 0 THEN 1 ELSE 0 END) as up,
+            SUM(CASE WHEN COALESCE(daily_return, (close - open) / NULLIF(open, 0) * 100.0) < 0 THEN 1 ELSE 0 END) as down,
+            AVG(COALESCE(daily_return, (close - open) / NULLIF(open, 0) * 100.0)) as avg_return
         FROM daily_prices
         WHERE date = (SELECT MAX(date) FROM daily_prices)
     """)).fetchone()

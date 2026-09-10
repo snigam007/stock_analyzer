@@ -21,14 +21,18 @@ Thumbs.db
 .vscode/
 .idea/
 
-# SQLite WAL and SHM temporary files (do not commit locks)
+# SQLite database files and lock/journal files
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+data/*.db
 data/*.db-wal
 data/*.db-shm
 data/*.db-journal
 *.bak
-
-# Keep the main SQLite database for Cloud deployment
-!data/stock_analyzer.db
 
 # Scratch and experimental analysis scripts
 scratch/

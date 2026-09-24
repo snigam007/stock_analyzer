@@ -320,3 +320,143 @@ def compute_and_save_sector_analysis(session: Session):
 
     session.commit()
     logger.info("✅ Sector analysis saved")
+
+
+def calculate_sector_relative_strength(session: Session) -> Dict[str, Dict]:
+    """
+    Computes 20-day and 50-day Mansfield Relative Strength for all sectors against NIFTY 50 (^NSEI).
+    Classifies each sector into:
+      - LEADING:    RS_20d > 0 and RS_50d > 0 (Strong institutional inflows)
+      - IMPROVING:  RS_20d > 0 and RS_50d <= 0 (Early turnaround / bottoming)
+      - WEAKENING:  RS_20d <= 0 and RS_50d > 0 (Momentum stalling / distribution)
+      - LAGGING:    RS_20d <= 0 and RS_50d <= 0 (Chronic underperformance)
+    """
+    try:
+        # Get latest benchmark dates and returns
+        nifty_rows = session.execute(text("""
+            SELECT date, close FROM index_prices 
+            WHERE symbol = '^NSEI' 
+            ORDER BY date DESC LIMIT 60
+        """)).fetchall()
+
+        nifty_ret_20d = 0.0
+        nifty_ret_50d = 0.0
+        if len(nifty_rows) >= 20:
+            c_latest = float(nifty_rows[0][1])
+            c_20 = float(nifty_rows[min(19, len(nifty_rows)-1)][1])
+            nifty_ret_20d = (c_latest - c_20) / c_20 * 100.0
+            if len(nifty_rows) >= 50:
+                c_50 = float(nifty_rows[min(49, len(nifty_rows)-1)][1])
+                nifty_ret_50d = (c_latest - c_50) / c_50 * 100.0
+
+        # Query sector performance across active stocks
+        sector_perf = session.execute(text("""
+            WITH latest_p AS (
+                SELECT symbol, close, date,
+                       ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                FROM daily_prices
+            ),
+            p_20 AS (
+                SELECT symbol, close
+                FROM (
+                    SELECT symbol, close,
+                           ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                    FROM daily_prices
+                ) WHERE rn = 20
+            ),
+            p_50 AS (
+                SELECT symbol, close
+                FROM (
+                    SELECT symbol, close,
+                           ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) as rn
+                    FROM daily_prices
+                ) WHERE rn = 50
+            )
+            SELECT s.sector,
+                   AVG((lp.close - p20.close) / p20.close * 100.0) as ret_20d,
+                   AVG((lp.close - COALESCE(p50.close, p20.close)) / COALESCE(p50.close, p20.close) * 100.0) as ret_50d,
+                   COUNT(DISTINCT s.symbol) as stock_count
+            FROM stocks s
+            JOIN latest_p lp ON s.symbol = lp.symbol AND lp.rn = 1
+            JOIN p_20 p20 ON s.symbol = p20.symbol
+            LEFT JOIN p_50 p50 ON s.symbol = p50.symbol
+            WHERE s.is_active = 1 AND s.sector IS NOT NULL AND s.sector != ''
+            GROUP BY s.sector
+        """)).fetchall()
+
+        results = {}
+        for row in sector_perf:
+            sec = str(row[0])
+            s_ret_20 = float(row[1] or 0.0)
+            s_ret_50 = float(row[2] or 0.0)
+            count = int(row[3] or 0)
+
+            rs_20 = round(s_ret_20 - nifty_ret_20d, 2)
+            rs_50 = round(s_ret_50 - nifty_ret_50d, 2)
+
+            if rs_20 > 0 and rs_50 > 0:
+                classification = "LEADING"
+                badge = "🟢 Leading"
+                health_score = 90
+            elif rs_20 > 0 and rs_50 <= 0:
+                classification = "IMPROVING"
+                badge = "⚪ Improving"
+                health_score = 70
+            elif rs_20 <= 0 and rs_50 > 0:
+                classification = "WEAKENING"
+                badge = "🟡 Weakening"
+                health_score = 45
+            else:
+                classification = "LAGGING"
+                badge = "🔴 Lagging"
+                health_score = 25
+
+            results[sec] = {
+                "sector": sec,
+                "classification": classification,
+                "badge": badge,
+                "health_score": health_score,
+                "ret_20d": round(s_ret_20, 2),
+                "ret_50d": round(s_ret_50, 2),
+                "rs_20d": rs_20,
+                "rs_50d": rs_50,
+                "stock_count": count,
+                "is_gated": bool(classification == "LAGGING" and rs_20 < -2.0)
+            }
+
+        return results
+
+    except Exception as e:
+        logger.error(f"Failed to calculate sector relative strength: {e}")
+        return {}
+
+
+# Module-level cache for sector relative strength
+_SECTOR_RS_CACHE = {}
+_SECTOR_RS_TIMESTAMP = None
+
+
+def get_sector_regime_gate(sector: str, session: Optional[Session] = None) -> Dict:
+    """
+    Returns gating metadata for a specific sector:
+    whether new BUY allocations are approved, RS badge, and alpha friction.
+    """
+    global _SECTOR_RS_CACHE, _SECTOR_RS_TIMESTAMP
+    now = datetime.now()
+    if not _SECTOR_RS_CACHE or not _SECTOR_RS_TIMESTAMP or (now - _SECTOR_RS_TIMESTAMP).total_seconds() > 300:
+        if session is None:
+            session = get_session()
+        _SECTOR_RS_CACHE = calculate_sector_relative_strength(session)
+        _SECTOR_RS_TIMESTAMP = now
+
+    meta = _SECTOR_RS_CACHE.get(sector, {
+        "sector": sector,
+        "classification": "IMPROVING",
+        "badge": "⚪ Neutral",
+        "health_score": 50,
+        "rs_20d": 0.0,
+        "rs_50d": 0.0,
+        "is_gated": False
+    })
+    return meta
+

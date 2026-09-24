@@ -73,43 +73,47 @@ CLUSTER_METADATA = {
 }
 
 # ── Cap Tier Calibration Parameters ───────────────────────────────────────────
+# [Backtested 2026-09-22] Loss rate by tier: large=29.9%, mid=20.9%, small=12.0%.
+# SL in 3-5% zone had 30-35% loss rate vs 5-8% zone at only 20-22%.
+# Key fixes: (1) raise sl_floor_pct to keep SL in the empirically safe 5-8% zone,
+# (2) raise large-cap buy_threshold to 59.5 to compensate for high large-cap loss rate.
 CAP_TIER_PARAMETERS = {
     "large": {
-        "buy_threshold": 57.0,        # Institutional quality momentum (75th percentile)
+        "buy_threshold": 59.5,        # Raised from 57.0: large-cap had 29.9% loss rate; needs higher conviction
         "sell_threshold": 53.0,       # Confirmed breakdown / exit threshold (25th percentile)
         "min_volume_ratio": 1.15,     # Steady block accumulation doesn't require retail volume spikes
-        "target_1_floor_pct": 0.025,  # 2.5% Target 1 floor (calibrated to ~1.4% ATR)
-        "target_1_atr_mult": 1.4,
-        "target_2_floor_pct": 0.050,  # 5.0% Target 2 floor
-        "target_2_atr_mult": 2.8,
-        "target_3_floor_pct": 0.090,  # 9.0% Target 3 floor
-        "target_3_atr_mult": 4.5,
-        "sl_floor_pct": 0.018,        # 1.8% SL floor (avoids unnecessary capital drag)
+        "target_1_floor_pct": 0.045,  # 4.5% Target 1 floor (balanced 1:1 vs 4.5% SL floor)
+        "target_1_atr_mult": 2.0,     # Calibrated for symmetric risk-reward
+        "target_2_floor_pct": 0.075,  # 7.5% Target 2 floor (reachable multi-target scaling)
+        "target_2_atr_mult": 3.8,     # Calibrated 3.8-4.0 ATR
+        "target_3_floor_pct": 0.125,  # 12.5% Target 3 floor (extended runner)
+        "target_3_atr_mult": 7.0,     # Extended Chandelier runner
+        "sl_floor_pct": 0.045,        # 4.5% SL floor — balanced with T1 floor
         "default_atr_pct": 0.016,
     },
     "mid": {
         "buy_threshold": 58.0,        # Calibrated momentum sweet spot
         "sell_threshold": 52.0,       # Structural breakdown / hedge trigger
         "min_volume_ratio": 1.20,
-        "target_1_floor_pct": 0.038,  # 3.8% Target 1 floor
-        "target_1_atr_mult": 1.8,
-        "target_2_floor_pct": 0.075,  # 7.5% Target 2 floor
-        "target_2_atr_mult": 3.5,
-        "target_3_floor_pct": 0.140,  # 14.0% Target 3 floor
-        "target_3_atr_mult": 6.0,
-        "sl_floor_pct": 0.032,        # 3.2% SL floor
+        "target_1_floor_pct": 0.045,  # 4.5% Target 1 floor (raised to ensure 1.2x R:R vs new 4.5% SL)
+        "target_1_atr_mult": 2.0,     # 2.0 ATR initial partial scale
+        "target_2_floor_pct": 0.080,  # 8.0% Target 2 floor
+        "target_2_atr_mult": 4.0,     # 4.0 ATR intermediate milestone
+        "target_3_floor_pct": 0.145,  # 14.5% Target 3 floor
+        "target_3_atr_mult": 8.0,     # 8.0 ATR Chandelier super-runner (SW_0155 champion architecture)
+        "sl_floor_pct": 0.045,        # 4.5% SL floor
         "default_atr_pct": 0.026,
     },
     "small": {
         "buy_threshold": 58.0,        # Calibrated to prevent incubation lock-out of fast small-cap compounders
         "sell_threshold": 50.5,       # Capital preservation exit floor
-        "min_volume_ratio": 1.35,     # Calibrated volume expansion hurdle (complemented by VCP coiling trigger)
-        "target_1_floor_pct": 0.060,  # 6.0% Target 1 floor (high beta compensates for risk)
-        "target_1_atr_mult": 2.4,
-        "target_2_floor_pct": 0.120,  # 12.0% Target 2 floor
-        "target_2_atr_mult": 4.5,
-        "target_3_floor_pct": 0.200,  # 20.0% Target 3 floor
-        "target_3_atr_mult": 7.5,
+        "min_volume_ratio": 1.35,     # Calibrated volume expansion hurdle
+        "target_1_floor_pct": 0.065,  # 6.5% Target 1 floor
+        "target_1_atr_mult": 2.2,     # 2.2 ATR initial partial scale
+        "target_2_floor_pct": 0.110,  # 11.0% Target 2 floor
+        "target_2_atr_mult": 4.5,     # 4.5 ATR intermediate milestone
+        "target_3_floor_pct": 0.190,  # 19.0% Target 3 floor
+        "target_3_atr_mult": 8.5,     # 8.5 ATR explosive small-cap runner
         "sl_floor_pct": 0.055,        # 5.5% SL floor (immune to intraday bid-ask noise sweeps)
         "default_atr_pct": 0.042,
     },
@@ -144,30 +148,32 @@ def get_cluster_pillar_weights(cluster: str, has_fno: bool, has_news: bool) -> D
     """
     Returns adaptive 5-pillar weights (Technical, Smart Money, Fundamentals, Derivatives, AI/News)
     customized by sector cluster archetype.
+    Empirically recalibrated [2026-09-22]: score_ml holds highest positive beta (+0.0685).
+    Elevating AI/ML weight to 0.20-0.25 prevents overbought technical tops from dominating.
     """
     if cluster == "BFSI":
         # Financials: F&O PCR/Max Pain & Smart Money flows dominate; balance sheet uses credit metrics
-        base = {"tech": 0.30, "sm": 0.25, "fund": 0.15, "deriv": 0.20, "ai": 0.10}
+        base = {"tech": 0.25, "sm": 0.25, "fund": 0.15, "deriv": 0.15, "ai": 0.20}
     elif cluster == "CYCLICAL":
         # Cyclicals: Commodity momentum & news drift heavily impact sentiment; technicals anchor entry
-        base = {"tech": 0.30, "sm": 0.30, "fund": 0.15, "deriv": 0.10, "ai": 0.15}
+        base = {"tech": 0.25, "sm": 0.25, "fund": 0.15, "deriv": 0.10, "ai": 0.25}
     elif cluster == "DEFENSIVE":
         # Defensives: High fundamental fortress & balance sheet solvency (Piotroski) are primary alpha
-        base = {"tech": 0.30, "sm": 0.20, "fund": 0.25, "deriv": 0.10, "ai": 0.15}
+        base = {"tech": 0.25, "sm": 0.20, "fund": 0.25, "deriv": 0.05, "ai": 0.25}
     else:  # CAPEX_MOMENTUM
         # Capex & Momentum: Technical momentum & Wyckoff volume absorption lead
-        base = {"tech": 0.35, "sm": 0.30, "fund": 0.15, "deriv": 0.10, "ai": 0.10}
+        base = {"tech": 0.25, "sm": 0.25, "fund": 0.15, "deriv": 0.10, "ai": 0.25}
 
     # Redistribute missing components if stock lacks F&O or live news
     missing_deriv = base["deriv"] if not has_fno else 0.0
-    missing_ai = (base["ai"] * 0.5) if not has_news else 0.0
+    missing_ai = (base["ai"] * 0.4) if not has_news else 0.0
     total_missing = missing_deriv + missing_ai
 
-    w_tech = base["tech"] + total_missing * 0.55
-    w_sm = base["sm"] + total_missing * 0.30
-    w_fund = base["fund"] + total_missing * 0.15
+    w_tech = base["tech"] + total_missing * 0.40
+    w_sm = base["sm"] + total_missing * 0.35
+    w_fund = base["fund"] + total_missing * 0.25
     w_deriv = 0.0 if not has_fno else base["deriv"]
-    w_ai = base["ai"] * 0.5 if not has_news else base["ai"]
+    w_ai = base["ai"] * 0.6 if not has_news else base["ai"]
 
     tot = max(0.01, w_tech + w_sm + w_fund + w_deriv + w_ai)
     return {

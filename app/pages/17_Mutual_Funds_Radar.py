@@ -94,17 +94,23 @@ st.caption("Institutional Core Compounding: Daily Tactical Buy/Sell Signals, 20-
 session = get_session(engine)
 
 # Auto-generate latest signals if needed
+latest_sig_date = None
+latest_nav_date = None
 try:
     latest_sig_date = session.execute(text("SELECT MAX(date) FROM mutual_fund_signals")).scalar()
     latest_nav_date = session.execute(text("SELECT MAX(date) FROM mutual_fund_navs")).scalar()
     if not latest_sig_date or (latest_nav_date and str(latest_sig_date) < str(latest_nav_date)):
         generate_daily_mf_signals(session)
+        latest_sig_date = session.execute(text("SELECT MAX(date) FROM mutual_fund_signals")).scalar()
 except Exception as e:
     st.error(f"Error checking latest signals: {e}")
 
+nav_display = str(latest_nav_date) if latest_nav_date else "Not Synced"
+sig_display = str(latest_sig_date) if latest_sig_date else ("Pending" if latest_nav_date else "Not Run")
+
 st.markdown(f"""
 <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #1e293b; padding: 7px 16px; border-radius: 6px; margin-bottom: 14px; font-size: 0.82em; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-    <span>🏛️ <b>Official AMFI NAV Date:</b> {latest_nav_date} • <b>Signals Run:</b> {latest_sig_date or latest_nav_date}</span>
+    <span>🏛️ <b>Official AMFI NAV Date:</b> {nav_display} • <b>Signals Run:</b> {sig_display}</span>
     <span>ℹ️ <i>Mutual Fund NAVs are released daily by AMFI between 9:00 PM and 11:00 PM IST post-market close.</i></span>
 </div>
 """, unsafe_allow_html=True)
@@ -255,6 +261,16 @@ with tab1:
         )
     else:
         st.info("No mutual fund signals found matching the selected filter criteria.")
+        if not latest_sig_date:
+            st.markdown("""
+            <div style="background: #111827; border: 1px solid #374151; padding: 14px; border-radius: 8px; margin-top: 10px;">
+                <b style="color: #38bdf8;">ℹ️ Quantitative Signals Require Historical NAVs:</b><br>
+                <span style="font-size: 0.9em; color: #94a3b8;">
+                Tactical momentum, 50-EMA support dips, and profit skims require at least 50 days of historical daily NAV records per fund.
+                Navigate to the <b>⚡ Daily NAV Delta Tracker</b> tab and click <b>Sync MF Daily Deltas Now</b> to fetch and backfill data.
+                </span>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ─── TAB DELTA: Daily NAV Delta Tracker ───────────────────────────────────────
 with tab_delta:
@@ -438,8 +454,11 @@ with tab3:
     # Fund selector
     all_funds = session.query(MutualFund).filter_by(is_active=True).all()
     fund_options = {f"{f.scheme_name} ({f.sub_category})": f.scheme_code for f in all_funds}
-    selected_name = st.selectbox("Select Scheme for In-Depth Rolling Analysis", list(fund_options.keys()), index=0)
-    selected_code = fund_options[selected_name]
+    if not fund_options:
+        st.info("No active mutual funds found in database.")
+    else:
+        selected_name = st.selectbox("Select Scheme for In-Depth Rolling Analysis", list(fund_options.keys()), index=0)
+        selected_code = fund_options[selected_name]
 
     if selected_code:
         # Fetch rolling metrics
@@ -473,326 +492,295 @@ with tab3:
         else:
             st.warning(roll["error"])
 
-# ─── TAB 4: Direct Stock vs MF Overlap Analyzer ────────────────────────────────
+# ─── TAB 4: Direct Stock vs MF Overlap & True Concentration Lab ───────────────
 with tab4:
-    st.subheader("🔍 Direct Stock vs Mutual Fund Overlap Analyzer")
-    st.caption("Prevent accidental over-concentration. Discover which of your direct stock holdings or watchlist picks are already heavily owned inside top mutual funds.")
+    st.subheader("🔍 Direct Stock vs. Mutual Fund Overlap & True Concentration Lab")
+    st.caption("Prevent accidental over-concentration. Discover which of your direct stock holdings are already heavily owned inside mutual funds, calculate true look-through risk, and prevent fee cannibalization.")
 
-    # Curated Institutional Top Holdings Knowledgebase across 25 Category Leaders
-    TOP_MF_HOLDINGS = {
-        # ── Flexi Cap & Multi Cap ──
-        122639: {
-            "name": "Parag Parikh Flexi Cap Fund",
-            "category": "Flexi Cap",
-            "holdings": {
-                "HDFCBANK": 8.1, "BAJAJHLDNG": 6.8, "ITC": 6.2, "ICICIBANK": 5.9, "POWERGRID": 4.8,
-                "INFY": 4.2, "COALINDIA": 3.9, "HCLTECH": 3.5, "AXISBANK": 3.2, "TCS": 2.8
-            }
-        },
-        118955: {
-            "name": "HDFC Flexi Cap Fund",
-            "category": "Flexi Cap",
-            "holdings": {
-                "ICICIBANK": 9.4, "HDFCBANK": 8.7, "INFY": 6.8, "SBIN": 5.9, "LICI": 4.5,
-                "AXISBANK": 4.2, "BHARTIARTL": 3.8, "NTPC": 3.4, "LT": 3.1, "TCS": 2.9
-            }
-        },
-        125354: {
-            "name": "Quant Flexi Cap Fund",
-            "category": "Flexi Cap",
-            "holdings": {
-                "RELIANCE": 9.8, "JIOFIN": 7.2, "ADANIPOWER": 5.8, "SAIL": 4.9, "HDFCBANK": 4.6,
-                "TATAPOWER": 4.1, "SAMVARDHANA": 3.8, "BRITANNIA": 3.5, "GAIL": 3.2, "HINDALCO": 3.0
-            }
-        },
-        120503: {
-            "name": "JM Flexicap Fund",
-            "category": "Flexi Cap",
-            "holdings": {
-                "HDFCBANK": 6.5, "ICICIBANK": 5.8, "LT": 5.2, "RELIANCE": 4.9, "INFY": 4.5,
-                "REC": 3.8, "PFC": 3.7, "BHEL": 3.4, "NTPC": 3.1, "TRENT": 2.9
-            }
-        },
-        120828: {
-            "name": "Kotak Flexicap Fund",
-            "category": "Flexi Cap",
-            "holdings": {
-                "ICICIBANK": 8.5, "HDFCBANK": 7.8, "INFY": 5.6, "RELIANCE": 5.2, "LT": 4.8,
-                "TCS": 3.9, "AXISBANK": 3.6, "BHARTIARTL": 3.3, "MARUTI": 3.0, "ULTRACEMCO": 2.7
-            }
-        },
+    from core.mf_overlap_analyzer import (
+        TOP_MF_SCHEMES as TOP_MF_HOLDINGS,
+        get_available_mf_schemes,
+        calculate_pairwise_fund_overlap,
+        calculate_lookthrough_exposure
+    )
 
-        # ── Large Cap & Large/Mid Cap ──
-        119063: {
-            "name": "ICICI Prudential Bluechip Fund",
-            "category": "Large Cap",
-            "holdings": {
-                "ICICIBANK": 9.2, "RELIANCE": 8.8, "HDFCBANK": 8.1, "INFY": 6.4, "LT": 5.5,
-                "BHARTIARTL": 4.7, "AXISBANK": 4.1, "TCS": 3.8, "MARUTI": 3.2, "ULTRACEMCO": 2.8
-            }
-        },
-        119598: {
-            "name": "Mirae Asset Large Cap Fund",
-            "category": "Large Cap",
-            "holdings": {
-                "HDFCBANK": 9.8, "ICICIBANK": 8.6, "INFY": 7.1, "RELIANCE": 6.5, "TCS": 4.2,
-                "AXISBANK": 3.9, "LT": 3.8, "BHARTIARTL": 3.6, "SBIN": 3.2, "KOTAKBANK": 2.9
-            }
-        },
-        119717: {
-            "name": "SBI Bluechip Fund",
-            "category": "Large Cap",
-            "holdings": {
-                "HDFCBANK": 8.9, "ICICIBANK": 7.6, "RELIANCE": 6.8, "INFY": 5.9, "LT": 4.8,
-                "ITC": 4.2, "TCS": 3.9, "AXISBANK": 3.5, "BHARTIARTL": 3.1, "M&M": 2.8
-            }
-        },
-        118989: {
-            "name": "HDFC Top 100 Fund",
-            "category": "Large Cap",
-            "holdings": {
-                "ICICIBANK": 9.8, "HDFCBANK": 9.1, "RELIANCE": 8.2, "INFY": 6.1, "LT": 4.9,
-                "SBIN": 4.5, "AXISBANK": 3.9, "TCS": 3.5, "NTPC": 3.1, "BHARTIARTL": 3.0
-            }
-        },
-        120586: {
-            "name": "Canara Robeco Emerging Equities",
-            "category": "Large & Mid Cap",
-            "holdings": {
-                "ICICIBANK": 6.2, "HDFCBANK": 5.8, "INFY": 4.9, "LT": 4.2, "BHARATFORG": 3.8,
-                "RELIANCE": 3.5, "FEDERALBNK": 3.2, "TRENT": 3.1, "MAXHEALTH": 2.9, "AXISBANK": 2.7
-            }
-        },
+    subtab_ov1, subtab_ov2, subtab_ov3 = st.tabs([
+        "🔍 Single Fund vs. Stock Overlap",
+        "🔬 Blended True Look-Through & Concentration Lab",
+        "⚔️ Scheme vs. Scheme Pairwise Overlap Matrix"
+    ])
 
-        # ── Mid Cap ──
-        120152: {
-            "name": "Motilal Oswal Midcap Fund",
-            "category": "Mid Cap",
-            "holdings": {
-                "PERSISTENT": 7.8, "TRENT": 6.9, "BSOFT": 6.1, "POLYCAB": 5.4, "COFORGE": 4.8,
-                "DIXON": 4.2, "SUZLON": 3.9, "APARINDS": 3.6, "TUBEINVEST": 3.2, "VOLTAS": 2.9
-            }
-        },
-        118988: {
-            "name": "HDFC Mid-Cap Opportunities Fund",
-            "category": "Mid Cap",
-            "holdings": {
-                "TATACOMM": 4.2, "INDHOTEL": 3.9, "FEDERALBNK": 3.7, "BHARATFORG": 3.5, "ASTRAL": 3.2,
-                "MAXHEALTH": 3.1, "APOLLOTYRE": 2.9, "COFORGE": 2.8, "VOLTAS": 2.7, "BALKRISIND": 2.5
-            }
-        },
-        119797: {
-            "name": "Kotak Emerging Equity Fund",
-            "category": "Mid Cap",
-            "holdings": {
-                "SUPREMEIND": 4.8, "PERSISTENT": 4.2, "SCHAEFFLER": 3.8, "THERMAX": 3.6, "CUMMINSIND": 3.4,
-                "POLYCAB": 3.1, "SOLARINDS": 2.9, "OBEROIRLTY": 2.8, "ASTRAL": 2.7, "BHARATFORG": 2.6
-            }
-        },
-        120847: {
-            "name": "Nippon India Growth Fund",
-            "category": "Mid Cap",
-            "holdings": {
-                "CHOLAFIN": 3.9, "POWERFIN": 3.6, "VARUN": 3.4, "BHARATFORG": 3.2, "FORTIS": 3.1,
-                "SUPREMEIND": 2.9, "MAXHEALTH": 2.8, "FEDERALBNK": 2.7, "VOLTAS": 2.5, "TRENT": 2.4
-            }
-        },
-        125494: {
-            "name": "Quant Mid Cap Fund",
-            "category": "Mid Cap",
-            "holdings": {
-                "RELIANCE": 8.5, "JIOFIN": 6.8, "TATACOMM": 5.2, "SAIL": 4.6, "ADANIPOWER": 4.2,
-                "ESCORTS": 3.8, "BHEL": 3.5, "GAIL": 3.1, "CANBK": 2.9, "SUNTV": 2.7
-            }
-        },
+    # ── Subtab 1: Single Fund vs Direct Stock Overlap ──────────────────────────
+    with subtab_ov1:
+        # Category Filter
+        cats = ["All Categories", "Flexi Cap", "Large Cap", "Mid Cap", "Small Cap", "Index", "Hybrid"]
+        cat_col1, _ = st.columns([1, 2])
+        with cat_col1:
+            cat_filter = st.selectbox("Filter Mutual Fund Category", cats, index=0)
 
-        # ── Small Cap ──
-        120823: {
-            "name": "Nippon India Small Cap Fund",
-            "category": "Small Cap",
-            "holdings": {
-                "TUBEINVEST": 3.1, "APARINDS": 2.8, "HDFCBANK": 2.5, "KEC": 2.4, "CREDITACC": 2.2,
-                "VOLTAS": 2.1, "CROMPTON": 1.9, "BHEL": 1.8, "GLAXO": 1.7, "PRESTIGE": 1.6
-            }
-        },
-        125497: {
-            "name": "Quant Small Cap Fund",
-            "category": "Small Cap",
-            "holdings": {
-                "RELIANCE": 9.1, "JIOFIN": 6.5, "IRB": 4.8, "HINDCOPPER": 4.2, "SAIL": 3.9,
-                "BIKAJI": 3.5, "HFCL": 3.2, "ADANIPOWER": 2.9, "RITES": 2.7, "NATIONALUM": 2.5
-            }
-        },
-        118959: {
-            "name": "HDFC Small Cap Fund",
-            "category": "Small Cap",
-            "holdings": {
-                "FIRSTSOURCE": 4.1, "SONATSOFTW": 3.7, "BANKBARODA": 3.4, "EQUITASBNK": 3.1, "BALRAMCHIN": 2.9,
-                "KALPATPOWR": 2.7, "ELECON": 2.5, "ECLERX": 2.4, "SKFINDIA": 2.3, "CYIENT": 2.2
-            }
-        },
-        125307: {
-            "name": "Bandhan Small Cap Fund",
-            "category": "Small Cap",
-            "holdings": {
-                "ARVIND": 3.2, "APARINDS": 2.9, "MOTILALOFS": 2.7, "RADICO": 2.5, "CENTURYPLY": 2.3,
-                "REC": 2.1, "CHOLAMANDALAM": 2.0, "CERA": 1.9, "CARBORUNIV": 1.8, "BSE": 1.7
-            }
-        },
-
-        # ── Index Funds ──
-        120716: {
-            "name": "UTI Nifty 50 Index Fund",
-            "category": "Index",
-            "holdings": {
-                "HDFCBANK": 11.8, "RELIANCE": 9.4, "ICICIBANK": 7.8, "INFY": 5.9, "ITC": 4.2,
-                "TCS": 3.8, "BHARTIARTL": 3.7, "LT": 3.4, "AXISBANK": 3.1, "SBIN": 2.9
-            }
-        },
-        120717: {
-            "name": "UTI Nifty Next 50 Index Fund",
-            "category": "Index",
-            "holdings": {
-                "BEL": 4.8, "TRENT": 4.5, "TATAMTRDVR": 3.9, "HAL": 3.7, "CHOLAFIN": 3.5,
-                "VBL": 3.3, "REC": 3.1, "PFC": 3.0, "TVSMOTOR": 2.8, "JIOFIN": 2.7
-            }
-        },
-        119062: {
-            "name": "ICICI Prudential Nifty 50 Index Fund",
-            "category": "Index",
-            "holdings": {
-                "HDFCBANK": 11.8, "RELIANCE": 9.4, "ICICIBANK": 7.8, "INFY": 5.9, "ITC": 4.2,
-                "TCS": 3.8, "BHARTIARTL": 3.7, "LT": 3.4, "AXISBANK": 3.1, "SBIN": 2.9
-            }
-        },
-        148943: {
-            "name": "Motilal Oswal Nifty Midcap 150 Index Fund",
-            "category": "Index",
-            "holdings": {
-                "MAXHEALTH": 2.4, "SUZLON": 2.2, "PERSISTENT": 2.1, "INDIANB": 2.0, "BHARATFORG": 1.9,
-                "CUMMINSIND": 1.8, "POLYCAB": 1.7, "TUBEINVEST": 1.6, "HDFCAMC": 1.5, "FEDERALBNK": 1.5
-            }
-        },
-
-        # ── Hybrid & Balanced Advantage ──
-        119065: {
-            "name": "ICICI Prudential Balanced Advantage Fund",
-            "category": "Hybrid",
-            "holdings": {
-                "ICICIBANK": 6.5, "RELIANCE": 5.8, "HDFCBANK": 5.2, "INFY": 4.1, "BHARTIARTL": 3.5,
-                "LT": 3.2, "AXISBANK": 2.8, "MARUTI": 2.4, "TCS": 2.2, "NTPC": 2.0
-            }
-        },
-        118968: {
-            "name": "HDFC Balanced Advantage Fund",
-            "category": "Hybrid",
-            "holdings": {
-                "ICICIBANK": 7.2, "HDFCBANK": 6.8, "SBIN": 5.4, "INFY": 4.8, "LICI": 4.1,
-                "COALINDIA": 3.5, "NTPC": 3.2, "LT": 2.9, "ITC": 2.7, "AXISBANK": 2.5
-            }
+        filtered_funds = {
+            code: data for code, data in TOP_MF_HOLDINGS.items()
+            if cat_filter == "All Categories" or data.get("category") == cat_filter or (cat_filter == "Large Cap" and "Large" in data.get("category", ""))
         }
-    }
 
-    # Category Filter
-    cats = ["All Categories", "Flexi Cap", "Large Cap", "Mid Cap", "Small Cap", "Index", "Hybrid"]
-    cat_col1, _ = st.columns([1, 2])
-    with cat_col1:
-        cat_filter = st.selectbox("Filter Mutual Fund Category", cats, index=0)
+        fund_options = [f"[{data['category']}] {data['name']} ({code})" for code, data in filtered_funds.items()]
 
-    filtered_funds = {
-        code: data for code, data in TOP_MF_HOLDINGS.items()
-        if cat_filter == "All Categories" or data.get("category") == cat_filter or (cat_filter == "Large Cap" and "Large" in data.get("category", ""))
-    }
+        col_ov1, col_ov2 = st.columns([1.5, 2])
+        with col_ov1:
+            chosen_mf_ov = st.selectbox(
+                "Select Mutual Fund to Check",
+                fund_options,
+                index=0
+            )
+            try:
+                mf_code_key = int(chosen_mf_ov.split("(")[-1].replace(")", "").strip())
+            except Exception:
+                mf_code_key = 122639
 
-    fund_options = [f"[{data['category']}] {data['name']} ({code})" for code, data in filtered_funds.items()]
-
-    col_ov1, col_ov2 = st.columns([1.5, 2])
-    with col_ov1:
-        chosen_mf_ov = st.selectbox(
-            "Select Mutual Fund to Check",
-            fund_options,
-            index=0
-        )
-        try:
-            mf_code_key = int(chosen_mf_ov.split("(")[-1].replace(")", "").strip())
-        except Exception:
-            mf_code_key = 122639
-
-        # Quick preset buttons for user symbols
-        st.markdown("<div style='font-size: 0.85em; color: #94a3b8; margin-top: 8px; margin-bottom: 4px;'>Quick Load Symbols:</div>", unsafe_allow_html=True)
-        qb1, qb2, qb3 = st.columns(3)
-        default_syms = "HDFCBANK, INFY, ITC, VOLTAS, BHEL"
-        if "custom_overlap_syms" not in st.session_state:
-            st.session_state["custom_overlap_syms"] = default_syms
-
-        with qb1:
-            if st.button("📋 Watchlist", use_container_width=True, help="Load stocks from your Watchlist"):
-                try:
-                    wl_syms = [r[0] for r in session.execute(text("SELECT symbol FROM watchlist_items")).fetchall() if r[0]]
-                    if wl_syms:
-                        st.session_state["custom_overlap_syms"] = ", ".join(wl_syms)
-                        st.rerun()
-                except Exception:
-                    pass
-        with qb2:
-            if st.button("💼 Portfolio", use_container_width=True, help="Load stocks from your Paper Portfolio"):
-                try:
-                    pos_syms = [r[0] for r in session.execute(text("SELECT symbol FROM paper_portfolio_positions")).fetchall() if r[0]]
-                    if pos_syms:
-                        st.session_state["custom_overlap_syms"] = ", ".join(pos_syms)
-                        st.rerun()
-                except Exception:
-                    pass
-        with qb3:
-            if st.button("🔄 Reset", use_container_width=True):
+            # Quick preset buttons for user symbols
+            st.markdown("<div style='font-size: 0.85em; color: #94a3b8; margin-top: 8px; margin-bottom: 4px;'>Quick Load Symbols:</div>", unsafe_allow_html=True)
+            qb1, qb2, qb3 = st.columns(3)
+            default_syms = "HDFCBANK, INFY, ITC, VOLTAS, BHEL"
+            if "custom_overlap_syms" not in st.session_state:
                 st.session_state["custom_overlap_syms"] = default_syms
-                st.rerun()
 
-        user_syms_raw = st.text_area(
-            "Your Direct Stock Portfolio / Watchlist Symbols (Comma Separated):", 
-            value=st.session_state["custom_overlap_syms"], 
-            height=90
-        )
-        user_syms = [s.strip().upper() for s in user_syms_raw.split(",") if s.strip()]
+            with qb1:
+                if st.button("📋 Watchlist", use_container_width=True, help="Load stocks from your Watchlist"):
+                    try:
+                        wl_syms = [r[0] for r in session.execute(text("SELECT symbol FROM watchlist_items")).fetchall() if r[0]]
+                        if wl_syms:
+                            st.session_state["custom_overlap_syms"] = ", ".join(wl_syms)
+                            st.rerun()
+                    except Exception:
+                        pass
+            with qb2:
+                if st.button("💼 Portfolio", use_container_width=True, help="Load stocks from your Paper Portfolio"):
+                    try:
+                        pos_syms = [r[0] for r in session.execute(text("SELECT symbol FROM paper_portfolio_positions")).fetchall() if r[0]]
+                        if pos_syms:
+                            st.session_state["custom_overlap_syms"] = ", ".join(pos_syms)
+                            st.rerun()
+                    except Exception:
+                        pass
+            with qb3:
+                if st.button("🔄 Reset", use_container_width=True):
+                    st.session_state["custom_overlap_syms"] = default_syms
+                    st.rerun()
 
-    with col_ov2:
-        fund_data = TOP_MF_HOLDINGS.get(mf_code_key, {})
-        fund_name = fund_data.get("name", "Mutual Fund")
-        fund_cat = fund_data.get("category", "Equity")
-        fund_holdings = fund_data.get("holdings", {})
-        common_stocks = [s for s in user_syms if s in fund_holdings]
-        overlap_weight = sum(fund_holdings[s] for s in common_stocks)
-        unique_stocks = [s for s in user_syms if s not in fund_holdings]
+            user_syms_raw = st.text_area(
+                "Your Direct Stock Portfolio / Watchlist Symbols (Comma Separated):", 
+                value=st.session_state["custom_overlap_syms"], 
+                height=90
+            )
+            user_syms = [s.strip().upper() for s in user_syms_raw.split(",") if s.strip()]
 
-        st.markdown(f"""
-        <div style="background: #111e2e; border: 1px solid #1e3a5f; padding: 16px 20px; border-radius: 8px;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <span style="font-weight: 700; color: #38bdf8; font-size: 1.1em;">{fund_name}</span>
-                    <div style="font-size: 0.82em; color: #94a3b8; margin-top: 2px;">
-                        Category: <b style="color: #cbd5e1;">{fund_cat}</b> &nbsp;|&nbsp; Top 10 Weight: <b style="color: #cbd5e1;">{sum(fund_holdings.values()):.1f}%</b>
+        with col_ov2:
+            fund_data = TOP_MF_HOLDINGS.get(mf_code_key, {})
+            fund_name = fund_data.get("name", "Mutual Fund")
+            fund_cat = fund_data.get("category", "Equity")
+            fund_holdings = fund_data.get("holdings", {})
+            common_stocks = [s for s in user_syms if s in fund_holdings]
+            overlap_weight = sum(fund_holdings[s] for s in common_stocks)
+            unique_stocks = [s for s in user_syms if s not in fund_holdings]
+
+            st.markdown(f"""
+            <div style="background: #111e2e; border: 1px solid #1e3a5f; padding: 16px 20px; border-radius: 8px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight: 700; color: #38bdf8; font-size: 1.1em;">{fund_name}</span>
+                        <div style="font-size: 0.82em; color: #94a3b8; margin-top: 2px;">
+                            Category: <b style="color: #cbd5e1;">{fund_cat}</b> &nbsp;|&nbsp; Top 10 Weight: <b style="color: #cbd5e1;">{sum(fund_holdings.values()):.1f}%</b>
+                        </div>
                     </div>
+                    <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold; padding: 6px 14px; border-radius: 6px; font-size: 1.05em;">{overlap_weight:.1f}% Fund Overlap</span>
                 </div>
-                <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold; padding: 6px 14px; border-radius: 6px; font-size: 1.05em;">{overlap_weight:.1f}% Fund Overlap</span>
+                <div style="margin-top: 12px; color: #cbd5e1; font-size: 0.92em;">
+                    Out of your <b>{len(user_syms)}</b> direct stocks, <b>{len(common_stocks)}</b> are already owned inside this fund's top conviction holdings.
+                </div>
             </div>
-            <div style="margin-top: 12px; color: #cbd5e1; font-size: 0.92em;">
-                Out of your <b>{len(user_syms)}</b> direct stocks, <b>{len(common_stocks)}</b> are already owned inside this fund's top conviction holdings.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)
 
-        if common_stocks:
-            st.markdown("#### 🔗 Common Overlapping Holdings")
-            ov_data = [{
-                "Symbol": s, 
-                "Fund Portfolio Weight": f"{fund_holdings[s]:.1f}%", 
-                "Status": "⚠️ High Overlap (≥5%)" if fund_holdings[s] >= 5.0 else "ℹ️ Moderate Overlap (<5%)"
-            } for s in common_stocks]
-            st.dataframe(pd.DataFrame(ov_data), use_container_width=True, hide_index=True)
-            if unique_stocks:
-                st.caption(f"🌟 **Unique Non-Overlapping Direct Stocks ({len(unique_stocks)}):** {', '.join(unique_stocks)}")
+            if common_stocks:
+                st.markdown("#### 🔗 Common Overlapping Holdings")
+                ov_data = [{
+                    "Symbol": s, 
+                    "Fund Portfolio Weight": f"{fund_holdings[s]:.1f}%", 
+                    "Status": "⚠️ High Overlap (≥5%)" if fund_holdings[s] >= 5.0 else "ℹ️ Moderate Overlap (<5%)"
+                } for s in common_stocks]
+                st.dataframe(pd.DataFrame(ov_data), use_container_width=True, hide_index=True)
+                if unique_stocks:
+                    st.caption(f"🌟 **Unique Non-Overlapping Direct Stocks ({len(unique_stocks)}):** {', '.join(unique_stocks)}")
+            else:
+                st.success("✅ Zero Overlap Detected! Your direct stock selection provides 100% unique, non-duplicative diversification.")
+
+    # ── Subtab 2: Blended True Look-Through & Concentration Lab ────────────────
+    with subtab_ov2:
+        st.markdown("#### 🔬 True Look-Through Portfolio Concentration & Cannibalization Lab")
+        st.caption("Enter your direct stock holdings and mutual fund investments to uncover hidden single-stock concentration, fee cannibalization, and true look-through risk (HHI).")
+
+        col_in1, col_in2 = st.columns([1.2, 1.8])
+        with col_in1:
+            st.markdown("##### 1. Direct Stock Holdings")
+            qb_col1, qb_col2 = st.columns(2)
+            with qb_col1:
+                if st.button("💼 Load Paper Portfolio", key="btn_load_paper_pos", use_container_width=True):
+                    try:
+                        pos_rows = session.execute(text("SELECT symbol, current_value FROM paper_portfolio_positions WHERE shares > 0")).fetchall()
+                        if pos_rows:
+                            st.session_state["lt_direct_input"] = "\n".join([f"{r[0]}: {float(r[1] or 10000):.0f}" for r in pos_rows])
+                            st.rerun()
+                    except Exception:
+                        pass
+            with qb_col2:
+                if st.button("📋 Load Watchlist", key="btn_load_wl_pos", use_container_width=True):
+                    try:
+                        wl_rows = session.execute(text("SELECT symbol FROM watchlist_items")).fetchall()
+                        if wl_rows:
+                            st.session_state["lt_direct_input"] = "\n".join([f"{r[0]}: 25000" for r in wl_rows if r[0]])
+                            st.rerun()
+                    except Exception:
+                        pass
+
+            default_lt_direct = "HDFCBANK: 50000\nINFY: 40000\nRELIANCE: 45000\nITC: 30000\nVOLTAS: 25000"
+            if "lt_direct_input" not in st.session_state:
+                st.session_state["lt_direct_input"] = default_lt_direct
+
+            direct_text = st.text_area(
+                "Direct Stocks (Format: SYMBOL: AMOUNT, one per line):",
+                value=st.session_state["lt_direct_input"],
+                height=130,
+                help="Enter each stock symbol and invested amount in ₹ (e.g. HDFCBANK: 50000). If amount is omitted, ₹25,000 is assumed."
+            )
+
+            st.markdown("##### 2. Mutual Fund Allocations")
+            all_mf_list = get_available_mf_schemes()
+            mf_options_map = {f"[{m['category']}] {m['name']} ({m['scheme_code']})": m['scheme_code'] for m in all_mf_list}
+            
+            selected_mf_keys = st.multiselect(
+                "Select Mutual Funds Owned:",
+                options=list(mf_options_map.keys()),
+                default=[list(mf_options_map.keys())[0], list(mf_options_map.keys())[1]] if len(mf_options_map) >= 2 else list(mf_options_map.keys())[:1],
+                help="Choose up to 6 mutual funds in your current portfolio."
+            )
+
+            mf_alloc_dict = {}
+            if selected_mf_keys:
+                st.markdown("<div style='font-size: 0.85em; color: #94a3b8;'>Invested Amount per Fund (₹):</div>", unsafe_allow_html=True)
+                for mk in selected_mf_keys:
+                    code = mf_options_map[mk]
+                    val = st.number_input(f"₹ {TOP_MF_HOLDINGS[code]['name'][:28]}...", min_value=1000, max_value=10000000, value=75000, step=5000, key=f"mf_val_{code}")
+                    mf_alloc_dict[code] = float(val)
+
+        with col_in2:
+            direct_dict = {}
+            for line in direct_text.strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split(":")
+                sym = parts[0].strip().upper()
+                amt = 25000.0
+                if len(parts) > 1:
+                    try:
+                        amt = float(parts[1].replace(",", "").strip())
+                    except Exception:
+                        amt = 25000.0
+                if sym:
+                    direct_dict[sym] = amt
+
+            if direct_dict or mf_alloc_dict:
+                lt_res = calculate_lookthrough_exposure(direct_dict, mf_alloc_dict)
+                if "error" in lt_res:
+                    st.warning(lt_res["error"])
+                else:
+                    km1, km2, km3, km4 = st.columns(4)
+                    with km1:
+                        st.metric("Total Portfolio Value", f"₹{lt_res['grand_total_amount']:,.0f}", f"{lt_res['direct_share_pct']}% Stocks | {lt_res['mf_share_pct']}% MFs")
+                    with km2:
+                        hhi_delta_str = f"{lt_res['concentration_multiplier']}x Hidden Multiplier"
+                        st.metric("True Look-Through HHI", f"{lt_res['lookthrough_hhi']:,.0f}", hhi_delta_str, delta_color="inverse")
+                    with km3:
+                        st.metric("Top 5 True Exposure", f"{lt_res['top_5_effective_weight_pct']:.1f}%", f"{'⚠️ High Risk' if lt_res['top_5_effective_weight_pct'] > 35 else 'Optimal (<35%)'}")
+                    with km4:
+                        st.metric("Duplicated Capital", f"₹{lt_res['duplicated_capital_amount']:,.0f}", f"{lt_res['duplicated_capital_pct']}% Cannibalized TER", delta_color="inverse")
+
+                    if lt_res.get("cannibalization_alerts"):
+                        for alert in lt_res["cannibalization_alerts"]:
+                            st.warning(alert["warning"])
+
+                    st.markdown("##### 📊 Full Look-Through Effective Exposure Breakdown")
+                    table_rows = []
+                    for item in lt_res["all_effective_stocks"]:
+                        contributing_funds = ", ".join([f"{m['scheme_name']} ({m['portfolio_contrib_pct']}%)" for m in item["contributing_mfs"]])
+                        status_str = "🚨 SEVERE OVEREXPOSURE (≥10%)" if item["total_effective_weight_pct"] >= 10.0 else (
+                            "⚠️ Overexposed (≥8%)" if item["total_effective_weight_pct"] >= 8.0 else (
+                                "🔄 Direct + MF Overlap" if item["direct_weight_pct"] > 0 and item["indirect_weight_pct"] > 0 else "Optimal (<8%)"
+                            )
+                        )
+                        table_rows.append({
+                            "Symbol": item["symbol"],
+                            "Total Effective %": f"{item['total_effective_weight_pct']:.2f}%",
+                            "Direct Holding %": f"{item['direct_weight_pct']:.2f}%",
+                            "Indirect via MFs %": f"{item['indirect_weight_pct']:.2f}%",
+                            "Total Amount (₹)": f"₹{item['total_amount']:,.0f}",
+                            "Contributing Funds": contributing_funds or "— Direct Only —",
+                            "Exposure Risk": status_str
+                        })
+                    st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+
+    # ── Subtab 3: Scheme vs. Scheme Pairwise Overlap Matrix ────────────────────
+    with subtab_ov3:
+        st.markdown("#### ⚔️ Mutual Fund Scheme vs. Scheme Pairwise Overlap Matrix")
+        st.caption("Compare two mutual funds side-by-side to check portfolio replication, identical holdings, and prevent paying redundant expense ratios across multiple funds.")
+
+        all_mf_list = get_available_mf_schemes()
+        mf_names_dict = {f"[{m['category']}] {m['name']} ({m['scheme_code']})": m['scheme_code'] for m in all_mf_list}
+        keys = list(mf_names_dict.keys())
+
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            sel_f1 = st.selectbox("Select Primary Scheme A", options=keys, index=0, key="pw_fund1")
+        with col_p2:
+            sel_f2 = st.selectbox("Select Benchmark Scheme B", options=keys, index=1 if len(keys) > 1 else 0, key="pw_fund2")
+
+        code_a = mf_names_dict[sel_f1]
+        code_b = mf_names_dict[sel_f2]
+
+        pw_res = calculate_pairwise_fund_overlap(code_a, code_b)
+        if "error" in pw_res:
+            st.warning(pw_res["error"])
         else:
-            st.success("✅ Zero Overlap Detected! Your direct stock selection provides 100% unique, non-duplicative diversification.")
+            ov_val = pw_res["overlap_pct"]
+            ov_color = "#ef4444" if ov_val >= 35.0 else ("#f59e0b" if ov_val >= 20.0 else "#10b981")
+            st.markdown(f"""
+            <div style="background: #0f172a; border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-size: 1.1em; font-weight: 800; color: #38bdf8;">Portfolio Overlap: {pw_res['fund1']['name']} vs. {pw_res['fund2']['name']}</span>
+                        <div style="font-size: 0.85em; color: #94a3b8; margin-top: 3px;">
+                            Identified <b>{pw_res['common_holdings_count']}</b> overlapping top holdings across these two funds.
+                        </div>
+                    </div>
+                    <span style="background: {ov_color}22; color: {ov_color}; font-size: 1.25em; font-weight: 800; padding: 6px 16px; border-radius: 6px; border: 1px solid {ov_color};">
+                        {ov_val:.1f}% Overlap
+                    </span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            if pw_res.get("is_high_overlap"):
+                st.warning(f"⚠️ **High Overlap Alert ({ov_val:.1f}%):** These two funds share more than a quarter of their portfolio in identical stocks. Investing in both provides minimal diversification and doubles management fees.")
+            else:
+                st.success(f"✅ **Low Overlap ({ov_val:.1f}%):** Good diversification benefit. These two funds complement each other effectively.")
+
+            if pw_res.get("common_holdings"):
+                st.markdown("##### 🔗 Replicated Holdings Breakdown")
+                pw_df = pd.DataFrame(pw_res["common_holdings"]).rename(columns={
+                    "symbol": "Stock Symbol",
+                    "weight_fund1": f"Weight in {pw_res['fund1']['name'][:20]} (%)",
+                    "weight_fund2": f"Weight in {pw_res['fund2']['name'][:20]} (%)",
+                    "overlap_contribution": "Overlap Contribution (%)"
+                })
+                st.dataframe(pw_df, use_container_width=True, hide_index=True)
 # ─── TAB 5: Dedicated MF SIP Planner & Curated Baskets ─────────────────────────
 with tab5:
     st.subheader("💡 Dedicated Mutual Fund SIP Planner & Curated Baskets")
@@ -869,6 +857,34 @@ with tab5:
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+    if mf_plan.get("dynamic_rotation_meta"):
+        rot = mf_plan["dynamic_rotation_meta"]
+        dip = mf_plan.get("tactical_dip_meta", {})
+        dip_bg = "rgba(234, 179, 8, 0.15)" if dip.get("is_dip_triggered") else "rgba(16, 185, 129, 0.12)"
+        dip_border = "#eab308" if dip.get("is_dip_triggered") else "#10b981"
+        st.markdown(f"""
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+            <div style="background: #111e2e; border: 1px solid #1e3a5f; border-left: 4px solid #38bdf8; padding: 12px 16px; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; color: #38bdf8; font-size: 0.95em;">🔄 Dynamic Category Rotation Engine</span>
+                    <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 0.8em;">{rot['posture']}</span>
+                </div>
+                <div style="font-size: 0.84em; color: #cbd5e1; margin-top: 6px;">
+                    {rot['description']}
+                </div>
+            </div>
+            <div style="background: #111e2e; border: 1px solid #1e3a5f; border-left: 4px solid {dip_border}; padding: 12px 16px; border-radius: 6px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 700; color: {dip_border}; font-size: 0.95em;">⚡ Tactical Dip Deployer</span>
+                    <span style="background: {dip_bg}; color: {dip_border}; font-weight: 700; padding: 2px 8px; border-radius: 4px; font-size: 0.8em;">{dip.get('status_badge', 'Normal')}</span>
+                </div>
+                <div style="font-size: 0.84em; color: #cbd5e1; margin-top: 6px;">
+                    {dip.get('recommendation', 'Maintain systematic scheduled installments.')}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     # Fund Breakdown Cards / Table
     st.markdown("#### 📋 Recommended Scheme Allocations & Institutional Consensus")

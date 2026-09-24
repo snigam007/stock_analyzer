@@ -1,0 +1,41 @@
+regime_key,regime_name,strategy_key,strategy_name,xirr,final_val,invested,multiple,max_dd,calmar
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,PURE_CENTURION,Pure Centurion Wealth Engine (Default),12.07,7429681.67,3525000.0,2.11,41.27,0.29
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,20.44,12780566.46,3525000.0,3.63,40.95,0.5
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,APEX_00769,Apex Concentrated Compounder (SIP_00769),22.65,14776737.53,3525000.0,4.19,42.13,0.54
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),22.33,14463185.37,3525000.0,4.1,41.9,0.53
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,23.53,15654911.28,3525000.0,4.44,45.1,0.52
+BULL_2017,Class 1: 2017 Secular Bull Market,PURE_CENTURION,Pure Centurion Wealth Engine (Default),56.58,384306.26,300000.0,1.28,12.57,4.5
+BULL_2017,Class 1: 2017 Secular Bull Market,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,121.81,471106.33,300000.0,1.57,12.69,9.6
+BULL_2017,Class 1: 2017 Secular Bull Market,APEX_00769,Apex Concentrated Compounder (SIP_00769),136.96,490217.34,300000.0,1.63,10.6,12.92
+BULL_2017,Class 1: 2017 Secular Bull Market,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),126.91,477578.34,300000.0,1.59,10.61,11.96
+BULL_2017,Class 1: 2017 Secular Bull Market,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,70.0,402873.75,300000.0,1.34,6.57,10.65
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,PURE_CENTURION,Pure Centurion Wealth Engine (Default),20.68,332502.95,300000.0,1.11,12.14,1.7
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,-4.05,293403.71,300000.0,0.98,11.77,-0.34
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,APEX_00769,Apex Concentrated Compounder (SIP_00769),-15.78,273792.87,300000.0,0.91,16.06,-0.98
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),-8.47,286107.55,300000.0,0.95,12.93,-0.66
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,12.83,320374.84,300000.0,1.07,10.03,1.28
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,PURE_CENTURION,Pure Centurion Wealth Engine (Default),35.29,354543.89,300000.0,1.18,36.17,0.98
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,198.74,569140.39,300000.0,1.9,34.86,5.7
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,APEX_00769,Apex Concentrated Compounder (SIP_00769),225.03,600317.73,300000.0,2.0,27.25,8.26
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),232.61,609190.41,300000.0,2.03,30.46,7.64
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,121.37,473001.2,300000.0,1.58,28.44,4.27
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,PURE_CENTURION,Pure Centurion Wealth Engine (Default),45.39,369382.36,300000.0,1.23,15.29,2.97
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,73.19,408718.07,300000.0,1.36,13.1,5.59
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,APEX_00769,Apex Concentrated Compounder (SIP_00769),93.97,436981.02,300000.0,1.46,9.58,9.81
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),86.94,427522.48,300000.0,1.43,8.89,9.78
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,29.88,346501.06,300000.0,1.16,8.21,3.64
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,PURE_CENTURION,Pure Centurion Wealth Engine (Default),-12.45,279520.55,300000.0,0.93,11.69,-1.07
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,-1.69,297276.0,300000.0,0.99,17.74,-0.1
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,APEX_00769,Apex Concentrated Compounder (SIP_00769),0.82,301322.36,300000.0,1.0,18.09,0.05
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),-0.05,299924.55,300000.0,1.0,18.65,-0.0
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,5.94,309485.84,300000.0,1.03,9.65,0.62
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,PURE_CENTURION,Pure Centurion Wealth Engine (Default),50.27,375482.24,300000.0,1.25,7.88,6.38
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,133.26,485747.73,300000.0,1.62,13.3,10.02
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,APEX_00769,Apex Concentrated Compounder (SIP_00769),144.36,499604.52,300000.0,1.67,13.37,10.8
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),132.49,484781.22,300000.0,1.62,12.12,10.93
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,87.46,426550.14,300000.0,1.42,5.21,16.79
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),PURE_CENTURION,Pure Centurion Wealth Engine (Default),3.51,865876.85,825000.0,1.05,15.09,0.23
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),PURE_SIP_088024,Pure SIP_088024 Fortress Clenow,4.43,876813.49,825000.0,1.06,17.35,0.26
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),APEX_00769,Apex Concentrated Compounder (SIP_00769),11.45,962846.73,825000.0,1.17,17.77,0.64
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),DYNAMIC_BLEND,Dynamic Core Blend (Switch 5: 75/25 -> 25/75),6.78,905028.08,825000.0,1.1,16.28,0.42
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),BENCHMARK_MARKET_SIP,Benchmark: Broad Market Universe SIP,5.36,887920.22,825000.0,1.08,12.81,0.42

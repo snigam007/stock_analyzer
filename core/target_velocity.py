@@ -13,6 +13,7 @@ def predict_time_to_target(
     entry_price: float,
     target_1: float,
     target_2: Optional[float] = None,
+    target_3: Optional[float] = None,
     atr: Optional[float] = None,
     atr_pct: Optional[float] = None,
     composite_score: Optional[float] = 60.0,
@@ -20,15 +21,19 @@ def predict_time_to_target(
     risk_level: Optional[str] = "MODERATE",
     asset_type: Optional[str] = "STOCK",
     signal_type: Optional[str] = "BUY",
-    setup_type: Optional[str] = "STANDARD"
+    setup_type: Optional[str] = "STANDARD",
+    sector: Optional[str] = None,
+    trend_strength: Optional[float] = None,
+    **kwargs
 ) -> Dict[str, Any]:
     """
-    Empirical quantitative forecast of days/sessions to reach Target 1 and Target 2.
+    Empirical quantitative forecast of days/sessions to reach Target 1, Target 2, and Target 3.
 
     Returns:
         dict with:
             - 'est_days_t1': integer point estimate of trading sessions to Target 1
             - 'est_days_t2': integer point estimate of trading sessions to Target 2
+            - 'est_days_t3': integer point estimate of trading sessions to Target 3
             - 'min_days_t1': lower bound of 84% confidence window
             - 'max_days_t1': upper bound of 84% confidence window
             - 'window_str': user-friendly formatted string (e.g. '⚡ 2–3 Sessions')
@@ -42,6 +47,7 @@ def predict_time_to_target(
         return {
             'est_days_t1': 4,
             'est_days_t2': 8,
+            'est_days_t3': 15,
             'min_days_t1': 3,
             'max_days_t1': 5,
             'window_str': "🎯 3–5 Sessions",
@@ -55,6 +61,7 @@ def predict_time_to_target(
     # 1. Target Distance %
     dist_t1_pct = abs(float(target_1) - float(entry_price)) / float(entry_price) * 100.0
     dist_t2_pct = abs(float(target_2) - float(entry_price)) / float(entry_price) * 100.0 if target_2 else dist_t1_pct * 1.8
+    dist_t3_pct = abs(float(target_3) - float(entry_price)) / float(entry_price) * 100.0 if target_3 else dist_t1_pct * 2.8
 
     # 2. Daily Volatility Baseline (ATR %)
     r_lvl = str(risk_level).upper() if risk_level else "MODERATE"
@@ -80,9 +87,11 @@ def predict_time_to_target(
     # 3. Directional Drift Ratio (portion of ATR that translates to net directional progress)
     drift_factor = 0.55  # On an active trend, net move per day is ~55% of daily range
 
-    # 4. Momentum & Volume Accelerators
+    # 4. Momentum, Trend Strength & Volume Accelerators
     c_score = float(composite_score) if composite_score is not None else 60.0
     score_multiplier = 1.0 + (c_score - 60.0) * 0.006  # e.g. 80 score -> 1.12x speed, 50 score -> 0.94x
+
+    trend_multiplier = 1.0 + (float(trend_strength) - 50.0) * 0.003 if trend_strength is not None else 1.0
 
     v_ratio = float(volume_ratio) if volume_ratio is not None else 1.0
     if v_ratio >= 2.0:
@@ -108,7 +117,7 @@ def predict_time_to_target(
         setup_multiplier = 1.0
 
     # Net daily directional progress percentage
-    daily_progress_pct = max(0.40, effective_atr_pct * drift_factor * score_multiplier * vol_multiplier * setup_multiplier)
+    daily_progress_pct = max(0.40, effective_atr_pct * drift_factor * score_multiplier * vol_multiplier * setup_multiplier * trend_multiplier)
 
     # 6. Raw & Clamped Session Point Estimates
     raw_days_t1 = dist_t1_pct / daily_progress_pct
@@ -116,6 +125,9 @@ def predict_time_to_target(
 
     raw_days_t2 = dist_t2_pct / daily_progress_pct
     est_days_t2 = int(np.clip(round(raw_days_t2), est_days_t1 + 2, 18))
+
+    raw_days_t3 = dist_t3_pct / daily_progress_pct
+    est_days_t3 = int(np.clip(round(raw_days_t3), est_days_t2 + 3, 35))
 
     # 7. Confidence Window Bounds
     min_days_t1 = max(1, est_days_t1 - 1)
@@ -168,6 +180,7 @@ def predict_time_to_target(
     return {
         'est_days_t1': est_days_t1,
         'est_days_t2': est_days_t2,
+        'est_days_t3': est_days_t3,
         'min_days_t1': min_days_t1,
         'max_days_t1': max_days_t1,
         'window_str': window_str,

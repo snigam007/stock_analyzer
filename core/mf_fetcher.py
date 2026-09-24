@@ -3467,11 +3467,15 @@ def fetch_scheme_nav_history(scheme_code: int, session: Session, min_date: str =
     if not nav_data:
         return 0
 
-    # Query latest date already present in database to avoid duplicate inserts
-    latest_db_date = session.execute(
-        text("SELECT MAX(date) FROM mutual_fund_navs WHERE scheme_code = :sc"),
+    # Query dates already present in database to avoid duplicate inserts
+    existing_date_rows = session.execute(
+        text("SELECT date FROM mutual_fund_navs WHERE scheme_code = :sc"),
         {"sc": scheme_code}
-    ).scalar()
+    ).fetchall()
+    existing_dates = {
+        r[0] if isinstance(r[0], date) else datetime.strptime(str(r[0])[:10], "%Y-%m-%d").date()
+        for r in existing_date_rows
+    }
 
     # Parse and prepare new records
     new_rows = []
@@ -3484,13 +3488,13 @@ def fetch_scheme_nav_history(scheme_code: int, session: Session, min_date: str =
             d_obj = datetime.strptime(entry["date"], "%d-%m-%Y").date()
             if d_obj < datetime.strptime(min_date, "%Y-%m-%d").date():
                 continue
-            if latest_db_date and d_obj <= latest_db_date:
-                prev_nav = float(entry["nav"])
-                continue
 
             nav_val = float(entry["nav"])
             daily_ret = ((nav_val - prev_nav) / prev_nav * 100) if (prev_nav and prev_nav > 0) else 0.0
             prev_nav = nav_val
+
+            if d_obj in existing_dates:
+                continue
 
             new_rows.append({
                 "scheme_code": scheme_code,
@@ -3627,25 +3631,29 @@ def sync_all_mf_nav_deltas(session: Session) -> Dict:
     schemes_updated = 0
     synced_schemes = []
 
-    # Step 1: Detect which schemes have multi-day gaps (>2 calendar days behind latest market date)
+    # Step 1: Detect which schemes have multi-day gaps or lack historical depth (<50 NAV points)
     schemes_needing_multi_day = []
     for f in funds:
-        last_date = session.execute(
-            text("SELECT MAX(date) FROM mutual_fund_navs WHERE scheme_code = :sc"),
+        stat_row = session.execute(
+            text("SELECT MAX(date), COUNT(id) FROM mutual_fund_navs WHERE scheme_code = :sc"),
             {"sc": f.scheme_code}
-        ).scalar()
+        ).fetchone()
+        last_date = stat_row[0] if stat_row else None
+        nav_cnt = stat_row[1] if stat_row else 0
+
         if isinstance(last_date, str):
             last_date = datetime.strptime(last_date[:10], "%Y-%m-%d").date()
 
-        if not last_date:
-            schemes_needing_multi_day.append((f.scheme_code, f.scheme_name, "2023-01-01"))
+        if not last_date or nav_cnt < 50:
+            default_start = (latest_mkt_date - timedelta(days=2 * 365)).strftime("%Y-%m-%d")
+            schemes_needing_multi_day.append((f.scheme_code, f.scheme_name, default_start))
         elif (latest_mkt_date - last_date).days > 2:
             # Scheme has missed multiple trading days — needs historical backfill
             schemes_needing_multi_day.append((f.scheme_code, f.scheme_name, str(last_date - timedelta(days=2))))
 
     # Step 2: Fetch multi-day historical gaps in parallel if any exist
     if schemes_needing_multi_day:
-        logger.info(f"📥 Resolving multi-day NAV gaps for {len(schemes_needing_multi_day)} mutual fund schemes...")
+        logger.info(f"📥 Resolving multi-day NAV gaps and historical depth for {len(schemes_needing_multi_day)} mutual fund schemes...")
         def _fetch_payload(item):
             code, name, mdate = item
             url = f"https://api.mfapi.in/mf/{code}"
@@ -3664,10 +3672,10 @@ def sync_all_mf_nav_deltas(session: Session) -> Dict:
             if not payload or not payload.get("data"):
                 continue
             nav_data = payload.get("data", [])
-            latest_db_date = session.execute(
-                text("SELECT MAX(date) FROM mutual_fund_navs WHERE scheme_code = :sc"),
+            existing_dates = set(str(r[0]) for r in session.execute(
+                text("SELECT date FROM mutual_fund_navs WHERE scheme_code = :sc"),
                 {"sc": code}
-            ).scalar()
+            ).fetchall())
 
             try:
                 sorted_navs = sorted(nav_data, key=lambda x: datetime.strptime(x["date"], "%d-%m-%Y"))
@@ -3681,10 +3689,10 @@ def sync_all_mf_nav_deltas(session: Session) -> Dict:
                     d_obj = datetime.strptime(entry["date"], "%d-%m-%Y").date()
                     if d_obj < datetime.strptime(mdate, "%Y-%m-%d").date():
                         continue
-                    if latest_db_date and d_obj <= latest_db_date:
-                        prev_nav = float(entry["nav"])
-                        continue
                     nav_val = float(entry["nav"])
+                    if str(d_obj) in existing_dates:
+                        prev_nav = nav_val
+                        continue
                     daily_ret = ((nav_val - prev_nav) / prev_nav * 100) if (prev_nav and prev_nav > 0) else 0.0
                     prev_nav = nav_val
                     new_rows.append({

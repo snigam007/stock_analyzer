@@ -1,0 +1,41 @@
+regime_key,regime_name,strategy_key,strategy_name,cagr,final_val,multiple,max_dd,calmar,win_rate,trades,profit_factor
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),29.0,5952315.62,19.84,28.91,1.0,27.1,490,1.02
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),22.66,3293488.52,10.98,44.01,0.51,24.1,698,0.9
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),12.3,1169969.7,3.9,23.9,0.51,37.9,861,0.73
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),13.34,1303440.45,4.34,26.66,0.5,39.6,1369,0.7
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year All-History Supercycle,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,11.12,1033803.58,3.45,99.92,0.11,50.0,1,1.0
+BULL_2017,Class 1: 2017 Secular Bull Market,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),45.99,436153.86,1.45,8.69,5.29,32.4,34,1.58
+BULL_2017,Class 1: 2017 Secular Bull Market,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),67.83,500639.41,1.67,9.44,7.19,37.0,46,1.64
+BULL_2017,Class 1: 2017 Secular Bull Market,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),20.6,361045.16,1.2,7.91,2.6,38.3,81,0.77
+BULL_2017,Class 1: 2017 Secular Bull Market,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),33.65,399663.69,1.33,6.23,5.4,45.7,105,1.07
+BULL_2017,Class 1: 2017 Secular Bull Market,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,33.58,399479.06,1.33,7.15,4.7,50.0,1,1.0
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),-20.94,237321.6,0.79,22.09,-0.95,12.5,40,0.14
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),-38.0,186240.99,0.62,39.27,-0.97,11.5,61,0.13
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),-0.16,299533.55,1.0,10.67,-0.01,29.9,67,0.48
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),-13.4,259888.49,0.87,20.33,-0.66,28.3,120,0.33
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage & NBFC Crisis,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,-5.73,282854.75,0.94,17.71,-0.32,50.0,1,1.0
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),47.3,441900.26,1.47,28.68,1.65,21.8,55,1.34
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),10.98,332927.12,1.11,34.15,0.32,22.4,49,0.9
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),11.38,334136.55,1.11,26.02,0.44,38.1,84,0.66
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),15.04,345105.43,1.15,24.87,0.6,38.7,106,0.69
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Rapid V-Shape Recovery,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,20.65,361944.37,1.21,99.7,0.21,50.0,1,1.0
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),57.61,472238.51,1.57,13.77,4.18,25.0,72,1.12
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),70.05,509404.5,1.7,13.79,5.08,24.7,73,1.25
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),48.52,445082.09,1.48,12.34,3.93,50.0,98,1.04
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),42.82,428053.27,1.43,8.65,4.95,51.1,88,1.24
+SUPERBULL_2021,Class 4: 2021 Post-Covid Momentum Supercycle,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,26.42,379025.68,1.26,99.78,0.26,50.0,1,1.0
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),52.72,456052.31,1.52,16.14,3.27,29.8,57,1.18
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),57.8,471040.52,1.57,28.0,2.06,26.0,73,0.98
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),5.12,315184.09,1.05,18.68,0.27,42.2,90,0.65
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),7.74,322960.91,1.08,14.41,0.54,40.7,140,0.62
+INFLATION_CHOP_2022,Class 5: 2022 Global Rate-Hike & Ukraine War Chop,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,-0.87,297415.5,0.99,99.83,-0.01,50.0,1,1.0
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),45.0,433240.49,1.44,13.92,3.23,23.1,39,1.55
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),47.92,441868.14,1.47,17.38,2.76,21.7,46,1.42
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),44.2,430882.65,1.44,12.71,3.48,45.8,83,1.47
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),35.57,405361.24,1.35,12.62,2.82,52.6,95,1.31
+BREAKOUT_2023,Class 6: 2023 Broad-Market Midcap Frenzy,BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,30.95,391682.56,1.31,99.85,0.31,50.0,1,1.0
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),CHAMPION_SW_005479_000640,Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress),25.74,560086.94,1.87,27.97,0.92,26.0,154,0.92
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),PURE_SW_005479,Pure SW_005479 (Alpha Champion - No Bear Sweep),21.2,506695.5,1.69,34.19,0.62,23.5,183,0.8
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),PURE_SW_000640,Pure SW_000640 (Fortress Shield - 5 Slots),9.19,381264.23,1.27,17.59,0.52,34.9,232,0.65
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),CLASSIC_8SLOT,Classic 8-Slot Diversified Swing (12.5% Slots),1.48,312241.76,1.04,21.85,0.07,34.2,316,0.55
+RECENT_CYCLE_2024_2026,Class 7: Recent Multi-Regime Cycle (2024 - 2026),BENCHMARK_BUY_HOLD,Benchmark: Buy & Hold Market Index,5.62,348203.76,1.16,99.92,0.06,50.0,1,1.0

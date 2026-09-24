@@ -1,0 +1,32 @@
+=========================================================================================================
+PROFIT IMPROVEMENT ROADMAP: COMPREHENSIVE LEVERS BACKTEST (60 MONTHS)
+=========================================================================================================
+Variant                                      |   XIRR |   Corpus |    PF | Payoff |    DD |   WR | Triggers
+---------------------------------------------------------------------------------------------------------
+Baseline (Hurdle 20%, Hedge 5%)              |  43.4% | Rs. 38.58L |  4.51 |  5.86x | 25.6% |  44% | 
+Champion (Hurdle 30%, Hedge 3%)              |  55.7% | Rs. 49.96L |  7.49 | 10.79x | 26.9% |  41% | 
+L7: Sector Boost (+30% on Baseline)          |  33.7% | Rs. 31.35L |  3.48 |  4.89x | 20.1% |  42% | 
+L7: Sector Boost (+30% on Champion)          |  37.0% | Rs. 33.69L |  3.82 |  5.34x | 20.5% |  42% | 
+L7: Sector Boost (+50% on Champion)          |  54.8% | Rs. 48.99L |  6.81 |  8.87x | 21.7% |  44% | 
+L5: Stale Rotation (120d, <25% on Baseline)  |  37.5% | Rs. 34.01L |  3.38 |  5.05x | 28.2% |  40% | Stale:20 
+L5: Stale Rotation (120d, <25% on Champion)  |  41.3% | Rs. 36.95L |  3.38 |  4.84x | 31.1% |  41% | Stale:19 
+L5: Stale Rotation (90d, <20% Aggressive on Champ) |  46.3% | Rs. 41.08L |  4.56 |  6.35x | 30.7% |  42% | Stale:33 
+L3: Split-Entry (60/40, -3% on Baseline)     |  40.4% | Rs. 36.20L |  4.33 |  5.39x | 21.8% |  44% | Splits:255 
+L3: Split-Entry (60/40, -3% on Champion)     |  52.2% | Rs. 46.51L |  7.23 |  9.12x | 22.7% |  44% | Splits:246 
+L3: Split-Entry (50/50, -2.5% on Champion)   |  54.0% | Rs. 48.22L |  6.72 | 10.34x | 24.1% |  39% | Splits:253 
+L1: Multi-Factor Alpha (on Baseline)         |  25.6% | Rs. 26.20L |  2.95 |  4.24x | 20.8% |  41% | 
+L1: Multi-Factor Alpha (on Champion)         |  46.6% | Rs. 41.29L |  5.39 |  8.20x | 23.3% |  40% | 
+Combo 1: Champ + L7 Sector Boost             |  37.0% | Rs. 33.69L |  3.82 |  5.34x | 20.5% |  42% | 
+Combo 2: Champ + L5 Stale Rotation           |  41.3% | Rs. 36.95L |  3.38 |  4.84x | 31.1% |  41% | Stale:19 
+Combo 3: Champ + L7 Sector + L5 Stale        |  39.1% | Rs. 35.23L |  4.11 |  6.53x | 24.0% |  39% | Stale:19 
+Combo 4: Champ + L7 Sector + L3 Split        |  47.5% | Rs. 42.16L |  8.88 | 12.72x | 24.1% |  41% | Splits:253 
+Combo 5: Champ + L7 + L5 + L3                |  41.1% | Rs. 36.76L |  4.57 |  6.62x | 31.4% |  41% | Splits:258 Stale:18 
+Combo 6: Champ + All Levers (L1+L3+L5+L7)    |  43.7% | Rs. 38.87L |  4.51 |  7.49x | 26.3% |  38% | Splits:254 Stale:22 
+=========================================================================================================
+
+TOP 5 VARIANTS BY NET XIRR:
+  #1: Champion (Hurdle 30%, Hedge 3%)              -> XIRR: 55.7% (+12.3%) | Corpus: Rs.49.96L | PF: 7.49 | DD: 26.9%
+  #2: L7: Sector Boost (+50% on Champion)          -> XIRR: 54.8% (+11.4%) | Corpus: Rs.48.99L | PF: 6.81 | DD: 21.7%
+  #3: L3: Split-Entry (50/50, -2.5% on Champion)   -> XIRR: 54.0% (+10.6%) | Corpus: Rs.48.22L | PF: 6.72 | DD: 24.1%
+  #4: L3: Split-Entry (60/40, -3% on Champion)     -> XIRR: 52.2% (+8.9%) | Corpus: Rs.46.51L | PF: 7.23 | DD: 22.7%
+  #5: Combo 4: Champ + L7 Sector + L3 Split        -> XIRR: 47.5% (+4.1%) | Corpus: Rs.42.16L | PF: 8.88 | DD: 24.1%

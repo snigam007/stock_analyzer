@@ -36,13 +36,14 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Import Database & Core Modules
-from db.database import get_global_engine, get_session
+from db.database import get_global_engine, get_session, create_all_tables
 from core.macro_regime import evaluate_macro_regime
 from core.global_markets import analyze_global_market_spillovers
 from core.news_sentiment import get_market_news_sentiment
 from core.data_status import get_database_status_summary
 
 engine = get_global_engine()
+create_all_tables(engine)
 session = get_session(engine)
 
 # Evaluate Live Regimes & DB Freshness

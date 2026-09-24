@@ -48,9 +48,18 @@ def _normalize_score(raw: float, min_val: float, max_val: float) -> float:
 
 def score_rsi(rsi: float) -> float:
     if rsi is None or pd.isna(rsi): return 50.0
-    if rsi <= 30: return _normalize_score(30 - rsi, 0, 30) * 0.4 + 60
-    elif rsi >= 70: return _normalize_score(100 - rsi, 30, 70)
-    else: return _normalize_score(70 - rsi, 0, 40) * 0.6 + 20
+    # Empirically recalibrated [2026-09-22]: Overbought RSI (>68) had negative beta (-0.0295)
+    # Sweet spot for new breakouts is early emergence (42-62 RSI).
+    if 45.0 <= rsi <= 62.0:
+        return 80.0 + (rsi - 45.0) / 17.0 * 10.0  # 80 to 90: sweet spot breakout zone
+    elif 35.0 <= rsi < 45.0:
+        return 70.0 + (rsi - 35.0) / 10.0 * 10.0  # 70 to 80: early accumulation
+    elif rsi < 35.0:
+        return 65.0  # Oversold bounce candidate
+    elif 62.0 < rsi <= 68.0:
+        return 60.0  # Momentum mature
+    else:  # rsi > 68.0: Overbought exhaustion risk — penalize buying the blowoff top
+        return max(20.0, 50.0 - (rsi - 68.0) * 2.5)
 
 
 def score_macd(macd: float, signal_line: float, hist: float) -> float:
@@ -171,9 +180,11 @@ def compute_apex_multi_factor_score(
         except Exception:
             pass
 
+    # Empirically recalibrated sub-indicator weights [2026-09-22]:
+    # Stoch (+0.0131) and Vol (+0.0028) have positive alpha; RSI (-0.0295) and EMA (-0.0147) penalized overbought tops.
     score_technical = (
-        t_rsi * 0.15 + t_macd * 0.15 + t_bb * 0.10 + t_ema * 0.15 +
-        t_vol * 0.10 + t_adx * 0.10 + t_stoch * 0.10 + t_cci * 0.05 + t_obv * 0.10
+        t_rsi * 0.08 + t_macd * 0.15 + t_bb * 0.08 + t_ema * 0.10 +
+        t_vol * 0.16 + t_adx * 0.10 + t_stoch * 0.22 + t_cci * 0.05 + t_obv * 0.06
     )
     score_technical = float(np.clip(score_technical + candlestick_bonus * 0.25, 10.0, 95.0))
 

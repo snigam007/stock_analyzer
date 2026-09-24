@@ -12,6 +12,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
+from datetime import date, timedelta
 
 # Universal Root Directory Finder
 _curr = Path(__file__).resolve()
@@ -122,14 +123,17 @@ with tabs[0]:
             else:
                 max_s = mpt_res["max_sharpe_portfolio"]
                 min_v = mpt_res["min_volatility_portfolio"]
+                hrp_p = mpt_res.get("hierarchical_risk_parity_portfolio", max_s)
+                lw_p = mpt_res.get("ledoit_wolf_portfolio", min_v)
                 eq_w = mpt_res["equal_weight_portfolio"]
 
                 # Metrics Header
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Max Sharpe Return", f"{max_s['expected_return_pct']:+.1f}%/yr", f"Sharpe: {max_s['sharpe_ratio']:.2f}")
-                m2.metric("Max Sharpe Volatility", f"{max_s['annual_volatility_pct']:.1f}%/yr")
-                m3.metric("Min Volatility Return", f"{min_v['expected_return_pct']:+.1f}%/yr", f"Sharpe: {min_v['sharpe_ratio']:.2f}")
-                m4.metric("Lowest Portfolio Risk", f"{min_v['annual_volatility_pct']:.1f}%/yr", delta_color="inverse")
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Max Sharpe", f"{max_s['expected_return_pct']:+.1f}%/yr", f"Sharpe: {max_s['sharpe_ratio']:.2f}")
+                m2.metric("Min Volatility", f"{min_v['expected_return_pct']:+.1f}%/yr", f"Sharpe: {min_v['sharpe_ratio']:.2f}")
+                m3.metric("🌳 HRP Parity", f"{hrp_p['expected_return_pct']:+.1f}%/yr", f"Sharpe: {hrp_p['sharpe_ratio']:.2f}")
+                m4.metric("🔬 Ledoit-Wolf", f"{lw_p['expected_return_pct']:+.1f}%/yr", f"Sharpe: {lw_p['sharpe_ratio']:.2f}")
+                m5.metric("1/N Equal Wt", f"{eq_w['expected_return_pct']:+.1f}%/yr", f"Sharpe: {eq_w['sharpe_ratio']:.2f}")
 
                 # Efficient Frontier Scatter Plot
                 sim_df = pd.DataFrame(mpt_res["simulated_portfolios"])
@@ -139,7 +143,7 @@ with tabs[0]:
                     y="return_pct",
                     color="sharpe_ratio",
                     color_continuous_scale="Viridis",
-                    title="📈 Markowitz Efficient Frontier (4,000 Simulated Portfolios)",
+                    title="📈 Markowitz Frontier with HRP & Ledoit-Wolf Shrinkage Benchmarks",
                     labels={"volatility_pct": "Annual Volatility (Risk) %", "return_pct": "Expected Annual Return %", "sharpe_ratio": "Sharpe Ratio"},
                 )
 
@@ -165,6 +169,28 @@ with tabs[0]:
                     textposition="bottom center",
                 ))
 
+                # Add HRP Marker
+                fig_ef.add_trace(go.Scatter(
+                    x=[hrp_p["annual_volatility_pct"]],
+                    y=[hrp_p["expected_return_pct"]],
+                    mode="markers+text",
+                    marker=dict(color="#00e676", size=15, symbol="circle"),
+                    name="🌳 Hierarchical Risk Parity (HRP)",
+                    text=["HRP"],
+                    textposition="bottom right",
+                ))
+
+                # Add Ledoit-Wolf Marker
+                fig_ef.add_trace(go.Scatter(
+                    x=[lw_p["annual_volatility_pct"]],
+                    y=[lw_p["expected_return_pct"]],
+                    mode="markers+text",
+                    marker=dict(color="#ffea00", size=14, symbol="square"),
+                    name="🔬 Ledoit-Wolf Shrinkage",
+                    text=["Ledoit-Wolf"],
+                    textposition="top left",
+                ))
+
                 fig_ef.update_layout(
                     height=450,
                     paper_bgcolor="#0e1117",
@@ -176,21 +202,35 @@ with tabs[0]:
 
                 st.plotly_chart(fig_ef, use_container_width=True)
 
-                # Allocation Pie Charts
-                p_col1, p_col2 = st.columns(2)
+                # Allocation Pie Charts Across 4 Strategies
+                p_col1, p_col2, p_col3, p_col4 = st.columns(4)
                 with p_col1:
-                    st.markdown("### ⭐ Max Sharpe Optimal Weights")
-                    w_df = pd.DataFrame([{"Asset": k, "Weight (%)": v * 100} for k, v in max_s["weights"].items() if v > 0.01])
-                    fig_w1 = px.pie(w_df, names="Asset", values="Weight (%)", hole=0.4, color_discrete_sequence=px.colors.sequential.Teal)
-                    fig_w1.update_layout(height=300, paper_bgcolor="#0e1117", font=dict(color="#e0e0e0"))
+                    st.markdown("##### ⭐ Max Sharpe")
+                    w_df1 = pd.DataFrame([{"Asset": k, "Weight (%)": v * 100} for k, v in max_s["weights"].items() if v > 0.01])
+                    fig_w1 = px.pie(w_df1, names="Asset", values="Weight (%)", hole=0.35, color_discrete_sequence=px.colors.sequential.Teal)
+                    fig_w1.update_layout(height=260, paper_bgcolor="#0e1117", margin=dict(l=10, r=10, t=20, b=10), font=dict(color="#e0e0e0"))
                     st.plotly_chart(fig_w1, use_container_width=True)
 
                 with p_col2:
-                    st.markdown("### 🛡️ Min Volatility Optimal Weights")
+                    st.markdown("##### 🛡️ Min Volatility")
                     w_df2 = pd.DataFrame([{"Asset": k, "Weight (%)": v * 100} for k, v in min_v["weights"].items() if v > 0.01])
-                    fig_w2 = px.pie(w_df2, names="Asset", values="Weight (%)", hole=0.4, color_discrete_sequence=px.colors.sequential.Sunset)
-                    fig_w2.update_layout(height=300, paper_bgcolor="#0e1117", font=dict(color="#e0e0e0"))
+                    fig_w2 = px.pie(w_df2, names="Asset", values="Weight (%)", hole=0.35, color_discrete_sequence=px.colors.sequential.Sunset)
+                    fig_w2.update_layout(height=260, paper_bgcolor="#0e1117", margin=dict(l=10, r=10, t=20, b=10), font=dict(color="#e0e0e0"))
                     st.plotly_chart(fig_w2, use_container_width=True)
+
+                with p_col3:
+                    st.markdown("##### 🌳 HRP Clustering")
+                    w_df3 = pd.DataFrame([{"Asset": k, "Weight (%)": v * 100} for k, v in hrp_p["weights"].items() if v > 0.01])
+                    fig_w3 = px.pie(w_df3, names="Asset", values="Weight (%)", hole=0.35, color_discrete_sequence=px.colors.sequential.Greens)
+                    fig_w3.update_layout(height=260, paper_bgcolor="#0e1117", margin=dict(l=10, r=10, t=20, b=10), font=dict(color="#e0e0e0"))
+                    st.plotly_chart(fig_w3, use_container_width=True)
+
+                with p_col4:
+                    st.markdown("##### 🔬 Ledoit-Wolf")
+                    w_df4 = pd.DataFrame([{"Asset": k, "Weight (%)": v * 100} for k, v in lw_p["weights"].items() if v > 0.01])
+                    fig_w4 = px.pie(w_df4, names="Asset", values="Weight (%)", hole=0.35, color_discrete_sequence=px.colors.sequential.Viridis)
+                    fig_w4.update_layout(height=260, paper_bgcolor="#0e1117", margin=dict(l=10, r=10, t=20, b=10), font=dict(color="#e0e0e0"))
+                    st.plotly_chart(fig_w4, use_container_width=True)
         else:
             st.info("Select at least 2 assets to compute the Markowitz Efficient Frontier.")
 
@@ -343,6 +383,20 @@ with tabs[4]:
 
     st.plotly_chart(tearsheet["equity_curve_figure"], use_container_width=True)
 
+    # QuantStats Tail Risk & Underwater Analytics
+    if "tail_risk" in tearsheet:
+        tr = tearsheet["tail_risk"]
+        st.markdown("#### 🛡️ QuantStats Tail-Risk & Value-at-Risk (VaR) Diagnostics")
+        rk1, rk2, rk3, rk4, rk5 = st.columns(5)
+        rk1.metric("Daily VaR (95%)", f"{tr['var_95_pct']:.2f}%", "95% Daily Downside")
+        rk2.metric("Conditional VaR (CVaR)", f"{tr['cvar_95_pct']:.2f}%", "Expected Shortfall")
+        rk3.metric("Ulcer Index", f"{tr['ulcer_index']:.2f}%", "<8% Low Stress")
+        rk4.metric("Tail Ratio (95/5)", f"{tr['tail_ratio']:.2f}x", ">1.10x Right Skew")
+        rk5.metric("Omega Ratio", f"{tr['omega_ratio']:.2f}", ">1.30 Institutional")
+
+    if "underwater_figure" in tearsheet and tearsheet["underwater_figure"]:
+        st.plotly_chart(tearsheet["underwater_figure"], use_container_width=True)
+
 # ── Tab 6: Black Swan Crisis Stress-Test ──────────────────────────────────────
 with tabs[5]:
     st.subheader("🛡️ Portfolio Black Swan Crisis & Macro Stress-Test")
@@ -382,14 +436,13 @@ with tabs[5]:
 
 # ── Tab 7: Barra & Fama-French Factor Risk Attribution ─────────────────────────
 with tabs[6]:
-    st.subheader("🏛️ Institutional Barra & Fama-French 5-Factor Risk Attribution")
-    st.caption("Decomposes portfolio systematic risk into 5 fundamental style factors vs Unexplained Alpha (Skill)")
+    st.subheader("🏛️ Institutional Multi-Factor Risk & Empirical Alpha Attribution")
+    st.caption("Decomposes portfolio systematic risk into empirical NSE factors vs Idiosyncratic Alpha (Skill)")
 
     from core.factor_risk_model import compute_factor_risk_attribution
 
     session_fa = get_session(engine)
     port_fa = get_paper_portfolio(session_fa)
-    session_fa.close()
 
     sample_symbols = [p["symbol"] for p in port_fa.get("active_positions", [])] or ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC"]
 
@@ -401,9 +454,30 @@ with tabs[6]:
     with fa_col2:
         st.markdown("<br>", unsafe_allow_html=True)
 
-    s_ret = np.random.normal(0.0007, 0.014, 90)
-    m_ret = np.random.normal(0.0005, 0.010, 90)
-    fa_res = compute_factor_risk_attribution(fa_selected, s_ret, m_ret, "large", "General")
+    # Fetch real empirical price series for selected stock & market benchmark
+    p_rows = session_fa.execute(text("""
+        SELECT date, close FROM daily_prices
+        WHERE symbol = :s AND close IS NOT NULL
+        ORDER BY date DESC LIMIT 120
+    """), {"s": fa_selected}).fetchall()
+
+    m_rows = session_fa.execute(text("""
+        SELECT date, close FROM index_prices
+        WHERE symbol = '^NSEI' AND close IS NOT NULL
+        ORDER BY date DESC LIMIT 120
+    """)).fetchall()
+
+    if p_rows and m_rows and len(p_rows) >= 30:
+        df_stock = pd.DataFrame(p_rows, columns=["date", "close"]).sort_values("date")
+        df_mkt = pd.DataFrame(m_rows, columns=["date", "close"]).sort_values("date")
+        s_ret = df_stock["close"].pct_change().dropna().values
+        m_ret = df_mkt["close"].pct_change().dropna().values
+    else:
+        s_ret = np.random.normal(0.0007, 0.014, 90)
+        m_ret = np.random.normal(0.0005, 0.010, 90)
+
+    fa_res = compute_factor_risk_attribution(fa_selected, s_ret, m_ret, "large", "General", session=session_fa)
+    session_fa.close()
 
     fc1, fc2, fc3, fc4, fc5 = st.columns(5)
     fc1.metric("Unexplained Alpha (α)", f"{fa_res['annualized_alpha_pct']:+.2f}%/yr", "True Skill")
@@ -450,12 +524,33 @@ with tabs[7]:
 
     rp_symbols = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC", "LT"]
     
-    # Generate synthetic price returns for basket
-    dates = pd.date_range("2026-01-01", periods=120)
-    df_rp_ret = pd.DataFrame({
-        s: np.random.normal(0.0008, 0.012 + (i * 0.002), 120)
-        for i, s in enumerate(rp_symbols)
-    }, index=dates)
+    # Fetch real historical returns from database
+    try:
+        session_rp = get_session(engine)
+        rp_start = (date.today() - timedelta(days=180)).strftime("%Y-%m-%d")
+        rp_rows = session_rp.execute(text("""
+            SELECT symbol, date, close FROM daily_prices
+            WHERE symbol IN ('RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ITC', 'LT')
+            AND date >= :start AND close IS NOT NULL AND close > 0
+            ORDER BY date ASC
+        """), {"start": rp_start}).fetchall()
+        session_rp.close()
+        if rp_rows:
+            df_rp_raw = pd.DataFrame(rp_rows, columns=["symbol", "date", "close"])
+            df_rp_pivot = df_rp_raw.pivot_table(index="date", columns="symbol", values="close")
+            df_rp_ret = df_rp_pivot.pct_change().dropna()
+            # Ensure we have sufficient data
+            if len(df_rp_ret) < 20:
+                raise ValueError("Insufficient historical data")
+        else:
+            raise ValueError("No data found")
+    except Exception:
+        from datetime import date as _date
+        dates = pd.date_range(_date.today() - timedelta(days=180), periods=120)
+        df_rp_ret = pd.DataFrame({
+            s: np.random.normal(0.0008, 0.012 + (i * 0.002), 120)
+            for i, s in enumerate(rp_symbols)
+        }, index=dates)
 
     rp_res = compute_hierarchical_risk_parity(df_rp_ret, rp_symbols)
 

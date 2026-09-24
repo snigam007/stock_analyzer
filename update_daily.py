@@ -148,14 +148,18 @@ def run_daily_delta_update(top_forecasts: int = 50):
     except Exception as e:
         logger.warning(f"Alerts evaluation notice: {e}")
 
-    # 12. Mutual Fund NAV Delta Sync
-    logger.info("\n🏦 Step 12/14: Syncing Mutual Fund NAV Deltas (Multi-Day Catchup & AMFI Live Feed)...")
+    # 12. Mutual Fund NAV Delta Sync & Signal Generation
+    logger.info("\n🏦 Step 12/14: Syncing Mutual Fund NAV Deltas & Generating Tactical Signals...")
     try:
         from core.mf_fetcher import sync_all_mf_nav_deltas
+        from core.mf_signals import generate_daily_mf_signals, audit_mf_signals
         mf_res = sync_all_mf_nav_deltas(session)
         logger.info(f"   MF NAV Delta: {mf_res.get('new_navs_added', 0)} daily NAV records synced across {mf_res.get('schemes_updated', 0)} schemes (Latest: {mf_res.get('latest_nav_date')}).")
+        mf_sigs = generate_daily_mf_signals(session)
+        logger.info(f"   MF Signals: Generated {len(mf_sigs)} tactical daily mutual fund signals.")
+        audit_mf_signals(session)
     except Exception as e:
-        logger.warning(f"Mutual Fund delta sync notice: {e}")
+        logger.warning(f"Mutual Fund delta sync and signals notice: {e}")
 
     # 13. Institutional Bulk & Block Deals Delta Sync & Macro Calendar
     logger.info("\n🐋 Step 13/14: Syncing Institutional Bulk & Block Deals & Macro Calendar...")
@@ -174,7 +178,7 @@ def run_daily_delta_update(top_forecasts: int = 50):
         logger.warning(f"Institutional deals / calendar sync notice: {e}")
 
     # 14. Surveillance Audit
-    logger.info("\n🔍 Step 14/14: Running Missed Alpha & False Negative Surveillance Audit...")
+    logger.info("\n🔍 Step 14/15: Running Missed Alpha & False Negative Surveillance Audit...")
     try:
         from core.missed_signals import log_daily_missed_alpha_audit
         audit_res = log_daily_missed_alpha_audit(session, lookback_days=5, min_gain_pct=4.0)
@@ -186,6 +190,16 @@ def run_daily_delta_update(top_forecasts: int = 50):
         )
     except Exception as e:
         logger.warning(f"Missed mover surveillance audit notice: {e}")
+
+    # 15. Pre-Market Intelligence Briefing Generation (Top-3 Sniper Setups)
+    logger.info("\n🌅 Step 15/15: Generating Pre-Market Alpha Briefing & Top-3 Sniper Setups...")
+    try:
+        from core.premarket_briefing import generate_premarket_briefing
+        briefing = generate_premarket_briefing(session)
+        snipers = [s['symbol'] for s in briefing.get('sniper_setups', [])]
+        logger.info(f"   Pre-Market Briefing: Synthesized {len(snipers)} Top-3 Sniper Setups ({', '.join(snipers)}) | Macro: {briefing.get('macro', {}).get('active_strategy_mode')}")
+    except Exception as e:
+        logger.warning(f"Pre-market briefing notice: {e}")
 
     session.close()
 

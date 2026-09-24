@@ -34,5 +34,8 @@ data/*.db-shm
 data/*.db-journal
 *.bak
 
+# Explicitly track production sqlite database via Git LFS
+!data/stock_analyzer.db
+
 # Scratch and experimental analysis scripts
 scratch/

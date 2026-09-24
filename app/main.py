@@ -11,6 +11,15 @@ if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
 
 from config.settings import APP_TITLE, APP_VERSION, DISCLAIMER
+from db.database import create_all_tables, get_global_engine
+
+# ─── Ensure Database Schema ───────────────────────────────────────────────────
+@st.cache_resource
+def _ensure_db_tables():
+    create_all_tables(get_global_engine())
+    return True
+
+_ensure_db_tables()
 
 # ─── Global Page Configuration ────────────────────────────────────────────────
 st.set_page_config(

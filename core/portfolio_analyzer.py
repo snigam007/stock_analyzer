@@ -91,29 +91,32 @@ def get_searchable_assets_catalog(session: Session, category: str = "ALL") -> Li
 
     # 2. Mutual Funds
     if any(k in cat_upper for k in ["ALL", "MUTUAL", "MF", "FUND"]):
-        mf_rows = session.execute(text("""
-            SELECT m.scheme_code, m.scheme_name, m.category, n.nav
-            FROM mutual_funds m
-            LEFT JOIN (
-                SELECT scheme_code, nav FROM mutual_fund_navs WHERE (scheme_code, date) IN (
-                    SELECT scheme_code, MAX(date) FROM mutual_fund_navs GROUP BY scheme_code
-                )
-            ) n ON m.scheme_code = n.scheme_code
-            ORDER BY m.scheme_name ASC
-        """)).fetchall()
+        try:
+            mf_rows = session.execute(text("""
+                SELECT m.scheme_code, m.scheme_name, m.category, n.nav
+                FROM mutual_funds m
+                LEFT JOIN (
+                    SELECT scheme_code, nav FROM mutual_fund_navs WHERE (scheme_code, date) IN (
+                        SELECT scheme_code, MAX(date) FROM mutual_fund_navs GROUP BY scheme_code
+                    )
+                ) n ON m.scheme_code = n.scheme_code
+                ORDER BY m.scheme_name ASC
+            """)).fetchall()
 
-        for r in mf_rows:
-            code, name, cat_name, nav = r
-            nav_val = float(nav) if nav else 0.0
-            catalog.append({
-                "symbol": str(code),
-                "name": name or f"Fund {code}",
-                "asset_class": "Mutual Fund",
-                "sector": f"MF ({cat_name or 'Equity'})",
-                "tier": "Mutual Fund",
-                "current_price": nav_val,
-                "display_label": f"[MF] {name} (NAV: ₹{nav_val:,.2f} • {cat_name}) [{code}]"
-            })
+            for r in mf_rows:
+                code, name, cat_name, nav = r
+                nav_val = float(nav) if nav else 0.0
+                catalog.append({
+                    "symbol": str(code),
+                    "name": name or f"Fund {code}",
+                    "asset_class": "Mutual Fund",
+                    "sector": f"MF ({cat_name or 'Equity'})",
+                    "tier": "Mutual Fund",
+                    "current_price": nav_val,
+                    "display_label": f"[MF] {name} (NAV: ₹{nav_val:,.2f} • {cat_name}) [{code}]"
+                })
+        except Exception as e:
+            logger.warning(f"Error querying mutual funds for asset catalog: {e}")
 
     # 3. Indexes & ETFs
     if any(k in cat_upper for k in ["ALL", "INDEX", "ETF"]):
@@ -326,32 +329,35 @@ def analyze_custom_portfolio(holdings: List[Dict], session: Session) -> Dict:
         if asset_class == "Mutual Fund" or sym.isdigit():
             asset_class = "Mutual Fund"
             tier = "Mutual Fund"
-            mf_row = session.execute(text("""
-                SELECT scheme_name, category FROM mutual_funds WHERE scheme_code = :s
-            """), {"s": sym}).first()
-            if not mf_row:
+            try:
                 mf_row = session.execute(text("""
-                    SELECT scheme_name, category FROM mutual_funds WHERE scheme_name LIKE :s LIMIT 1
-                """), {"s": f"%{sym}%"}).first()
+                    SELECT scheme_name, category FROM mutual_funds WHERE scheme_code = :s
+                """), {"s": sym}).first()
+                if not mf_row:
+                    mf_row = session.execute(text("""
+                        SELECT scheme_name, category FROM mutual_funds WHERE scheme_name LIKE :s LIMIT 1
+                    """), {"s": f"%{sym}%"}).first()
 
-            name = mf_row[0] if mf_row else f"Mutual Fund ({sym})"
-            sector = f"MF: {mf_row[1]}" if (mf_row and mf_row[1]) else "MF: Equity"
+                name = mf_row[0] if mf_row else f"Mutual Fund ({sym})"
+                sector = f"MF: {mf_row[1]}" if (mf_row and mf_row[1]) else "MF: Equity"
 
-            nav_row = session.execute(text("""
-                SELECT nav, daily_return FROM mutual_fund_navs WHERE scheme_code = :s ORDER BY date DESC LIMIT 1
-            """), {"s": sym}).first()
-            if nav_row and nav_row[0]:
-                cmp = float(nav_row[0])
-                day_ret_pct = float(nav_row[1] or 0.0)
+                nav_row = session.execute(text("""
+                    SELECT nav, daily_return FROM mutual_fund_navs WHERE scheme_code = :s ORDER BY date DESC LIMIT 1
+                """), {"s": sym}).first()
+                if nav_row and nav_row[0]:
+                    cmp = float(nav_row[0])
+                    day_ret_pct = float(nav_row[1] or 0.0)
 
-            # 6M momentum from NAV
-            past_nav = session.execute(text("""
-                SELECT nav FROM mutual_fund_navs
-                WHERE scheme_code = :s AND date <= date((SELECT MAX(date) FROM mutual_fund_navs), '-180 days')
-                ORDER BY date DESC LIMIT 1
-            """), {"s": sym}).scalar()
-            if past_nav and float(past_nav) > 0 and cmp > 0:
-                momentum_6m_pct = round((cmp - float(past_nav)) / float(past_nav) * 100.0, 1)
+                # 6M momentum from NAV
+                past_nav = session.execute(text("""
+                    SELECT nav FROM mutual_fund_navs
+                    WHERE scheme_code = :s AND date <= date((SELECT MAX(date) FROM mutual_fund_navs), '-180 days')
+                    ORDER BY date DESC LIMIT 1
+                """), {"s": sym}).scalar()
+                if past_nav and float(past_nav) > 0 and cmp > 0:
+                    momentum_6m_pct = round((cmp - float(past_nav)) / float(past_nav) * 100.0, 1)
+            except Exception as e:
+                logger.warning(f"Error querying mutual fund details for {sym}: {e}")
 
             composite_score = round(min(95.0, max(40.0, 55.0 + momentum_6m_pct * 1.5)), 1)
             stop_loss = round(cmp * 0.88, 2)

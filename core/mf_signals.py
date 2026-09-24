@@ -45,7 +45,7 @@ def generate_daily_mf_signals(session: Session, as_of_date: Optional[str] = None
             ORDER BY date ASC
         """), {"sc": fund.scheme_code, "dt": str(as_of_date)}).fetchall()
 
-        if len(rows) < 50:
+        if len(rows) < 20:
             continue
 
         df = pd.DataFrame(rows, columns=["date", "nav", "daily_return"])
@@ -58,8 +58,8 @@ def generate_daily_mf_signals(session: Session, as_of_date: Optional[str] = None
 
         # 1. Moving Averages
         ema_20 = float(df["nav"].ewm(span=20, adjust=False).mean().iloc[-1])
-        ema_50 = float(df["nav"].ewm(span=50, adjust=False).mean().iloc[-1])
-        ema_200 = float(df["nav"].ewm(span=200, adjust=False).mean().iloc[-1]) if len(df) >= 200 else ema_50
+        ema_50 = float(df["nav"].ewm(span=50, adjust=False).mean().iloc[-1]) if len(df) >= 40 else ema_20
+        ema_200 = float(df["nav"].ewm(span=200, adjust=False).mean().iloc[-1]) if len(df) >= 150 else ema_50
 
         # 2. RSI-14 on daily NAV
         delta = df["nav"].diff()
@@ -344,8 +344,8 @@ def backfill_historical_mf_signals(session: Session, sample_dates_count: int = 3
     if not date_rows:
         return 0
 
-    # Ensure recent landmark trading dates (May, June, July, August 2026) are included
-    recent_dates = [d for d in date_rows if str(d) >= "2026-05-01"]
+    recent_cutoff = (date.today() - timedelta(days=120)).strftime("%Y-%m-%d")
+    recent_dates = [d for d in date_rows if str(d) >= recent_cutoff]
     step = max(1, len(date_rows) // sample_dates_count)
     sample_dates = sorted(list(set(date_rows[::step][:sample_dates_count] + recent_dates[::15])), reverse=True)
 

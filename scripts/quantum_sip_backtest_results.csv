@@ -1,0 +1,57 @@
+regime_key,regime_name,strategy_key,strategy_name,xirr,final_val,invested,multiple,max_dd,calmar
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,12.07,7429681.67,3525000.0,2.11,41.27,0.29
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),22.65,14776737.53,3525000.0,4.19,42.13,0.54
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,23.06,15181332.71,3525000.0,4.31,40.52,0.57
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.67,4669100.73,3525000.0,1.32,0.0,0.0
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,14.5,8682009.24,3525000.0,2.46,44.11,0.33
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),17.46,10521934.9,3525000.0,2.98,42.17,0.41
+ALL_HISTORY_12YR,Class 0: Full 11.75-Year Supercycle,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),14.67,8781015.41,3525000.0,2.49,43.11,0.34
+BULL_2017,Class 1: 2017 Secular Bull Market,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,56.58,384306.26,300000.0,1.28,12.57,4.5
+BULL_2017,Class 1: 2017 Secular Bull Market,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),136.96,490217.34,300000.0,1.63,10.6,12.92
+BULL_2017,Class 1: 2017 Secular Bull Market,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,125.15,475356.55,300000.0,1.58,10.61,11.8
+BULL_2017,Class 1: 2017 Secular Bull Market,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.57,307264.69,300000.0,1.02,0.0,0.0
+BULL_2017,Class 1: 2017 Secular Bull Market,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,27.28,342050.47,300000.0,1.14,10.79,2.53
+BULL_2017,Class 1: 2017 Secular Bull Market,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),85.87,424322.81,300000.0,1.41,12.36,6.95
+BULL_2017,Class 1: 2017 Secular Bull Market,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),14.72,323065.91,300000.0,1.08,10.81,1.36
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,20.68,332502.95,300000.0,1.11,12.14,1.7
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),-15.78,273792.87,300000.0,0.91,16.06,-0.98
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,-13.9,276980.84,300000.0,0.92,15.49,-0.9
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.44,307136.87,300000.0,1.02,0.0,0.0
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,-54.71,136176.42,300000.0,0.45,17.14,-3.19
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),-40.77,228756.73,300000.0,0.76,13.22,-3.08
+CRASH_2018,Class 2: 2018 Small/Mid-Cap Carnage,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),-64.83,178602.47,300000.0,0.6,17.58,-3.69
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,35.29,354543.89,300000.0,1.18,36.17,0.98
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),225.03,600317.73,300000.0,2.0,27.25,8.26
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,249.41,628692.02,300000.0,2.1,15.92,15.67
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.74,307627.17,300000.0,1.03,0.0,0.0
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,38.5,359283.36,300000.0,1.2,26.16,1.47
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),85.27,425221.38,300000.0,1.42,26.85,3.18
+COVID_CRASH_2020,Class 3: 2020 Covid Crash & Recovery,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),45.53,369551.43,300000.0,1.23,25.08,1.82
+SUPERBULL_2021,Class 4: 2021 Super-Bull,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,45.39,369382.36,300000.0,1.23,15.29,2.97
+SUPERBULL_2021,Class 4: 2021 Super-Bull,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),93.97,436981.02,300000.0,1.46,9.58,9.81
+SUPERBULL_2021,Class 4: 2021 Super-Bull,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,93.11,435834.11,300000.0,1.45,9.58,9.72
+SUPERBULL_2021,Class 4: 2021 Super-Bull,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.76,307668.4,300000.0,1.03,0.0,0.0
+SUPERBULL_2021,Class 4: 2021 Super-Bull,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,17.28,327328.85,300000.0,1.09,10.01,1.73
+SUPERBULL_2021,Class 4: 2021 Super-Bull,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),16.32,325840.35,300000.0,1.09,12.62,1.29
+SUPERBULL_2021,Class 4: 2021 Super-Bull,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),-23.12,261011.21,300000.0,0.87,9.74,-2.37
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,-12.45,279520.55,300000.0,0.93,11.69,-1.07
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),0.82,301322.36,300000.0,1.0,18.09,0.05
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,4.28,306849.64,300000.0,1.02,15.24,0.28
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.76,307622.75,300000.0,1.03,0.0,0.0
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,-67.51,172701.09,300000.0,0.58,22.46,-3.01
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),-31.54,246207.21,300000.0,0.82,16.53,-1.91
+INFLATION_CHOP_2022,Class 5: 2022 Inflation Chop,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),-65.12,178288.56,300000.0,0.59,19.69,-3.31
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,50.27,375482.24,300000.0,1.25,7.88,6.38
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),144.36,499604.52,300000.0,1.67,13.37,10.8
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,134.48,487286.13,300000.0,1.62,7.73,17.4
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.73,307526.97,300000.0,1.03,0.0,0.0
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,-34.21,241617.58,300000.0,0.81,13.44,-2.55
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),46.09,369521.87,300000.0,1.23,10.28,4.48
+BREAKOUT_2023,Class 6: 2023 Midcap Breakout,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),3.63,305781.07,300000.0,1.02,13.6,0.27
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,PURE_CENTURION,Benchmark A: Pure Centurion Wealth Engine,3.51,865876.85,825000.0,1.05,15.09,0.23
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,APEX_00769,Benchmark B: Pure Apex Compounder (SIP_00769),11.45,962846.73,825000.0,1.17,17.77,0.64
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,QM1_BREADTH_SWITCHER,Quantum 1: Market Breadth Dual-Gate Switcher,2.98,859622.7,825000.0,1.04,15.39,0.19
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,QM2_CAP_RATIO_SWITCHER,Quantum 2: Small/Large Cap Relative Alpha Switcher,4.72,880289.16,825000.0,1.07,0.0,0.0
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,QM3_4STATE_TENSOR,Quantum 3: 4-State Dynamic Macro Tensor Engine,-27.53,342899.27,825000.0,0.42,23.88,-1.15
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,QM4_HORIZON_SYNERGY,Quantum 4: Quantum Horizon Synergy (Stock-Level Fusion + Skim),-7.44,742273.34,825000.0,0.9,14.31,-0.52
+RECENT_2024_2026,Class 7: Recent 2024-2026 Cycle,QM5_ASYMMETRIC_RATCHET,Quantum 5: Quantum Asymmetric Ratchet Engine (Dip Buy + Skim),-23.72,394425.68,825000.0,0.48,18.16,-1.31

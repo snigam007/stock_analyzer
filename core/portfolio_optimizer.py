@@ -1,4 +1,4 @@
-﻿"""
+"""
 Portfolio Optimizer & Paper Trading Engine
 - Markowitz Modern Portfolio Theory (MPT) Efficient Frontier (5,000 Monte Carlo Paths)
 - Quadratic Optimization for Maximum Sharpe Ratio & Minimum Volatility Portfolios
@@ -9,10 +9,107 @@ import logging
 from typing import Dict, List, Optional, Tuple
 import pandas as pd
 import numpy as np
+from scipy.cluster.hierarchy import linkage
+from scipy.spatial.distance import squareform
+from sklearn.covariance import LedoitWolf
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
+
+
+def compute_ledoit_wolf_shrinkage_cov(returns: pd.DataFrame) -> pd.DataFrame:
+    """
+    Computes optimal Ledoit-Wolf shrinkage covariance matrix to prevent
+    ill-conditioned sample covariance matrix inversion errors in portfolio optimization.
+    """
+    try:
+        lw = LedoitWolf().fit(returns)
+        shrunk_cov = pd.DataFrame(lw.covariance_ * 252, index=returns.columns, columns=returns.columns)
+        return shrunk_cov
+    except Exception as e:
+        logger.warning(f"Ledoit-Wolf shrinkage failed, falling back to sample covariance: {e}")
+        return returns.cov() * 252
+
+
+def _get_quasi_diag(link):
+    """Sort clustered items by distance for quasi-diagonalization."""
+    link = link.astype(int)
+    sort_ix = pd.Series([link[-1, 0], link[-1, 1]])
+    num_items = link[-1, 3]
+    while sort_ix.max() >= num_items:
+        sort_ix.index = range(0, sort_ix.shape[0] * 2, 2)
+        df0 = sort_ix[sort_ix >= num_items]
+        i = df0.index
+        j = df0.values - num_items
+        sort_ix[i] = link[j, 0]
+        df0 = pd.Series(link[j, 1], index=i + 1)
+        sort_ix = pd.concat([sort_ix, df0]).sort_index()
+        sort_ix.index = range(sort_ix.shape[0])
+    return sort_ix.tolist()
+
+
+def _get_cluster_var(cov: pd.DataFrame, c_items: List[str]) -> float:
+    """Computes cluster variance using inverse-variance allocation."""
+    cov_slice = cov.loc[c_items, c_items].values
+    w_inv = 1.0 / np.diag(cov_slice)
+    w_inv = w_inv / np.sum(w_inv)
+    return float(np.dot(np.dot(w_inv, cov_slice), w_inv))
+
+
+def _get_rec_bisection(cov: pd.DataFrame, sort_ix: List[str]) -> pd.Series:
+    """Recursive bisection allocation across hierarchical clusters."""
+    w = pd.Series(1.0, index=sort_ix)
+    c_items = [sort_ix]
+    while len(c_items) > 0:
+        c_items = [i[j:k] for i in c_items for j, k in ((0, len(i) // 2), (len(i) // 2, len(i))) if len(i) > 1]
+        for i in range(0, len(c_items), 2):
+            c0 = c_items[i]
+            c1 = c_items[i + 1]
+            v0 = _get_cluster_var(cov, c0)
+            v1 = _get_cluster_var(cov, c1)
+            alpha = 1.0 - v0 / (v0 + v1) if (v0 + v1) > 0 else 0.5
+            w[c0] *= alpha
+            w[c1] *= 1.0 - alpha
+    return w
+
+
+def compute_hierarchical_risk_parity(
+    returns: pd.DataFrame,
+    cov: Optional[pd.DataFrame] = None
+) -> Dict[str, float]:
+    """
+    Computes Marcos López de Prado's Hierarchical Risk Parity (HRP) weights:
+    1. Distance matrix computation: d_ij = sqrt(0.5 * (1 - rho_ij))
+    2. Hierarchical single-linkage tree clustering
+    3. Quasi-diagonalization matrix ordering
+    4. Top-down recursive bisection inverse-variance allocation
+    """
+    if len(returns.columns) < 2:
+        return {col: 1.0 for col in returns.columns}
+
+    if cov is None:
+        cov = returns.cov() * 252
+
+    corr = returns.corr().fillna(0)
+    dist = np.sqrt(np.clip(0.5 * (1.0 - corr.values), 0, 1.0))
+    np.fill_diagonal(dist, 0)
+
+    try:
+        condensed_dist = squareform(dist, checks=False)
+        link = linkage(condensed_dist, method="single")
+        sort_ix_num = _get_quasi_diag(link)
+        sorted_symbols = [returns.columns[i] for i in sort_ix_num]
+        weights_series = _get_rec_bisection(cov, sorted_symbols)
+        # Normalize weights so they strictly sum to 1.0
+        total_w = weights_series.sum()
+        if total_w > 0:
+            weights_series = weights_series / total_w
+        return {sym: round(float(weights_series[sym]), 4) for sym in returns.columns}
+    except Exception as e:
+        logger.warning(f"HRP calculation fallback to equal weight: {e}")
+        n = len(returns.columns)
+        return {col: round(1.0 / n, 4) for col in returns.columns}
 
 
 def compute_mpt_efficient_frontier(
@@ -110,6 +207,24 @@ def compute_mpt_efficient_frontier(
     eq_vol = float(np.sqrt(np.dot(eq_w.T, np.dot(cov_matrix, eq_w))))
     eq_sharpe = float((eq_ret - risk_free_rate) / eq_vol) if eq_vol > 0 else 0
 
+    # 4. Hierarchical Risk Parity (HRP) Portfolio
+    hrp_weights = compute_hierarchical_risk_parity(returns, cov_matrix)
+    hrp_w = np.array([hrp_weights.get(sym, 0.0) for sym in valid_symbols])
+    hrp_ret = float(np.sum(mean_returns * hrp_w))
+    hrp_vol = float(np.sqrt(np.dot(hrp_w.T, np.dot(cov_matrix, hrp_w))))
+    hrp_sharpe = float((hrp_ret - risk_free_rate) / hrp_vol) if hrp_vol > 0 else 0
+
+    # 5. Ledoit-Wolf Shrinkage Optimal Portfolio
+    shrunk_cov = compute_ledoit_wolf_shrinkage_cov(returns)
+    w_arr = np.array(weights_record)
+    lw_vols = np.sqrt(np.sum(np.dot(w_arr, shrunk_cov.values) * w_arr, axis=1))
+    lw_sharpes = np.where(lw_vols > 0, (results_matrix[0] - risk_free_rate) / lw_vols, 0)
+    lw_best_idx = int(np.argmax(lw_sharpes))
+    lw_ret = float(results_matrix[0, lw_best_idx])
+    lw_vol = float(np.sqrt(np.dot(weights_record[lw_best_idx].T, np.dot(cov_matrix, weights_record[lw_best_idx]))))
+    lw_sharpe = float((lw_ret - risk_free_rate) / lw_vol) if lw_vol > 0 else 0
+    lw_weights = {valid_symbols[j]: round(float(weights_record[lw_best_idx][j]), 4) for j in range(num_assets)}
+
     # Sample points for scatter plot (downsample to 1200 points for fast UI rendering)
     step = max(1, num_portfolios // 1200)
     simulated_portfolios = []
@@ -144,6 +259,18 @@ def compute_mpt_efficient_frontier(
             "annual_volatility_pct": round(min_vol_vol * 100, 2),
             "sharpe_ratio": round(min_vol_sharpe, 2),
             "weights": min_vol_weights,
+        },
+        "hierarchical_risk_parity_portfolio": {
+            "expected_return_pct": round(hrp_ret * 100, 2),
+            "annual_volatility_pct": round(hrp_vol * 100, 2),
+            "sharpe_ratio": round(hrp_sharpe, 2),
+            "weights": hrp_weights,
+        },
+        "ledoit_wolf_portfolio": {
+            "expected_return_pct": round(lw_ret * 100, 2),
+            "annual_volatility_pct": round(lw_vol * 100, 2),
+            "sharpe_ratio": round(lw_sharpe, 2),
+            "weights": lw_weights,
         },
         "equal_weight_portfolio": {
             "expected_return_pct": round(eq_ret * 100, 2),

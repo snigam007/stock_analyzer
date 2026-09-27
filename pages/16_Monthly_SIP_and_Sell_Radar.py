@@ -378,38 +378,45 @@ INSTITUTIONAL_PRESETS = {
 def apply_global_preset(preset_name):
     if preset_name in INSTITUTIONAL_PRESETS and preset_name != "🛠️ Custom / Manual Calibration":
         cfg = INSTITUTIONAL_PRESETS[preset_name]
-        st.session_state["global_strategy_select"] = cfg.get("strategy", "💎 100% Direct Stocks (Multi-Sector Alpha)")
-        st.session_state["global_risk_select"] = cfg.get("risk_choice", "⚡ High Growth (Maximum Alpha)")
-        st.session_state["global_protocol_select"] = cfg.get("protocol", "🛡️ Adaptive Structural Trailing (Tier-Calibrated: Large -13% / Mid -14% / Small -17%)")
-        st.session_state["global_sizing_mode_select"] = cfg["sizing"]
-        st.session_state["global_stepladder"] = cfg["stepladder"]
-        st.session_state["global_3tier_harvest"] = cfg["tharp_3tier"]
-        st.session_state["global_macro_hedge_pct"] = cfg["macro_hedge_pct"]
-        st.session_state["global_clenow_momentum"] = cfg["clenow"]
-        if "hurdle_mode" in cfg:
-            st.session_state["global_hurdle_mode"] = cfg["hurdle_mode"]
-        if "sector_boost" in cfg:
-            st.session_state["bt_sector_boost"] = cfg["sector_boost"]
-        if "target_stocks" in cfg:
-            st.session_state["global_target_stocks"] = cfg["target_stocks"]
-        if "step_up" in cfg:
-            st.session_state["global_step_up"] = cfg["step_up"]
-            st.session_state["bt_stepup"] = cfg["step_up"].replace(" / Year (Recommended)", "/yr").replace(" / Year", "/yr").replace("0% (Flat SIP)", "0% (Flat)")
 
-        st.session_state["tab1_preset_select"] = preset_name
-        st.session_state["bt_preset_select"] = preset_name
-        st.session_state["bt_protocol"] = cfg["bt_protocol"]
-        st.session_state["bt_sizing_mode_select"] = cfg["sizing"]
-        st.session_state["bt_stepladder"] = cfg["stepladder"]
-        st.session_state["bt_3tier_harvest"] = cfg["tharp_3tier"]
-        st.session_state["bt_vol_targeting"] = cfg["vol_targeting"]
-        st.session_state["bt_clenow_momentum"] = cfg["clenow"]
-        st.session_state["bt_macro_hedge_pct"] = cfg["macro_hedge_pct"]
-        st.session_state["bt_pyramid"] = True
-        st.session_state["bt_hurdle"] = True
-        st.session_state["bt_dip_buy"] = True
-        st.session_state["bt_skim"] = True
-        st.session_state["bt_cap_guard"] = True
+        def _safe_set(key, val):
+            try:
+                st.session_state[key] = val
+            except Exception:
+                pass
+
+        _safe_set("global_strategy_select", cfg.get("strategy", "💎 100% Direct Stocks (Multi-Sector Alpha)"))
+        _safe_set("global_risk_select", cfg.get("risk_choice", "⚡ High Growth (Maximum Alpha)"))
+        _safe_set("global_protocol_select", cfg.get("protocol", "🛡️ Adaptive Structural Trailing (Tier-Calibrated: Large -13% / Mid -14% / Small -17%)"))
+        _safe_set("global_sizing_mode_select", cfg.get("sizing", "Equal Split"))
+        _safe_set("global_stepladder", cfg.get("stepladder", True))
+        _safe_set("global_3tier_harvest", cfg.get("tharp_3tier", False))
+        _safe_set("global_macro_hedge_pct", cfg.get("macro_hedge_pct", 0))
+        _safe_set("global_clenow_momentum", cfg.get("clenow", False))
+        if "hurdle_mode" in cfg:
+            _safe_set("global_hurdle_mode", cfg["hurdle_mode"])
+        if "sector_boost" in cfg:
+            _safe_set("bt_sector_boost", cfg["sector_boost"])
+        if "target_stocks" in cfg:
+            _safe_set("global_target_stocks", cfg["target_stocks"])
+        if "step_up" in cfg:
+            _safe_set("global_step_up", cfg["step_up"])
+            _safe_set("bt_stepup", cfg["step_up"].replace(" / Year (Recommended)", "/yr").replace(" / Year", "/yr").replace("0% (Flat SIP)", "0% (Flat)"))
+
+        _safe_set("tab1_preset_select", preset_name)
+        _safe_set("bt_preset_select", preset_name)
+        _safe_set("bt_protocol", cfg.get("bt_protocol", "🛡️ Adaptive Structural Trailing (Tier & Sector Tuned)"))
+        _safe_set("bt_sizing_mode_select", cfg.get("sizing", "Equal Split"))
+        _safe_set("bt_stepladder", cfg.get("stepladder", True))
+        _safe_set("bt_3tier_harvest", cfg.get("tharp_3tier", False))
+        _safe_set("bt_vol_targeting", cfg.get("vol_targeting", False))
+        _safe_set("bt_clenow_momentum", cfg.get("clenow", False))
+        _safe_set("bt_macro_hedge_pct", cfg.get("macro_hedge_pct", 0))
+        _safe_set("bt_pyramid", True)
+        _safe_set("bt_hurdle", True)
+        _safe_set("bt_dip_buy", True)
+        _safe_set("bt_skim", True)
+        _safe_set("bt_cap_guard", True)
 
         # Invalidate backtest cache to guarantee immediate recalculation
         st.session_state.pop("sip_backtest_res", None)
@@ -419,20 +426,18 @@ def on_tab1_preset_change():
     sel = st.session_state.get("tab1_preset_select")
     if sel and sel in INSTITUTIONAL_PRESETS:
         st.session_state["_pending_preset_request"] = sel
-        apply_global_preset(sel)
 
 def on_bt_preset_change():
     sel = st.session_state.get("bt_preset_select")
     if sel and sel in INSTITUTIONAL_PRESETS:
         st.session_state["_pending_preset_request"] = sel
-        apply_global_preset(sel)
 
 # Process any pending preset request BEFORE any widgets are instantiated on this run
 if st.session_state.get("_pending_preset_request"):
     req_preset = st.session_state.pop("_pending_preset_request")
     apply_global_preset(req_preset)
 elif "global_preset_initialized" not in st.session_state:
-    apply_global_preset("🏆 Centurion Wealth Engine (63.3% XIRR | ₹61.8L Corpus | 19.7% Max DD | 20.5x Payoff)")
+    apply_global_preset("⚛️ Quantum Dynamic Value-Averaging Engine (Default: Dynamic Sizing 0.5x-2.0x | 89.3% Win Rate | +7.3% Alpha | ₹2.65 Cr Corpus)")
     st.session_state["global_preset_initialized"] = True
 
 # ── Top Control Bar (Clean 2-Row Layout) ──────────────────────────────────────
@@ -804,7 +809,6 @@ with tab1:
         st.write("")
         if st.button("⚡ Apply Preset", key="tab1_force_apply", help="Applies this preset's exact allocation and risk rules to This Month's Basket"):
             st.session_state["_pending_preset_request"] = t1_preset
-            apply_global_preset(t1_preset)
             st.rerun()
 
     st.caption(f"💡 **Preset Impact on Basket:** {INSTITUTIONAL_PRESETS[t1_preset].get('desc', '')}")
@@ -1973,7 +1977,6 @@ with tab4:
         st.write("")
         if st.button("⚡ Force Apply", key="bt_force_apply", help="Forces all toggles below to exactly match this preset's optimal configuration."):
             st.session_state["_pending_preset_request"] = current_preset
-            apply_global_preset(current_preset)
             st.rerun()
 
     st.caption(f"💡 **Preset Architecture:** {INSTITUTIONAL_PRESETS[current_preset].get('desc', '')}")

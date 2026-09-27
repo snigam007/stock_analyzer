@@ -194,9 +194,19 @@ def generate_quantum_swing_signals(
     - Weekly: Institutional Stage 2 Markup or Bullish Trend Support (Close > 30W EMA)
     - Daily: Base Breakout or 20/50 EMA inflection, RSI between 45 and 68
     - 1-Hour: Intraday 9/21 EMA Cross, tight ATR Stop Loss, R:R >= 1:2.5
+    - Autonomous Self-Improvement: Vetoed by Pillar 2 negative guardrails, scaled by Pillar 3 genetic champion parameters, and adjusted for Pillar 4 microstructure friction.
     """
     init_quantum_db(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60.0)
+    
+    # ── Autonomous Self-Improvement Engine Hook ──
+    from core.autonomous_learner import (
+        evaluate_negative_guardrail_veto,
+        get_active_champion_parameters,
+        get_symbol_friction_penalty
+    )
+    champ_params = get_active_champion_parameters(db_path)
+    h_atr_mult = float(champ_params.get("h_atr_sl_multiplier", 1.8))
     
     # Fetch active stocks that have daily prices
     stocks_df = pd.read_sql_query("""
@@ -261,6 +271,7 @@ def generate_quantum_swing_signals(
         h_df = get_hourly_data(sym, limit=120, db_path=db_path)
         h_trigger = False
         h_atr = curr_d["atr_14"] / math.sqrt(6.25) # Default approximation if no 1h data
+        curr_h = None
         
         if not h_df.empty and len(h_df) >= 30:
             h_ind = compute_fast_indicators(h_df)
@@ -279,11 +290,34 @@ def generate_quantum_swing_signals(
             
         if not h_trigger:
             continue
+
+        # ── Pillar 2: Negative Veto Guardrail Evaluation ──
+        curr_open = float(curr_d.get("open", d_close))
+        prev_close = float(prev_d.get("close", d_close))
+        open_gap = ((curr_open - prev_close) / prev_close * 100.0) if prev_close > 0 else 0.0
+        h_rsi_val = float(curr_h["rsi_14"]) if (h_has_data and curr_h is not None) else float(d_rsi)
+
+        is_vetoed, veto_reason = evaluate_negative_guardrail_veto(
+            symbol=sym,
+            opening_gap_pct=open_gap,
+            h_rsi=h_rsi_val,
+            breadth_pct=55.0,
+            sector_rs=0.0,
+            db_path=db_path
+        )
+        if is_vetoed:
+            # Self-learned guardrail protection active
+            continue
+
+        # ── Pillar 4: Friction & Market Microstructure Learning ──
+        f_data = get_symbol_friction_penalty(sym, db_path=db_path)
+        friction_pen = f_data.get("penalty_pct", 0.0)
+        size_mult = f_data.get("size_multiplier", 1.0)
+        liq_rank = f_data.get("liquidity_rank", "HIGH")
             
-        # Calculate Asymmetric Risk:Reward Geometry
+        # Calculate Asymmetric Risk:Reward Geometry with Pillar 3 Champion Parameter
         entry_p = round(float(d_close), 2)
-        # 1-Hour ATR allows a much tighter stop loss (1.8x ATR vs 2.5x daily ATR)
-        risk_dist = max(entry_p * 0.015, round(float(1.8 * h_atr), 2))
+        risk_dist = max(entry_p * 0.015, round(float(h_atr_mult * h_atr), 2))
         stop_loss = round(entry_p - risk_dist, 2)
         
         t1 = round(entry_p + 1.5 * risk_dist, 2)  # Target 1 (1:1.5 R:R)
@@ -323,6 +357,10 @@ def generate_quantum_swing_signals(
             "risk_pct": f"{round(risk_dist / entry_p * 100, 2)}%",
             "holding_days": 8 if h_has_data else 14,
             "confidence": conf,
+            "size_multiplier": f"{size_mult:.2f}x",
+            "friction_penalty": f"{friction_pen:.2f}%",
+            "liquidity_rank": liq_rank,
+            "champion_atr_multiplier": f"{h_atr_mult:.2f}x",
             "catalyst": f"Weekly Stage 2 Expansion + Daily EMA21 Support + 1H Sniper Alignment"
         })
         
@@ -347,7 +385,16 @@ def generate_quantum_sip_recommendations(
     - 0.5x - 0.75x when euphoric or extended > 25% from 200 DMA
     """
     init_quantum_db(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60.0)
+
+    # ── Autonomous Self-Improvement Engine Hook ──
+    from core.autonomous_learner import (
+        get_active_champion_parameters,
+        get_symbol_friction_penalty
+    )
+    champ_params = get_active_champion_parameters(db_path)
+    w_rsi_dip_thresh = float(champ_params.get("weekly_rsi_value_dip", 40.0))
+    dma_dip_thresh = float(champ_params.get("dist_200dma_dip_pct", -8.0))
     
     # Focus on Large & High-Quality Midcap leaders
     stocks_df = pd.read_sql_query("""
@@ -398,7 +445,7 @@ def generate_quantum_sip_recommendations(
         if not is_secular_bull:
             continue  # Skip stocks in secular multi-year decay
             
-        # 2. Dynamic Value-Averaging Multiplier Calculation
+        # 2. Dynamic Value-Averaging Multiplier Calculation using Pillar 3 Champion Parameters
         w_rsi = float(curr_w["rsi_14"])
         d_sma200 = float(curr_d.get("sma_200", curr_d["ema_50"]))
         dist_200dma = ((price - d_sma200) / d_sma200) * 100.0 if not np.isnan(d_sma200) and d_sma200 > 0 else 0.0
@@ -408,12 +455,12 @@ def generate_quantum_sip_recommendations(
         status_color = "🟢"
         rationale = "Fair-value accumulation zone."
         
-        if w_rsi <= 40.0 or dist_200dma <= -8.0:
+        if w_rsi <= w_rsi_dip_thresh or dist_200dma <= dma_dip_thresh:
             # Deep Dip in Secular Winner
             multiplier = 2.0
             accumulation_status = "SUPER-VALUE DIP (AGGRESSIVE 2.0x)"
             status_color = "💎"
-            rationale = f"Weekly RSI ({w_rsi:.1f}) is heavily oversold. Generational institutional discount."
+            rationale = f"Weekly RSI ({w_rsi:.1f} ≤ {w_rsi_dip_thresh}) or 200 DMA dip ({dist_200dma:.1f}% ≤ {dma_dip_thresh}%). Generational institutional discount."
         elif w_rsi <= 48.0 or dist_200dma <= 2.0:
             multiplier = 1.5
             accumulation_status = "HIGH-VALUE ACCUMULATION (1.5x)"
@@ -431,6 +478,11 @@ def generate_quantum_sip_recommendations(
             status_color = "🌱"
             rationale = "Healthy trend alignment. Standard monthly tranche recommended."
             
+        # Pillar 4: Friction & Liquidity
+        f_data = get_symbol_friction_penalty(sym, db_path=db_path)
+        liq_rank = f_data.get("liquidity_rank", "HIGH")
+        f_size_mult = f_data.get("size_multiplier", 1.0)
+
         # SIP Quality / Compounder Score
         score = 75.0
         if is_secular_bull and price > m_sma10: score += 10.0
@@ -449,6 +501,8 @@ def generate_quantum_sip_recommendations(
             "multiplier": f"{multiplier:.1f}x",
             "status": f"{status_color} {accumulation_status}",
             "score": score,
+            "liquidity_rank": liq_rank,
+            "friction_size_factor": f"{f_size_mult:.2f}x",
             "rationale": rationale,
             "monthly_trend": "SECULAR UPTREND" if price > m_sma10 else "CONSOLIDATING AT SUPPORT"
         })
@@ -465,7 +519,7 @@ def generate_quantum_sip_recommendations(
 def get_quantum_strategy_weights(regime: str = "BULL", db_path: Path = DB_PATH) -> pd.DataFrame:
     """Fetches the active Bayesian weights of all strategies."""
     init_quantum_db(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60.0)
     df = pd.read_sql_query("""
         SELECT strategy_id, strategy_name, regime, alpha, beta, current_weight, win_rate_realized, trades_count, last_updated 
         FROM quantum_strategy_weights 
@@ -488,7 +542,7 @@ def update_bayesian_strategy_outcome(
     Dynamically increases or decreases the strategy's active weight in the council.
     """
     init_quantum_db(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=60.0)
     cur = conn.cursor()
 
     cur.execute("""

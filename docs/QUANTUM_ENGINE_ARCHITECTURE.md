@@ -102,5 +102,55 @@ $$M_t = M_{\text{base}} \times \left[ 1.0 + \Delta_{\text{regime}} + \Delta_{\te
 1. **Database Schema & Ingestion Pipeline** (`core/hourly_fetcher.py`, `scripts/download_all_1h_data.py`).
 2. **Quantum Multi-Timeframe Feature Matrix** (Resampling Monthly + Weekly + Daily + Hourly).
 3. **The Self-Improving Bayesian Quantum Engine** (`core/quantum_engine.py`).
-4. **Interactive Quantum Command Center** (`pages/19_Quantum_Engine.py`).
+4. **Interactive Quantum Command Center** (`pages/18_Quantum_Engine.py`).
 5. **Full System Verification & Empirical Proof Audit**.
+
+---
+
+## 3. The 4 Cognitive Pillars of the Autonomous Self-Improving Agent
+
+To transform the Quantum Engine into an autonomous trading brain, the system operates across 4 closed-loop cognitive pillars:
+
+```mermaid
+graph TD
+    A["Live Execution & Market Price Feed (1H, Daily)"] --> B["Pillar 1: Experience Replay Daemon"]
+    B -->|Resolves R-Multiples| C["Closed-Loop Bayesian Weight Updating (Thompson Sampling)"]
+    B -->|Loss Event Trigger| D["Pillar 2: Symbolic Post-Mortem RCA"]
+    D -->|Induces Vetoes| E["Active Negative Rules Guardrail Memory"]
+    E -->|Vetoes High-Risk Trades| H["Quantum Signal Generation"]
+    C -->|Dynamically Weights Arms| H
+    F["Walk-Forward Slices (CPCV)"] --> G["Pillar 3: Genetic Parameter Arena (Champion vs Challenger)"]
+    G -->|Promotes Superior Calmar| H
+    I["Order Flow & Wick Spread Feed"] --> J["Pillar 4: Microstructure Friction Learning"]
+    J -->|Dynamically Calibrates Sizing| H
+```
+
+### Pillar 1: Automated Experience Replay Daemon & Closed-Loop Bayesian Updating
+- **Mechanism**: Every signal logged into `signal_audit_log` is causally evaluated against subsequent market bars.
+- **Payoff Calculation**: Measures target hits ($+1.5R, +2.5R$) vs stop losses ($-1.0R$) and calculates realized $R$-multiples.
+- **Online Bayesian Update**: Updates strategy Beta distribution priors $\text{Beta}(\alpha_k, \beta_k)$ with memory decay $\lambda = 0.98$ to prevent non-stationarity drift.
+- **Persistence**: Logged into `quantum_learning_cycles`.
+
+### Pillar 2: Symbolic Post-Mortem Root Cause Analysis & Negative Rule Induction
+- **Mechanism**: Deterministic failure attribution on every stopped trade across 5 structural dimensions:
+  1. `OPENING_GAP_EXHAUSTION_VETO`: Opening gap $\ge +2.5\%$ into resistance.
+  2. `1H_RSI_OVERBOUGHT_CLIMAX_VETO`: Intraday 1H RSI $\ge 78.0$ buyers exhaustion.
+  3. `BREADTH_COLLAPSE_VETO`: Market breadth $< 42.0\%$ danger zone.
+  4. `SECTOR_RS_DIVERGENCE_VETO`: Sector 20-day relative strength $< -2.5\%$.
+  5. `HIGH_FRICTION_SPREAD_VETO`: Bid-ask spread exceeding $40\%$ of 1H ATR.
+- **Guardrail Memory**: Reinforced into `quantum_negative_rules`. Future signals triggering these conditions are automatically vetoed before capital is risked.
+
+### Pillar 3: Champion vs. Challenger Genetic Parameter Evolution (Walk-Forward Arena)
+- **Mechanism**: Maintains a continuous tournament arena where reigning champion hyperparameters (e.g., 1H ATR stop multiplier, minimum confidence threshold, weekly RSI dip thresholds) face mutated challengers.
+- **Promotion Hurdle**: Challengers must outperform champions on Calmar ratio by $\ge 15\%$ across Combinatorial Purged Cross-Validation (CPCV) and out-of-sample forward windows without reducing win rate by $> 2\%$.
+- **Persistence**: Managed in `quantum_parameter_evolution`.
+
+### Pillar 4: Friction & Market Microstructure Learning
+- **Mechanism**: Continuously monitors empirical bid-ask spread width, upper/lower wick slippage, and liquidity across all 300+ equities.
+- **Dynamic Sizing**: Automatically adjusts position size multipliers (1.00x Largecap, 0.95x Midcap, 0.85x High-Wick Smallcap) and deducts friction return drag.
+- **Persistence**: Stored in `quantum_friction_penalties`.
+
+### Automated Pipeline Hook
+The 4 pillars are fully orchestrated via `execute_full_autonomous_learning_cycle()`:
+- Automatically executed in Step 16 of `update_daily.py` after price sync.
+- Interactive on-demand execution and telemetry in `pages/18_Quantum_Engine.py` Tab 4.

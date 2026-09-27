@@ -192,7 +192,7 @@ def run_daily_delta_update(top_forecasts: int = 50):
         logger.warning(f"Missed mover surveillance audit notice: {e}")
 
     # 15. Pre-Market Intelligence Briefing Generation (Top-3 Sniper Setups)
-    logger.info("\n🌅 Step 15/15: Generating Pre-Market Alpha Briefing & Top-3 Sniper Setups...")
+    logger.info("\n🌅 Step 15/16: Generating Pre-Market Alpha Briefing & Top-3 Sniper Setups...")
     try:
         from core.premarket_briefing import generate_premarket_briefing
         briefing = generate_premarket_briefing(session)
@@ -200,6 +200,17 @@ def run_daily_delta_update(top_forecasts: int = 50):
         logger.info(f"   Pre-Market Briefing: Synthesized {len(snipers)} Top-3 Sniper Setups ({', '.join(snipers)}) | Macro: {briefing.get('macro', {}).get('active_strategy_mode')}")
     except Exception as e:
         logger.warning(f"Pre-market briefing notice: {e}")
+
+    # 16. Autonomous Self-Improving Engine Cycle (4 Pillars)
+    logger.info("\n🤖 Step 16/16: Executing Autonomous Learning Cycle (Experience Replay, RCA, Parameter Arena, Friction)...")
+    try:
+        from core.autonomous_learner import execute_full_autonomous_learning_cycle
+        learn_res = execute_full_autonomous_learning_cycle()
+        p1 = learn_res.get('pillar_1_experience_replay', {})
+        p3 = learn_res.get('pillar_3_parameter_tournament', {})
+        logger.info(f"   Autonomous Learning Complete: Resolved {p1.get('resolved_count', 0)} signals | Promotions: {p3.get('promotions_count', 0)} | Monitored: {learn_res.get('pillar_4_friction_monitored_tickers', 0)}")
+    except Exception as e:
+        logger.warning(f"Autonomous learning notice: {e}")
 
     session.close()
 

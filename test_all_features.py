@@ -112,7 +112,41 @@ spec5.loader.exec_module(p5)
 print("Commodity names mapped:", len(p5.COMMODITY_NAMES))
 print("Index names mapped:", len(p5.INDEX_NAMES))
 
+print("\n=== 6. TESTING QUANTUM ENGINE & 4 SELF-IMPROVING PILLARS ===")
+from core.quantum_engine import (
+    generate_quantum_swing_signals,
+    generate_quantum_sip_recommendations,
+    get_quantum_strategy_weights,
+    get_market_regime
+)
+from core.autonomous_learner import (
+    execute_full_autonomous_learning_cycle,
+    get_active_champion_parameters,
+    get_symbol_friction_penalty
+)
+
+regime = get_market_regime()
+print(f"Quantum Market Regime: {regime}")
+
+weights = get_quantum_strategy_weights(regime)
+print(f"Bayesian Strategy Weights active: {len(weights)} strategies")
+
+champ_p = get_active_champion_parameters()
+print(f"Pillar 3 Active Champion Parameters: {champ_p}")
+
+fric_sample = get_symbol_friction_penalty("RELIANCE")
+print(f"Pillar 4 Friction Sample (RELIANCE): {fric_sample}")
+
+q_sw = generate_quantum_swing_signals(min_confidence=70.0, limit=2)
+print(f"Quantum Swing Signals Generated: {len(q_sw)}")
+
+q_sip = generate_quantum_sip_recommendations(top_n=2)
+print(f"Quantum SIP Recommendations Generated: {len(q_sip)}")
+
+learn_cycle = execute_full_autonomous_learning_cycle()
+print("Autonomous Learning Cycle Completed:", learn_cycle["cycle_status"])
+
 session.close()
 print("\n=====================================================================")
-print("🎉 ALL PAGES, TABS, TOGGLES, AND PIPELINES TESTED 100% ERROR-FREE!")
+print("🎉 ALL PAGES, TABS, TOGGLES, AND 4 PILLARS TESTED 100% ERROR-FREE!")
 print("=====================================================================")

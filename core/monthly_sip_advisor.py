@@ -581,7 +581,47 @@ def generate_monthly_sip_basket(
             t_lower = tier.lower()
             
             weight = base_weights[idx] if idx < len(base_weights) else (1.0 / max(1, n_stocks))
-            stock_alloc_budget = equity_budget_pool * weight
+            
+            # ─── Quantum Dynamic Value-Averaging Multiplier (0.5x to 2.0x) ───────────
+            q_mult = 1.0
+            q_badge = "🌱 1.0x Normal"
+            q_desc = "Standard compounding tranche."
+            try:
+                p_rows = session.execute(
+                    text("SELECT date, close FROM daily_prices WHERE symbol = :s ORDER BY date DESC LIMIT 200"),
+                    {"s": sym}
+                ).fetchall()
+                if len(p_rows) >= 40:
+                    p_df = pd.DataFrame([dict(r._mapping) for r in p_rows]).sort_values("date")
+                    c_series = p_df["close"]
+                    sma_200 = float(c_series.rolling(200, min_periods=40).mean().iloc[-1])
+                    dist_200 = ((price - sma_200) / sma_200) * 100.0 if sma_200 > 0 else 0.0
+
+                    delta = c_series.diff()
+                    gain = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+                    loss = (-delta.clip(upper=0)).ewm(alpha=1/14, adjust=False).mean()
+                    rsi_val = float((100 - (100 / (1 + gain / loss.replace(0, np.nan)))).iloc[-1])
+
+                    if rsi_val <= 40.0 or dist_200 <= -8.0:
+                        q_mult = 2.0
+                        q_badge = "💎 2.0x Value Dip"
+                        q_desc = f"Weekly RSI ({rsi_val:.1f}) oversold. Institutional distress discount."
+                    elif rsi_val <= 48.0 or dist_200 <= 2.0:
+                        q_mult = 1.5
+                        q_badge = "🔥 1.5x Value Dip"
+                        q_desc = f"Pullback near 200 DMA ({dist_200:+.1f}%). Favorable accumulation."
+                    elif dist_200 >= 28.0 or rsi_val >= 75.0:
+                        q_mult = 0.5
+                        q_badge = "⚠️ 0.5x Defensive"
+                        q_desc = f"Extended +{dist_200:.1f}% above 200 DMA. Tapered to preserve dry powder."
+                    else:
+                        q_mult = 1.0
+                        q_badge = "🌱 1.0x Standard"
+                        q_desc = "Fair-value compounding tranche."
+            except Exception as q_err:
+                logger.debug(f"Quantum multiplier notice for {sym}: {q_err}")
+
+            stock_alloc_budget = equity_budget_pool * weight * q_mult
 
             if exit_protocol == "BUY_AND_HOLD":
                 sl = None
@@ -670,6 +710,9 @@ def generate_monthly_sip_basket(
                 "is_pyramided": is_pyr,
                 "rationale": rat,
                 "allocation_pct": round(weight * 100.0, 1),
+                "quantum_multiplier": q_mult,
+                "quantum_badge": q_badge,
+                "quantum_desc": q_desc,
                 "sector_badge": sec_badge,
                 "sector_rs_20d": sec_rs,
                 "clenow_score": round(clenow_scores.get(sym, 0.0), 2) if sym in clenow_scores else None

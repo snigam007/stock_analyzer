@@ -1,4 +1,4 @@
-﻿"""
+"""
 Multi-Timeframe (MTF) Triple-Screen Confluence Scanner
 - Implements Alexander Elder's Triple-Screen Method:
   1. Weekly Macro Tide (20-week EMA slope + Weekly MACD direction)
@@ -67,8 +67,47 @@ def scan_mtf_triple_screen_confluence(session: Session, limit: int = 30) -> List
         ripple_trigger = vol_ratio >= 1.1 and ret_3d >= 0.5
         ripple_status = "🚀 Volume Trigger" if ripple_trigger else "⚖️ Normal Ripple"
 
+        # 4. Quantum 1-Hour Intraday Sniper Trigger
+        h_has_data = False
+        h_aligned = False
+        h_atr = None
+        h_status = "—"
+        try:
+            h_rows = session.execute(text("""
+                SELECT datetime, open, high, low, close, volume
+                FROM hourly_prices
+                WHERE symbol=:s
+                ORDER BY datetime DESC LIMIT 30
+            """), {"s": sym}).fetchall()
+            if len(h_rows) >= 14:
+                hdf = pd.DataFrame(h_rows, columns=["datetime", "open", "high", "low", "close", "volume"]).sort_values("datetime").reset_index(drop=True)
+                hdf["close"] = hdf["close"].astype(float)
+                h_close = float(hdf["close"].iloc[-1])
+                h_ema21 = float(hdf["close"].ewm(span=21, adjust=False).mean().iloc[-1])
+                h_delta = hdf["close"].diff()
+                h_gain = h_delta.where(h_delta > 0, 0).rolling(14, min_periods=7).mean()
+                h_loss = (-h_delta.where(h_delta < 0, 0)).rolling(14, min_periods=7).mean()
+                h_rs = h_gain / h_loss.replace(0, 0.001)
+                h_rsi = float(100 - (100 / (1 + h_rs.iloc[-1]))) if pd.notnull(h_rs.iloc[-1]) else 50.0
+
+                h_tr = pd.concat([hdf["high"] - hdf["low"], (hdf["high"] - hdf["close"].shift(1)).abs(), (hdf["low"] - hdf["close"].shift(1)).abs()], axis=1).max(axis=1)
+                h_atr = float(h_tr.rolling(14, min_periods=7).mean().bfill().iloc[-1])
+                h_has_data = True
+                if h_close >= h_ema21 and (45.0 <= h_rsi <= 72.0):
+                    h_aligned = True
+                    h_status = f"🟢 1H Aligned (RSI {h_rsi:.0f})"
+                else:
+                    h_status = f"🟡 1H Consolidating (RSI {h_rsi:.0f})"
+        except Exception:
+            pass
+
         # Classification
-        if weekly_tide_bullish and daily_wave_aligned and ripple_trigger:
+        if weekly_tide_bullish and daily_wave_aligned and ripple_trigger and h_aligned:
+            mtf_tier = "⚛️ Quantum Quad Confluence"
+            score = 99.0
+            tag_color = "#38bdf8"
+            action = "Elite Quantum Quad Buy (1H Sniper Entry)"
+        elif weekly_tide_bullish and daily_wave_aligned and ripple_trigger:
             mtf_tier = "💎 MTF Golden Confluence"
             score = 95.0
             tag_color = "#00c875"
@@ -90,6 +129,7 @@ def scan_mtf_triple_screen_confluence(session: Session, limit: int = 30) -> List
             action = "Avoid / Short Bias"
 
         if score >= 65.0:
+            h_sl = round(curr_p - 1.8 * h_atr, 2) if h_atr and h_atr > 0 else None
             mtf_results.append({
                 "symbol": sym,
                 "name": name,
@@ -98,12 +138,14 @@ def scan_mtf_triple_screen_confluence(session: Session, limit: int = 30) -> List
                 "weekly_status": weekly_status,
                 "daily_status": daily_status,
                 "ripple_status": ripple_status,
+                "hourly_status": h_status,
                 "rsi": round(rsi_14, 1),
                 "volume_ratio": vol_ratio,
                 "mtf_tier": mtf_tier,
                 "score": score,
                 "tag_color": tag_color,
                 "action": action,
+                "h_atr_sl": h_sl
             })
 
     return sorted(mtf_results, key=lambda x: x["score"], reverse=True)[:limit]

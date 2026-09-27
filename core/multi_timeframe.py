@@ -211,24 +211,65 @@ def analyze_multi_timeframe_alignment(
         macro_desc = "Hovering near 200-Day SMA"
 
     # ─────────────────────────────────────────────────────────────────────────
-    # 5. Confluence Synthesis vs Signal Direction
+    # 5. Quantum 1-Hour Intraday Sniper Layer (from hourly_prices)
     # ─────────────────────────────────────────────────────────────────────────
-    target_v = "BULLISH" if signal_direction == "BUY" else ("BEARISH" if signal_direction == "SELL" else "NEUTRAL")
-    opp_v = "BEARISH" if signal_direction == "BUY" else "BULLISH"
+    h_verdict = "NEUTRAL"
+    h_badge = "🟡"
+    h_desc = "1-Hour intraday range"
+    h_has_data = False
+    h_atr = None
+    try:
+        from core.hourly_fetcher import get_hourly_data
+        h_df = get_hourly_data(symbol, limit=40)
+        if not h_df.empty and len(h_df) >= 15:
+            h_c = h_df["close"]
+            h_ema9 = float(h_c.ewm(span=9, adjust=False).mean().iloc[-1])
+            h_ema21 = float(h_c.ewm(span=21, adjust=False).mean().iloc[-1])
+            h_rsi_val = float(_compute_rsi(h_c, 14).iloc[-1])
+            h_tr = pd.concat([h_df["high"] - h_df["low"], (h_df["high"] - h_c.shift(1)).abs(), (h_df["low"] - h_c.shift(1)).abs()], axis=1).max(axis=1)
+            h_atr = float(h_tr.rolling(14, min_periods=10).mean().bfill().iloc[-1])
 
-    matches = sum(1 for v in [st_verdict, int_verdict, wk_verdict, macro_verdict] if v == target_v)
-    conflicts = sum(1 for v in [st_verdict, int_verdict, wk_verdict, macro_verdict] if v == opp_v)
+            if h_ema9 >= h_ema21 and h_rsi_val >= 45.0:
+                h_verdict = "BULLISH"
+                h_badge = "🟢"
+                h_desc = f"1H Sniper Bullish: EMA 9 > 21 (RSI {h_rsi_val:.0f})"
+            elif h_ema9 <= h_ema21 and h_rsi_val <= 48.0:
+                h_verdict = "BEARISH"
+                h_badge = "🔴"
+                h_desc = f"1H Sniper Bearish: EMA 9 < 21 (RSI {h_rsi_val:.0f})"
+            else:
+                h_verdict = "NEUTRAL"
+                h_badge = "🟡"
+                h_desc = f"1H Consolidating (RSI {h_rsi_val:.0f})"
+            h_has_data = True
+    except Exception as h_err:
+        logger.debug(f"1H fetch notice for {symbol}: {h_err}")
 
+    # ─────────────────────────────────────────────────────────────────────────
+    # 6. Confluence Synthesis vs Signal Direction (Quantum Quad Confluence)
+    # ─────────────────────────────────────────────────────────────────────────
+    target_v = "BULLISH" if signal_direction in ("BUY", "STRONG BUY") else ("BEARISH" if signal_direction in ("SELL", "STRONG SELL") else "NEUTRAL")
+    opp_v = "BEARISH" if target_v == "BULLISH" else "BULLISH"
+
+    is_quad = h_has_data and (h_verdict == target_v) and (wk_verdict == target_v) and (int_verdict == target_v) and (macro_verdict == target_v)
     is_triple = (wk_verdict == target_v) and (int_verdict == target_v) and (st_verdict == target_v)
     is_core_aligned = (wk_verdict == target_v) and (int_verdict == target_v)
     is_counter_trend = (wk_verdict == opp_v) and (macro_verdict == opp_v)
 
-    if is_triple:
+    if is_quad:
+        confluence_tier = "QUANTUM_QUAD_CONFLUENCE"
+        confluence_stars = "⚛️⭐⭐⭐⭐"
+        confluence_badge = "⚛️ QUAD CONFLUENCE (1H+1D+1W+1M)"
+        confluence_label = "Quantum Quad Alignment: 1-Hour Sniper + Weekly/Macro Tail-Wind"
+        confluence_score = 98.0
+        badge_color = "#38bdf8"
+        badge_bg = "rgba(56, 189, 248, 0.15)"
+    elif is_triple:
         confluence_tier = "TRIPLE_CONFLUENCE"
         confluence_stars = "⭐⭐⭐"
         confluence_badge = "⭐⭐⭐ TRIPLE CONFLUENCE"
         confluence_label = "Full Multi-Timeframe Alignment (Highest Hit Rate)"
-        confluence_score = 95.0
+        confluence_score = 92.0
         badge_color = "#00c875"
         badge_bg = "rgba(0, 200, 117, 0.12)"
     elif is_core_aligned:
@@ -265,10 +306,14 @@ def analyze_multi_timeframe_alignment(
         badge_bg = "rgba(234, 179, 8, 0.12)"
 
     # HTML Ribbon for Stock Cards
+    h_ribbon = f'<span title="{h_desc}">1H: {h_badge}</span>' if h_has_data else ''
+    h_sep = '<span style="color: #8b949e;">|</span>' if h_has_data else ''
     ribbon_html = f"""
     <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 0.8em; background: {badge_bg}; border: 1px solid {badge_color}; padding: 2px 8px; border-radius: 4px; font-weight: 600; color: {badge_color};">
         <span>{confluence_badge}</span>
         <span style="color: #8b949e;">|</span>
+        {h_ribbon}
+        {h_sep}
         <span title="{st_desc}">ST: {st_badge}</span>
         <span title="{int_desc}">Core: {int_badge}</span>
         <span title="{wk_desc}">Weekly: {wk_badge}</span>
@@ -285,10 +330,12 @@ def analyze_multi_timeframe_alignment(
         "confluence_label": confluence_label,
         "confluence_score": confluence_score,
         "badge_color": badge_color,
-        "badge_bg": badge_bg,
+        "is_quad_confluence": is_quad,
         "is_triple_confluence": is_triple,
         "is_core_aligned": is_core_aligned,
         "is_counter_trend": is_counter_trend,
+        "hourly": {"verdict": h_verdict, "badge": h_badge, "desc": h_desc, "atr": h_atr},
+        "h_atr_sl": round(curr_close - 1.8 * h_atr, 2) if h_atr else None,
         "short_term": {"verdict": st_verdict, "badge": st_badge, "desc": st_desc},
         "intermediate": {"verdict": int_verdict, "badge": int_badge, "desc": int_desc},
         "weekly": {"verdict": wk_verdict, "badge": wk_badge, "desc": wk_desc},

@@ -127,10 +127,9 @@ workspaces = {
         st.Page(BASE_DIR / "pages/17_Mutual_Funds_Radar.py", title="Mutual Funds Radar", icon="📊"),
     ],
     "⚡ Opportunities & Screeners": [
-        st.Page(BASE_DIR / "pages/18_Quantum_Engine.py", title="Quantum Multi-Timeframe Lab", icon="⚛️"),
-        st.Page(BASE_DIR / "pages/4_Daily_Top_Stocks.py", title="Daily Top Picks", icon="🏆"),
+        st.Page(BASE_DIR / "pages/4_Daily_Top_Stocks.py", title="Daily Top Picks (Quantum Swing)", icon="🏆"),
+        st.Page(BASE_DIR / "pages/16_Monthly_SIP_and_Sell_Radar.py", title="Monthly SIP & Sell Radar (Quantum Dynamic SIP)", icon="💰"),
         st.Page(BASE_DIR / "pages/12_Trading_Terminal_Matrix.py", title="Trading Terminal Matrix", icon="⚡"),
-        st.Page(BASE_DIR / "pages/16_Monthly_SIP_and_Sell_Radar.py", title="Monthly SIP & Sell Radar", icon="💰"),
         st.Page(BASE_DIR / "pages/15_Institutional_Deals_and_Calendar.py", title="Deals & Macro Calendar", icon="🏦"),
     ],
     "💼 Portfolio & Wealth Lab": [
@@ -139,6 +138,7 @@ workspaces = {
         st.Page(BASE_DIR / "pages/14_Watchlist_and_Alerts.py", title="Watchlists & 52W Radar", icon="⭐"),
     ],
     "🧪 Quant Lab & Operations": [
+        st.Page(BASE_DIR / "pages/18_Quantum_Engine.py", title="Quantum Lab & Bayesian Auditor", icon="⚛️"),
         st.Page(BASE_DIR / "pages/7_Backtesting.py", title="Strategy Backtesting Engine", icon="🧪"),
         st.Page(BASE_DIR / "pages/6_Strategies.py", title="Algorithmic Strategy Library", icon="📜"),
         st.Page(BASE_DIR / "pages/9_Alerts_Dispatcher.py", title="Alerts & Notifications", icon="🔔"),

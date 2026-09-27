@@ -245,9 +245,9 @@ try:
         help="Filters for stocks meeting proven 63.5% Apex Alpha backtest criteria: 4 Concentrated Leaders @ 25% equity, 6-Month Momentum >= +30%, 95% Tactical Dip Deployment, 8% Skim @ +120%, and 50% Runner Cap."
     )
     mtf_filter = st.sidebar.selectbox(
-        "Multi-Timeframe Alignment",
-        ["All Alignments", "⭐⭐⭐ Triple Confluence Only", "⭐⭐ Core Confluence or Better", "Exclude Counter-Trend"],
-        help="Filter stocks by cross-timeframe alignment across Short-Term, Core Daily, Weekly Structural, and Macro trends."
+        "Multi-Timeframe Alignment (Quantum Swing)",
+        ["All Alignments", "⚛️ Quad Confluence (1H+1D+1W+1M) Only", "⭐⭐⭐ Triple Confluence or Better", "⭐⭐ Core Confluence or Better", "Exclude Counter-Trend"],
+        help="Filter stocks by cross-timeframe alignment across 1-Hour Sniper, Core Daily, Weekly Structural, and Macro trends."
     )
 except Exception:
     champion_alpha_filter = False
@@ -281,8 +281,8 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ─── Main Content ─────────────────────────────────────────────────────────────
-st.title("🏆 Daily Top Opportunities & Asset Signals")
-st.caption("Multi-asset quantitative ranking for Stocks, Indexes, and Commodities")
+st.title("🏆 Daily Top Stock Picks (Quantum Swing Engine)")
+st.caption("Default Systematic Swing Engine: 1-Hour Intraday Sniper ATR Precision + Multi-Timeframe Quad Confluence (1H+1D+1W+1M).")
 
 st.markdown("""
 <style>
@@ -432,9 +432,11 @@ def render_stock_table(rows, show_signal: bool = True):
         earn_data = earnings_map.get(sym, {})
 
         # MTF Filter check
-        if mtf_filter == "⭐⭐⭐ Triple Confluence Only" and not mtf_data.get("is_triple_confluence"):
+        if mtf_filter == "⚛️ Quad Confluence (1H+1D+1W+1M) Only" and not mtf_data.get("is_quad_confluence"):
             continue
-        elif mtf_filter == "⭐⭐ Core Confluence or Better" and not (mtf_data.get("is_triple_confluence") or mtf_data.get("is_core_aligned")):
+        elif mtf_filter == "⭐⭐⭐ Triple Confluence or Better" and not (mtf_data.get("is_triple_confluence") or mtf_data.get("is_quad_confluence")):
+            continue
+        elif mtf_filter == "⭐⭐ Core Confluence or Better" and not (mtf_data.get("is_triple_confluence") or mtf_data.get("is_core_aligned") or mtf_data.get("is_quad_confluence")):
             continue
         elif mtf_filter == "Exclude Counter-Trend" and mtf_data.get("is_counter_trend"):
             continue
@@ -660,7 +662,11 @@ def render_stock_table(rows, show_signal: bool = True):
                 if t3:
                     st.markdown(f"- 🎯 T3: **{format_price(t3)}** {format_badge_pct(t3_pct)}", unsafe_allow_html=True)
                 if sl:
-                    st.markdown(f"- 🛑 SL: **{format_price(sl)}** {format_badge_pct(sl_pct, is_stoploss=True)}", unsafe_allow_html=True)
+                    st.markdown(f"- 🛑 Structural SL: **{format_price(sl)}** {format_badge_pct(sl_pct, is_stoploss=True)}", unsafe_allow_html=True)
+                h_sl = mtf.get("h_atr_sl") if mtf else None
+                if h_sl and h_sl > 0 and price > 0:
+                    h_sl_pct = ((h_sl - price) / price) * 100.0
+                    st.markdown(f"- ⚛️ **Quantum 1H Sniper SL:** **{format_price(h_sl)}** {format_badge_pct(h_sl_pct, is_stoploss=True)} *(1H ATR)*", unsafe_allow_html=True)
                 if rr:
                     st.markdown(f"- **R:R = {rr:.2f}**")
 
@@ -1742,11 +1748,11 @@ if deck_category == "🐋 Institutional & Derivatives":
                     hide_index=True,
                 )
 
-    # Tab 11: Multi-Timeframe (MTF) Triple-Screen Confluence
+    # Tab 11: Multi-Timeframe Quantum Quad-Screen Confluence
 if deck_category == "🌐 Multi-Asset & Breakouts":
     with tab_mtf:
-        st.subheader("💎 Multi-Timeframe (MTF) Triple-Screen Confluence Scanner")
-        st.caption("Elder's Triple-Screen: Weekly Macro Tide (Trend) + Daily Wave (Pullback) + Short-Term Ripple (Volume Trigger)")
+        st.subheader("⚛️ Multi-Timeframe Quantum Confluence Scanner")
+        st.caption("Elder's Quad-Screen: Macro Tide (Monthly/Weekly) + Daily Wave (Pullback) + Ripple Trigger + 1-Hour Intraday Sniper")
 
         from core.mtf_scanner import scan_mtf_triple_screen_confluence
         session_mtf = get_session(engine)
@@ -1757,24 +1763,32 @@ if deck_category == "🌐 Multi-Asset & Breakouts":
 
         if mtf_setups:
             df_mtf = pd.DataFrame(mtf_setups)
+            disp_cols = ["symbol", "name", "sector", "current_price"]
+            if "hourly_status" in df_mtf.columns:
+                disp_cols.append("hourly_status")
+            disp_cols.extend(["daily_status", "weekly_status", "ripple_status"])
+            if "h_atr_sl" in df_mtf.columns:
+                disp_cols.append("h_atr_sl")
+            disp_cols.extend(["volume_ratio", "mtf_tier", "action"])
+
+            rename_dict = {
+                "symbol": "Symbol",
+                "name": "Company Name",
+                "sector": "Sector",
+                "current_price": "Price (₹)",
+                "hourly_status": "1H Sniper",
+                "daily_status": "Daily Wave",
+                "weekly_status": "Weekly Tide",
+                "ripple_status": "Ripple Trigger",
+                "h_atr_sl": "1H Sniper SL (₹)",
+                "volume_ratio": "Vol Ratio",
+                "mtf_tier": "Confluence Tier",
+                "action": "Institutional Action",
+            }
             st.dataframe(
-                df_mtf[[
-                    "symbol", "name", "sector", "current_price", "weekly_status", "daily_status", "ripple_status", "rsi", "volume_ratio", "mtf_tier", "action"
-                ]].rename(columns={
-                    "symbol": "Symbol",
-                    "name": "Company Name",
-                    "sector": "Sector",
-                    "current_price": "Price (₹)",
-                    "weekly_status": "Weekly Tide",
-                    "daily_status": "Daily Wave",
-                    "ripple_status": "Ripple Trigger",
-                    "rsi": "RSI (14)",
-                    "volume_ratio": "Vol Ratio",
-                    "mtf_tier": "MTF Tier",
-                    "action": "Institutional Action",
-                }).style.format({
+                df_mtf[[c for c in disp_cols if c in df_mtf.columns]].rename(columns=rename_dict).style.format({
                     "Price (₹)": "₹{:,.2f}",
-                    "RSI (14)": "{:.1f}",
+                    "1H Sniper SL (₹)": lambda x: f"₹{x:,.2f}" if pd.notnull(x) and x is not None else "—",
                     "Vol Ratio": "{:.2f}x",
                 }),
                 use_container_width=True,

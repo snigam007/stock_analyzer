@@ -234,16 +234,41 @@ def scan_apex_swing_candidates(
             if (cp >= e50 >= e200 * 0.98) and (m1 > 0 and m3 > 0 and m6 > 10.0) and (45.0 <= rsi <= 72.0):
                 score = round((m1 * 0.15) + (m3 * 0.25) + (m6 * 0.40) + (m12 * 0.20), 2)
 
-                sl_price = round(cp - (2.0 * atr), 2)
-                t1_price = round(cp + (1.5 * atr), 2)
-                t2_price = round(cp + (3.0 * atr), 2)
-                t3_price = round(cp + (8.5 * atr), 2)
+                # ─── Quantum 1-Hour Intraday Precision Layer ─────────────────
+                has_1h = False
+                h_atr = None
+                try:
+                    from core.hourly_fetcher import get_hourly_data
+                    h_df = get_hourly_data(sym, limit=30)
+                    if not h_df.empty and len(h_df) >= 14:
+                        h_tr = pd.concat([h_df["high"] - h_df["low"], (h_df["high"] - h_df["close"].shift(1)).abs(), (h_df["low"] - h_df["close"].shift(1)).abs()], axis=1).max(axis=1)
+                        h_atr = float(h_tr.rolling(14, min_periods=10).mean().bfill().iloc[-1])
+                        has_1h = True
+                except Exception:
+                    has_1h = False
+
+                if has_1h and h_atr and h_atr > 0:
+                    # 1-Hour Surgical ATR Stop Loss (1.8x 1H ATR instead of 2.0x daily ATR)
+                    risk_amt = max(cp * 0.015, round(1.8 * h_atr, 2))
+                    sl_price = round(cp - risk_amt, 2)
+                    t1_price = round(cp + (1.8 * risk_amt), 2)
+                    t2_price = round(cp + (3.0 * risk_amt), 2)
+                    t3_price = round(cp + (6.0 * risk_amt), 2)
+                    q_tier = "⚛️ QUAD-CONFLUENCE (1H+1D+1W+1M)"
+                    eff_mult = round((2.0 * atr) / risk_amt, 1)
+                else:
+                    sl_price = round(cp - (2.0 * atr), 2)
+                    t1_price = round(cp + (1.5 * atr), 2)
+                    t2_price = round(cp + (3.0 * atr), 2)
+                    t3_price = round(cp + (8.5 * atr), 2)
+                    q_tier = "⚛️ TRIPLE-CONFLUENCE (1D+1W+1M)"
+                    eff_mult = 1.0
 
                 sl_pct = round((sl_price - cp) / cp * 100.0, 2)
                 t1_pct = round((t1_price - cp) / cp * 100.0, 2)
                 t2_pct = round((t2_price - cp) / cp * 100.0, 2)
                 t3_pct = round((t3_price - cp) / cp * 100.0, 2)
-                rr_ratio = round((t2_price - cp) / abs(cp - sl_price), 2) if abs(cp - sl_price) > 0 else 2.0
+                rr_ratio = round((t2_price - cp) / abs(cp - sl_price), 2) if abs(cp - sl_price) > 0 else 2.5
 
                 candidates.append({
                     "symbol": sym,
@@ -267,6 +292,8 @@ def scan_apex_swing_candidates(
                     "target_3_runner": t3_price,
                     "target_3_pct": t3_pct,
                     "risk_reward_ratio": rr_ratio,
+                    "quantum_tier": q_tier,
+                    "efficiency_multiplier": f"{eff_mult:.1f}x",
                     "pyramid_trigger_price": round(cp * 1.04, 2),
                     "pyramid_breakeven_sl": round(cp * 1.002, 2),
                     "signal_date": str(latest["date"])

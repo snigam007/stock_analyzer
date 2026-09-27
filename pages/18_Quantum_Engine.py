@@ -36,29 +36,29 @@ from core.autonomous_learner import (
     execute_full_autonomous_learning_cycle
 )
 from core.hourly_fetcher import get_hourly_data_status, get_hourly_data
+from config.retro_theme import (
+    inject_retro_terminal_theme,
+    render_arcade_badge,
+    render_segmented_meter,
+    render_arcade_header,
+    RETRO_COLORS
+)
 
 init_quantum_db(DB_PATH)
 init_autonomous_learning_db(DB_PATH)
 
-# Page Header
-st.markdown("""
-<div style="background: linear-gradient(135deg, #0b0f19 0%, #1e1b4b 50%, #0b0f19 100%); padding: 24px; border-radius: 12px; border: 1px solid #312e81; margin-bottom: 24px;">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-        <div>
-            <h1 style="color: #f8fafc; margin: 0; font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px;">
-                ⚛️ QUANTUM MULTI-TIMEFRAME ENGINE
-            </h1>
-            <p style="color: #94a3b8; margin: 6px 0 0 0; font-size: 1.05rem;">
-                Cross-Granularity Intelligence · 1-Hour Precision Execution · Dynamic Value-Averaging SIP · Self-Improving AI Meta-Learner
-            </p>
-        </div>
-        <div style="text-align: right; background: rgba(49, 46, 129, 0.4); padding: 10px 16px; border-radius: 8px; border: 1px solid #4338ca;">
-            <div style="font-size: 0.75rem; color: #a5b4fc; text-transform: uppercase; letter-spacing: 1px; font-weight: 700;">SYSTEM STATUS</div>
-            <div style="font-size: 1.1rem; color: #38bdf8; font-weight: 800;">4-TIMEFRAME SYNCED</div>
-        </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+# Inject Retro Terminal Quant Theme Stylesheet
+inject_retro_terminal_theme()
+
+# Page Header Marquee
+st.markdown(
+    render_arcade_header(
+        "QUANTUM MULTI-TIMEFRAME ENGINE",
+        "Cross-Granularity Intelligence · 1-Hour Precision · Dynamic SIP · 4 Cognitive Pillars",
+        "4-TIMEFRAME SYNCED"
+    ),
+    unsafe_allow_html=True
+)
 
 # Status KPI ribbon
 db_stat = get_hourly_data_status(DB_PATH)
@@ -114,60 +114,56 @@ with tab_swing:
 
         for sig in swing_signals:
             sym = sig["symbol"]
+            conf_val = float(sig["confidence"])
+            conf_meter = render_segmented_meter(conf_val, 100.0, 10, mode="bullish" if conf_val >= 75 else "mana")
+            
+            badge_action = render_arcade_badge(f"1UP {sig['direction']}", "1UP")
+            badge_tier = render_arcade_badge(sig['confluence_tier'], "CYBER")
+            badge_size = render_arcade_badge(f"SIZE: {sig.get('size_multiplier', '1.00x')}", "CYBER")
+            badge_champ = render_arcade_badge(f"GENETIC ATR: {sig.get('champion_atr_multiplier', '1.80x')}", "QUANTUM")
+            badge_guard = render_arcade_badge("VETO: CLEARED", "1UP")
+            badge_dur = render_arcade_badge(f"HORIZON: ~{sig['holding_days']}D", "S-RANK")
+
             with st.container():
                 st.markdown(f"""
-                <div style="background-color: #111827; border: 1px solid #1f2937; border-left: 4px solid #38bdf8; border-radius: 10px; padding: 16px; margin-bottom: 14px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                        <div>
-                            <span style="font-size: 1.3rem; font-weight: 800; color: #f8fafc;">{sig['symbol']}</span>
-                            <span style="font-size: 0.9rem; color: #94a3b8; margin-left: 8px;">{sig['name']} · {sig['sector']}</span>
-                            <span style="background-color: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; margin-left: 10px;">{sig['confluence_tier']}</span>
+                <div style="background-color: {RETRO_COLORS['surface_container_low']}; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['primary']}; box-shadow: 6px 6px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%); padding: 18px; margin-bottom: 18px;">
+                    <!-- Marquee Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid {RETRO_COLORS['surface_container']}; padding-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                            {badge_action}
+                            <span style="font-family: 'Space Grotesk', sans-serif; font-size: 1.4rem; font-weight: 800; color: #f8fafc; letter-spacing: 0.05em;">{sig['symbol']}</span>
+                            <span style="font-family: 'JetBrains Mono'; font-size: 0.85rem; color: #94a3b8;">{sig['name']} · {sig['sector']}</span>
+                            {badge_tier}
                         </div>
-                        <div style="text-align: right;">
-                            <span style="font-size: 1.4rem; font-weight: 800; color: #22c55e;">₹{sig['current_price']:,}</span>
-                            <span style="font-size: 0.85rem; color: #a5b4fc; background: #312e81; padding: 3px 8px; border-radius: 6px; margin-left: 8px; font-weight: 700;">CONFIDENCE: {sig['confidence']}%</span>
-                        </div>
-                    </div>
-                    <div style="display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; background-color: #0b0f19; padding: 12px; border-radius: 8px; margin-top: 10px;">
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">ACTION</div>
-                            <div style="font-weight: 700; color: #22c55e;">{sig['direction']}</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">ENTRY TRIGGER</div>
-                            <div style="font-weight: 700; color: #f8fafc;">₹{sig['entry_price']}</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">1H ATR STOP LOSS</div>
-                            <div style="font-weight: 700; color: #ef4444;">₹{sig['stop_loss']} ({sig['risk_pct']})</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">TARGET 1 (1:1.5)</div>
-                            <div style="font-weight: 700; color: #38bdf8;">₹{sig['target_1']}</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">TARGET 2 (1:2.5)</div>
-                            <div style="font-weight: 700; color: #60a5fa;">₹{sig['target_2']}</div>
-                        </div>
-                        <div>
-                            <div style="font-size: 0.75rem; color: #94a3b8;">RISK:REWARD</div>
-                            <div style="font-weight: 700; color: #34d399;">{sig['risk_reward']}</div>
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="text-align: right;">
+                                <div style="font-family: 'JetBrains Mono'; font-size: 0.7rem; color: #94a3b8; text-transform: uppercase;">CONFIDENCE SCORE</div>
+                                {conf_meter}
+                            </div>
+                            <span style="font-family: 'JetBrains Mono'; font-size: 1.5rem; font-weight: 800; color: {RETRO_COLORS['primary']}; text-shadow: 0 0 6px {RETRO_COLORS['primary']};">₹{sig['current_price']:,}</span>
                         </div>
                     </div>
-                    <div style="display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; font-size: 0.8rem;">
-                        <span style="background: rgba(34, 197, 94, 0.15); color: #4ade80; padding: 2px 8px; border-radius: 4px; border: 1px solid #166534;">
-                            💧 Friction Size: <b>{sig.get('size_multiplier', '1.00x')}</b> ({sig.get('liquidity_rank', 'HIGH')} Liq)
-                        </span>
-                        <span style="background: rgba(168, 85, 247, 0.15); color: #c084fc; padding: 2px 8px; border-radius: 4px; border: 1px solid #7e22ce;">
-                            🧬 Genetic Champion ATR: <b>{sig.get('champion_atr_multiplier', '1.80x')}</b>
-                        </span>
-                        <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; padding: 2px 8px; border-radius: 4px; border: 1px solid #0369a1;">
-                            🛡️ Guardrail Veto: <b>Cleared (No Negative Rules Triggered)</b>
-                        </span>
+
+                    <!-- Dotted Terminal Leaders Grid -->
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background-color: {RETRO_COLORS['surface_container_lowest']}; border: 2px solid {RETRO_COLORS['surface_container']}; padding: 12px 16px; margin-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 0.84rem;">
+                        <div>ACTION........... <span style="color: {RETRO_COLORS['primary']}; font-weight: 700;">{sig['direction']}</span></div>
+                        <div>ENTRY TRIGGER.... <span style="color: #f8fafc; font-weight: 700;">₹{sig['entry_price']}</span></div>
+                        <div>1H ATR STOP...... <span style="color: {RETRO_COLORS['error']}; font-weight: 700;">₹{sig['stop_loss']} ({sig['risk_pct']})</span></div>
+                        <div>TARGET 1 (1:1.5).. <span style="color: {RETRO_COLORS['secondary']}; font-weight: 700;">₹{sig['target_1']}</span></div>
+                        <div>TARGET 2 (1:2.5).. <span style="color: {RETRO_COLORS['secondary']}; font-weight: 700;">₹{sig['target_2']}</span></div>
+                        <div>PAYOFF RATIO..... <span style="color: {RETRO_COLORS['tertiary']}; font-weight: 700;">{sig['risk_reward']}</span></div>
                     </div>
-                    <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 8px; display: flex; justify-content: space-between;">
-                        <span>💡 <b>Catalyst:</b> {sig['catalyst']}</span>
-                        <span>⏱️ <b>Expected Holding Horizon:</b> ~{sig['holding_days']} Trading Days</span>
+
+                    <!-- Telemetry Footnotes -->
+                    <div style="display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; align-items: center;">
+                        {badge_size}
+                        {badge_champ}
+                        {badge_guard}
+                        {badge_dur}
+                    </div>
+
+                    <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; color: #cbd5e1; margin-top: 10px; border-top: 1px dashed {RETRO_COLORS['surface_container']}; padding-top: 8px;">
+                        > <b>CATALYST TELEMETRY:</b> {sig['catalyst']}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -221,16 +217,27 @@ with tab_sip:
         top_dips = [r for r in sip_recs if float(r["multiplier"].replace("x", "")) >= 1.5][:4]
         for idx, dip in enumerate(top_dips):
             target_col = c1 if idx % 2 == 0 else c2
+            w_rsi_num = float(dip['weekly_rsi'])
+            rsi_meter = render_segmented_meter(w_rsi_num, 100.0, 8, mode="mana" if w_rsi_num > 45 else "gold")
+            mult_badge = render_arcade_badge(f"ALLOCATE {dip['multiplier']}", "S-RANK")
+            
             with target_col:
                 st.markdown(f"""
-                <div style="background-color: #111827; border: 1px solid #1f2937; border-left: 4px solid #22c55e; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
-                    <div style="display: flex; justify-content: space-between;">
-                        <span style="font-weight: 800; font-size: 1.1rem; color: #f8fafc;">{dip['symbol']}</span>
-                        <span style="font-weight: 700; color: #22c55e;">ALLOCATE {dip['multiplier']} (₹{int(base_monthly * float(dip['multiplier'].replace('x',''))):,})</span>
+                <div style="background-color: {RETRO_COLORS['surface_container_low']}; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['tertiary']}; box-shadow: 5px 5px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); padding: 16px; margin-bottom: 14px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid {RETRO_COLORS['surface_container']}; padding-bottom: 8px;">
+                        <span style="font-family: 'Space Grotesk'; font-weight: 800; font-size: 1.2rem; color: #f8fafc;">{dip['symbol']}</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            {mult_badge}
+                            <span style="font-family: 'JetBrains Mono'; font-weight: 700; color: {RETRO_COLORS['tertiary']}; font-size: 0.95rem;">₹{int(base_monthly * float(dip['multiplier'].replace('x',''))):,}</span>
+                        </div>
                     </div>
-                    <div style="font-size: 0.85rem; color: #94a3b8; margin: 4px 0;">{dip['name']} · {dip['sector']}</div>
-                    <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 6px;">
-                        <b>Signal:</b> {dip['rationale']}
+                    <div style="font-family: 'JetBrains Mono'; font-size: 0.8rem; color: #94a3b8; margin: 8px 0 6px 0;">{dip['name']} · {dip['sector']}</div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-family: 'JetBrains Mono'; font-size: 0.8rem;">
+                        <span style="color: {RETRO_COLORS['secondary']};">WEEKLY RSI TELEMETRY:</span>
+                        {rsi_meter}
+                    </div>
+                    <div style="font-family: 'JetBrains Mono'; font-size: 0.78rem; color: #cbd5e1; margin-top: 10px; border-top: 1px dashed {RETRO_COLORS['surface_container']}; padding-top: 8px;">
+                        > <b>SIGNAL:</b> {dip['rationale']}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -239,19 +246,23 @@ with tab_sip:
 # TAB 3: SELF-IMPROVING BAYESIAN BRAIN
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_bayesian:
-    st.markdown("### 🧠 Self-Improving Bayesian Reinforcement Matrix")
+    st.markdown(f"### 🧠 {render_arcade_badge('BAYESIAN MATRIX', 'QUANTUM')} Adaptive Reinforcement Engine", unsafe_allow_html=True)
     st.caption("Rather than static black-box ML, this engine uses Online Bayesian Updating (Thompson Sampling Contextual Multi-Armed Bandits) to adapt strategy weights in real-time as market regimes evolve.")
 
     b_col1, b_col2 = st.columns([1, 2])
     with b_col1:
         sel_regime = st.selectbox("Select Macro Market Regime to Inspect", ["BULL", "CHOP"], index=0)
         st.markdown(f"""
-        <div style="background-color: #111827; padding: 14px; border-radius: 8px; border: 1px solid #1e293b; margin-top: 10px;">
-            <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 700;">ACTIVE LEARNING MODEL</div>
-            <div style="font-size: 1.05rem; font-weight: 800; color: #38bdf8; margin-top: 4px;">Contextual Multi-Armed Bandit</div>
-            <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 8px;">
+        <div style="background-color: {RETRO_COLORS['surface_container_low']}; padding: 16px; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['secondary']}; box-shadow: 4px 4px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); margin-top: 10px;">
+            <div style="font-family: 'JetBrains Mono'; font-size: 0.75rem; color: {RETRO_COLORS['secondary']}; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;">[ LEARNING TELEMETRY ]</div>
+            <div style="font-family: 'Space Grotesk'; font-size: 1.15rem; font-weight: 800; color: #f8fafc; margin-top: 6px;">Contextual Multi-Armed Bandit</div>
+            <div style="font-family: 'JetBrains Mono'; font-size: 0.8rem; color: #cbd5e1; margin-top: 8px; line-height: 1.5;">
                 Every strategy is modelled as a Beta distribution prior: $\\theta_k \\sim \\text{{Beta}}(\\alpha_k, \\beta_k)$.
-                Realized out-of-sample forward results dynamically update the priors with a memory decay factor $\\lambda=0.98$.
+                Realized out-of-sample forward results dynamically update priors with a memory decay factor $\\lambda=0.98$.
+            </div>
+            <div style="margin-top: 12px; display: flex; gap: 6px;">
+                {render_arcade_badge("ONLINE UPDATING", "S-RANK")}
+                {render_arcade_badge("DECAY: 0.98", "CYBER")}
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -260,20 +271,33 @@ with tab_bayesian:
     
     with b_col2:
         if not weights_df.empty:
+            retro_color_scale = [
+                [0.0, RETRO_COLORS['surface_container_high']],
+                [0.5, RETRO_COLORS['secondary']],
+                [1.0, RETRO_COLORS['primary']]
+            ]
             fig = px.bar(
                 weights_df,
                 x="current_weight",
                 y="strategy_name",
                 orientation="h",
                 color="win_rate_realized",
-                color_continuous_scale="Viridis",
-                labels={"current_weight": "Allocated Weight", "strategy_name": "Strategy", "win_rate_realized": "Realized Win Rate (%)"},
+                color_continuous_scale=retro_color_scale,
+                labels={"current_weight": "Allocated Weight", "strategy_name": "Strategy Architecture", "win_rate_realized": "Realized Win Rate (%)"},
                 title=f"Adaptive Strategy Allocation Weights ({sel_regime} Regime)"
             )
-            fig.update_layout(height=320, margin=dict(l=10, r=10, t=35, b=10), paper_bgcolor="#0b0f19", plot_bgcolor="#0b0f19", font=dict(color="#f8fafc"))
+            fig.update_layout(
+                height=320, 
+                margin=dict(l=10, r=10, t=35, b=10), 
+                paper_bgcolor=RETRO_COLORS['surface_container_lowest'], 
+                plot_bgcolor=RETRO_COLORS['surface_container_lowest'], 
+                font=dict(color="#dfe2f1", family="'JetBrains Mono', monospace"),
+                xaxis=dict(gridcolor=RETRO_COLORS['surface_container']),
+                yaxis=dict(gridcolor=RETRO_COLORS['surface_container'])
+            )
             st.plotly_chart(fig, use_container_width=True)
 
-    st.markdown("#### 📊 Strategy Parameter Ledger")
+    st.markdown(f"#### {render_arcade_badge('STRATEGY LEDGER', 'SYSTEM')} Dynamic Parameter Matrix", unsafe_allow_html=True)
     st.dataframe(
         weights_df[["strategy_name", "regime", "current_weight", "win_rate_realized", "alpha", "beta", "trades_count", "last_updated"]],
         use_container_width=True,
@@ -291,13 +315,13 @@ with tab_bayesian:
 # TAB 4: AUTONOMOUS SELF-IMPROVING AGENT (4 PILLARS)
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_learner:
-    st.markdown("### 🤖 Autonomous Self-Improving Agent (4 Cognitive Pillars)")
+    st.markdown(f"### 🤖 {render_arcade_badge('AUTONOMOUS BRAIN', '1UP')} 4 Cognitive Learning Pillars", unsafe_allow_html=True)
     st.caption("A closed-loop AI trading brain that continuously evaluates historical outcomes, induces negative rules from failure cases, genetic-tests challenger parameters, and adapts to empirical microstructure friction.")
 
     # Top Trigger & Status Banner
     l_box1, l_box2 = st.columns([2, 5])
     with l_box1:
-        if st.button("⚡ Run Full 4-Pillar Learning Cycle", type="primary", use_container_width=True):
+        if st.button("⚡ EXECUTE FULL 4-PILLAR LEARNING CYCLE", type="primary", use_container_width=True):
             with st.spinner("Executing Autonomous Closed-Loop Learning Cycle across all 4 Pillars..."):
                 try:
                     res = execute_full_autonomous_learning_cycle(DB_PATH)
@@ -310,15 +334,15 @@ with tab_learner:
                     st.error(f"Learning cycle error: {e}")
 
     with l_box2:
-        st.markdown("""
-        <div style="background-color: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 10px 16px;">
-            <span style="font-size: 0.85rem; color: #94a3b8;">
-                🧠 <b>Continuous Evolution Daemon</b>: Self-improves automatically upon daily market data ingestion (Step 16 in update pipeline). Manual execution runs all 4 cognitive modules on current state.
-            </span>
+        st.markdown(f"""
+        <div style="background-color: {RETRO_COLORS['surface_container_low']}; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['primary']}; box-shadow: 4px 4px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); padding: 12px 18px;">
+            <div style="font-family: 'JetBrains Mono'; font-size: 0.85rem; color: #dfe2f1;">
+                <span style="color: {RETRO_COLORS['primary']}; font-weight: 700;">[ CONTINUOUS EVOLUTION DAEMON ]</span>: Self-improves automatically upon daily market data ingestion (Step 16 in update pipeline). Manual execution runs all 4 cognitive modules on current state.
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='height: 14px;'></div>", unsafe_allow_html=True)
 
     # Sub-tabs for the 4 Pillars
     sub_p1, sub_p2, sub_p3, sub_p4 = st.tabs([
@@ -330,7 +354,7 @@ with tab_learner:
 
     # ── PILLAR 1: Experience Replay ──
     with sub_p1:
-        st.markdown("#### 🔁 Pillar 1: Experience Replay Daemon & Closed-Loop Bayesian Updating")
+        st.markdown(f"#### 🔁 {render_arcade_badge('PILLAR 1', 'CYBER')} Experience Replay Daemon & Closed-Loop Bayesian Updating", unsafe_allow_html=True)
         st.caption("Causally audits resolved signals against out-of-sample forward price action, calculates realized R-multiples, and dynamically updates Thompson Sampling Beta distribution priors.")
 
         conn = sqlite3.connect(DB_PATH, timeout=60.0)
@@ -354,7 +378,7 @@ with tab_learner:
             k3.metric("Resolved Win Rate", f"{ovr_win_rate}%", "Out-of-Sample Forward")
             k4.metric("Average R-Multiple", f"{avg_r:+.2f}R", "Risk-Adjusted Payoff")
 
-            st.markdown("##### 📜 Historical Learning Cycles Ledger")
+            st.markdown(f"##### 📜 {render_arcade_badge('CYCLE LOGS', 'SYSTEM')} Historical Learning Cycles Ledger", unsafe_allow_html=True)
             st.dataframe(
                 cycles_df[["cycle_timestamp", "trades_resolved_count", "wins_count", "losses_count", "win_rate_pct", "avg_r_multiple", "regime", "summary_notes"]],
                 use_container_width=True,
@@ -370,11 +394,11 @@ with tab_learner:
                 }
             )
         else:
-            st.info("No learning cycles recorded yet. Click 'Run Full 4-Pillar Learning Cycle' above to seed the initial cycle.")
+            st.info("No learning cycles recorded yet. Click 'EXECUTE FULL 4-PILLAR LEARNING CYCLE' above to seed the initial cycle.")
 
     # ── PILLAR 2: Symbolic RCA ──
     with sub_p2:
-        st.markdown("#### 🛡️ Pillar 2: Symbolic Post-Mortem Root Cause Analysis & Rule Induction")
+        st.markdown(f"#### 🛡️ {render_arcade_badge('PILLAR 2', 'DEFENSE')} Symbolic Post-Mortem Root Cause Analysis & Rule Induction", unsafe_allow_html=True)
         st.caption("When a stop loss is tagged, the symbolic engine dissects market breadth, opening gap exhaustions, sector relative strength divergence, and intraday RSI climaxes to induce persistent negative veto rules.")
 
         conn = sqlite3.connect(DB_PATH, timeout=60.0)
@@ -394,7 +418,7 @@ with tab_learner:
             r2.metric("Total Bad Trades Prevented", f"{tot_vetoed} Trades", "Capital Preserved")
             r3.metric("Top Defense Rule", rules_df.iloc[0]["rule_code"], f"{rules_df.iloc[0]['veto_count']} Vetoes")
 
-            st.markdown("##### 🛑 Active Learned Negative Veto Rules")
+            st.markdown(f"##### 🛑 {render_arcade_badge('VETO GUARDRAILS', 'DEFENSE')} Active Learned Negative Veto Rules", unsafe_allow_html=True)
             st.dataframe(
                 rules_df[["rule_code", "category", "description", "trigger_condition", "veto_count", "last_triggered", "is_active"]],
                 use_container_width=True,
@@ -409,20 +433,20 @@ with tab_learner:
                 }
             )
 
-        st.markdown("""
-        <div style="background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin-top: 14px;">
-            <h5 style="color: #38bdf8; margin: 0 0 6px 0;">🔬 How Symbolic Rule Induction Protects Capital</h5>
-            <p style="color: #94a3b8; font-size: 0.85rem; margin: 0; line-height: 1.5;">
+        st.markdown(f"""
+        <div style="background-color: {RETRO_COLORS['surface_container_low']}; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['error']}; box-shadow: 4px 4px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); padding: 16px; margin-top: 14px;">
+            <div style="font-family: 'Space Grotesk'; font-size: 1.1rem; font-weight: 800; color: {RETRO_COLORS['error']}; margin: 0 0 6px 0;">🔬 HOW SYMBOLIC RULE INDUCTION PROTECTS CAPITAL</div>
+            <p style="font-family: 'JetBrains Mono'; color: #cbd5e1; font-size: 0.85rem; margin: 0; line-height: 1.5;">
                 Unlike black-box neural networks that blindly retrain on noise, the symbolic engine performs deterministic failure attribution.
                 If a stock's stop loss is triggered after an opening gap ≥ +2.5% or 1H RSI ≥ 78.0, the failure is categorized and the negative rule's priority weight is reinforced.
-                Subsequent setups matching these conditions are immediately vetoed before entry.
+                Subsequent setups matching these conditions are immediately vetoed before capital deployment.
             </p>
         </div>
         """, unsafe_allow_html=True)
 
     # ── PILLAR 3: Parameter Evolution ──
     with sub_p3:
-        st.markdown("#### 🧬 Pillar 3: Champion vs. Challenger Genetic Parameter Evolution")
+        st.markdown(f"#### 🧬 {render_arcade_badge('PILLAR 3', 'QUANTUM')} Champion vs. Challenger Genetic Parameter Evolution", unsafe_allow_html=True)
         st.caption("Continuous walk-forward tournament arena testing mutated parameters against reigning champions. Challengers must demonstrate a statistically significant Calmar gain (≥ 15%) across out-of-sample forward windows to win autonomous promotion.")
 
         conn = sqlite3.connect(DB_PATH, timeout=60.0)
@@ -442,7 +466,7 @@ with tab_learner:
             c2.metric("Challengers in Arena", f"{testing} Candidates", "Walk-Forward Testing")
             c3.metric("Autonomous Promotions", f"{promotions} Won", "Calmar Superiority")
 
-            st.markdown("##### 🏆 Genetic Parameter Tournament Arena")
+            st.markdown(f"##### 🏆 {render_arcade_badge('GENETIC ARENA', 'S-RANK')} Parameter Tournament Results", unsafe_allow_html=True)
             st.dataframe(
                 params_df[["parameter_key", "champion_value", "challenger_value", "champion_calmar", "challenger_calmar", "champion_win_rate", "challenger_win_rate", "status", "evaluation_notes"]],
                 use_container_width=True,
@@ -459,10 +483,10 @@ with tab_learner:
                 }
             )
 
-        st.markdown("""
-        <div style="background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; padding: 14px; margin-top: 14px;">
-            <h5 style="color: #38bdf8; margin: 0 0 6px 0;">🛡️ Non-Stationarity & Anti-Overfitting Safeguards</h5>
-            <p style="color: #94a3b8; font-size: 0.85rem; margin: 0; line-height: 1.5;">
+        st.markdown(f"""
+        <div style="background-color: {RETRO_COLORS['surface_container_low']}; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['tertiary']}; box-shadow: 4px 4px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); padding: 16px; margin-top: 14px;">
+            <div style="font-family: 'Space Grotesk'; font-size: 1.1rem; font-weight: 800; color: {RETRO_COLORS['tertiary']}; margin: 0 0 6px 0;">🛡️ NON-STATIONARITY & ANTI-OVERFITTING SAFEGUARDS</div>
+            <p style="font-family: 'JetBrains Mono'; color: #cbd5e1; font-size: 0.85rem; margin: 0; line-height: 1.5;">
                 To prevent parameter overfitting, candidate mutations are evaluated exclusively on Combinatorial Purged Cross-Validation (CPCV) and live out-of-sample forward trades.
                 A challenger is only promoted when its Calmar ratio outperforms the champion by ≥ 15% without reducing win rate by more than 2%.
             </p>
@@ -471,7 +495,7 @@ with tab_learner:
 
     # ── PILLAR 4: Friction & Microstructure ──
     with sub_p4:
-        st.markdown("#### 💧 Pillar 4: Friction & Market Microstructure Learning")
+        st.markdown(f"#### 💧 {render_arcade_badge('PILLAR 4', 'CYBER')} Friction & Market Microstructure Learning", unsafe_allow_html=True)
         st.caption("Empirical measurements of bid-ask spread width, upper/lower wick slippage, and liquidity rank across all 300+ equities to automatically calibrate position sizing factors and stop distance penalties.")
 
         conn = sqlite3.connect(DB_PATH, timeout=60.0)
@@ -499,7 +523,7 @@ with tab_learner:
             if f_search:
                 fric_df = fric_df[fric_df["symbol"].str.contains(f_search.upper(), na=False)]
 
-            st.markdown("##### 📋 Universe Microstructure & Friction Drag Ledger")
+            st.markdown(f"##### 📋 {render_arcade_badge('MICROSTRUCTURE LEDGER', 'SYSTEM')} Universe Friction Drag Ledger", unsafe_allow_html=True)
             st.dataframe(
                 fric_df[["symbol", "avg_spread_bps", "wick_volatility_pct", "liquidity_rank", "friction_penalty_pct", "recommended_size_multiplier", "last_updated"]],
                 use_container_width=True,
@@ -515,21 +539,21 @@ with tab_learner:
                 }
             )
         else:
-            st.info("No microstructure friction records found. Click 'Run Full 4-Pillar Learning Cycle' above to calibrate.")
+            st.info("No microstructure friction records found. Click 'EXECUTE FULL 4-PILLAR LEARNING CYCLE' above to calibrate.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TAB 5: VERIFIABLE PROOFS & BACKTESTS
 # ─────────────────────────────────────────────────────────────────────────────
 with tab_proofs:
-    st.markdown("### 📜 Verifiable Mathematical Proofs & Empirical Evidence")
+    st.markdown(f"### 📜 {render_arcade_badge('EMPIRICAL EVIDENCE', 'CYBER')} Verifiable Mathematical Proofs & Backtests", unsafe_allow_html=True)
     st.caption("Every claim in the Quantum Engine is backed by rigorous out-of-sample quantitative backtests across the NSE equity universe.")
 
     p_col1, p_col2 = st.columns(2)
     with p_col1:
-        st.markdown("""
-        #### 1. The Multi-Scale Variance Reduction Proof
-        Why single-horizon strategies fail in real-world trading:
-        """)
+        st.markdown(f"""
+        #### 1. Multi-Scale Variance Reduction Proof
+        {render_arcade_badge('TIMEFRAME TELEMETRY', 'S-RANK')} Why single-horizon strategies fail in real-world trading:
+        """, unsafe_allow_html=True)
         proof_data = pd.DataFrame([
             {"Granularity": "1-Hour Standalone", "Win Rate": "25.0%", "Profit Factor": 0.50, "Verdict": "Fails (High Churn & 20 bps STT/Spread Drag)"},
             {"Granularity": "Daily Standalone", "Win Rate": "25.3%", "Profit Factor": 0.66, "Verdict": "Sub-optimal in Choppy Regimes"},
@@ -540,10 +564,10 @@ with tab_proofs:
         st.dataframe(proof_data, use_container_width=True)
 
     with p_col2:
-        st.markdown("""
-        #### 2. The Dynamic SIP Value-Averaging Proof (5-Year Study)
-        Empirical proof of Dynamic Value-Averaging vs Static Flat SIP across Bluechips:
-        """)
+        st.markdown(f"""
+        #### 2. Dynamic SIP Value-Averaging Proof
+        {render_arcade_badge('5-YEAR ALPHA STUDY', '1UP')} Empirical proof of Dynamic Value-Averaging vs Static Flat SIP across Bluechips:
+        """, unsafe_allow_html=True)
         sip_proof_data = pd.DataFrame([
             {"Asset": "RELIANCE", "Static Flat SIP": "+1563.5%", "Quantum Dynamic SIP": "+1711.9%", "Alpha Generated": "+148.3%"},
             {"Asset": "TCS", "Static Flat SIP": "+1029.4%", "Quantum Dynamic SIP": "+1186.4%", "Alpha Generated": "+157.0%"},
@@ -554,13 +578,14 @@ with tab_proofs:
         ])
         st.dataframe(sip_proof_data, use_container_width=True)
 
-    st.markdown("""
-    <div style="background-color: #0b0f19; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-top: 14px;">
-        <h5 style="color: #38bdf8; margin: 0 0 8px 0;">🏛️ The Grinold-Kahn Information Ratio Scaling Theorem</h5>
-        <p style="color: #cbd5e1; font-size: 0.9rem; margin: 0; line-height: 1.5;">
+    st.markdown(f"""
+    <div style="background-color: {RETRO_COLORS['surface_container_low']}; border: 3px solid {RETRO_COLORS['surface_container']}; border-left: 6px solid {RETRO_COLORS['quantum']}; box-shadow: 4px 4px 0px 0px {RETRO_COLORS['shadow_ink']}; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); padding: 18px; margin-top: 14px;">
+        <div style="font-family: 'Space Grotesk'; font-size: 1.15rem; font-weight: 800; color: {RETRO_COLORS['quantum']}; margin: 0 0 8px 0;">🏛️ THE GRINOLD-KAHN INFORMATION RATIO SCALING THEOREM</div>
+        <p style="font-family: 'JetBrains Mono'; color: #dfe2f1; font-size: 0.88rem; margin: 0; line-height: 1.6;">
             By integrating 1-Hour candles for execution, we increase the number of independent betting opportunities (Breadth $BR$) from 252 to 1,764 per year.
             However, to prevent the 20 bps roundtrip statutory friction from destroying alpha, trades are <b>strictly conditioned on Weekly Stage 2 Expansion and Monthly Secular Support</b>.
             This preserves the high Information Coefficient ($IC$) while tightening the stop loss distance by up to 50%, maximizing geometric capital compounding.
         </p>
     </div>
     """, unsafe_allow_html=True)
+

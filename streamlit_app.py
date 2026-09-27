@@ -34,81 +34,28 @@ st.set_page_config(
     },
 )
 
-# ─── Modern Design System CSS ─────────────────────────────────────────────────
-st.markdown("""
-<style>
-    /* Dark Modern Theme Backgrounds */
-    [data-testid="stSidebar"] {
-        background-color: #0b0f19;
-        border-right: 1px solid #1e293b;
-    }
-    .main {
-        background-color: #0a0e17;
-    }
+from config.retro_theme import inject_retro_terminal_theme, render_arcade_badge
 
-    /* Metric Cards */
-    div[data-testid="metric-container"] {
-        background-color: #111827;
-        border: 1px solid #1f2937;
-        border-radius: 10px;
-        padding: 12px 18px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-    }
-
-    /* Signal badges */
-    .signal-buy {
-        background-color: rgba(0, 200, 117, 0.15);
-        color: #00c875;
-        border: 1px solid rgba(0, 200, 117, 0.3);
-        padding: 4px 12px; border-radius: 20px;
-        font-weight: 700; font-size: 0.85em;
-    }
-    .signal-sell {
-        background-color: rgba(239, 68, 68, 0.15);
-        color: #ef4444;
-        border: 1px solid rgba(239, 68, 68, 0.3);
-        padding: 4px 12px; border-radius: 20px;
-        font-weight: 700; font-size: 0.85em;
-    }
-    .signal-watch {
-        background-color: rgba(245, 158, 11, 0.15);
-        color: #f59e0b;
-        border: 1px solid rgba(245, 158, 11, 0.3);
-        padding: 4px 12px; border-radius: 20px;
-        font-weight: 700; font-size: 0.85em;
-    }
-
-    /* Navigation styling */
-    [data-testid="stSidebarNav"] span {
-        font-weight: 500;
-        font-size: 0.92em;
-    }
-    [data-testid="stSidebarNav"] div[data-testid="stSidebarNavSeparator"] {
-        border-top: 1px solid #1e293b;
-        margin: 8px 0;
-    }
-
-    /* Disclaimer container */
-    .disclaimer-pill {
-        background-color: #111827;
-        border-left: 3px solid #f59e0b;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 0.75em;
-        color: #94a3b8;
-        line-height: 1.4;
-    }
-</style>
-""", unsafe_allow_html=True)
+# ─── Retro Terminal Quant Theme Injection ─────────────────────────────────────
+inject_retro_terminal_theme()
 
 # ─── Sidebar Branding & Info ──────────────────────────────────────────────────
 with st.sidebar:
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 0 10px 0;">
-        <span style="font-size: 1.8em;">🏛️</span>
-        <div>
-            <div style="font-weight: 800; font-size: 1.1em; color: #f8fafc; letter-spacing: 0.5px;">STOCK ANALYZER</div>
-            <div style="font-size: 0.75em; color: #38bdf8; font-weight: 600;">INSTITUTIONAL ADVISORY · v{APP_VERSION}</div>
+    <div style="background-color: #171b26; border: 3px solid #00ff66; box-shadow: 4px 4px 0px 0px #030712; padding: 12px 14px; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <span style="font-family: 'Space Grotesk', sans-serif; font-weight: 800; font-size: 1.15rem; color: #f8fafc; letter-spacing: 0.08em;">
+                🕹️ RETRO QUANT
+            </span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: #00ff66; color: #030712; padding: 2px 6px; font-weight: 700; box-shadow: 2px 2px 0px #030712;">
+                1UP
+            </span>
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #00eefc; margin-top: 6px;">
+            > HIGH-SCORE ALGO TERMINAL
+        </div>
+        <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: #849581; margin-top: 2px;">
+            VER: {APP_VERSION} · READY
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -151,8 +98,11 @@ pg = st.navigation(workspaces)
 
 # Render Sidebar Footer
 with st.sidebar:
-    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
-    st.markdown(f'<div class="disclaimer-pill">{DISCLAIMER[:120]}...</div>', unsafe_allow_html=True)
+    st.markdown(f'''
+    <div style="background-color: #111827; border: 2px solid #313540; border-left: 4px solid #ffd700; box-shadow: 3px 3px 0px 0px #030712; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: #b9ccb5;">
+        <span style="color: #ffd700; font-weight: 700;">[ RISK NOTICE ]</span> {DISCLAIMER[:120]}...
+    </div>
+    ''', unsafe_allow_html=True)
 
 # Run Selected Page
 pg.run()

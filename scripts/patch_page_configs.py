@@ -32,7 +32,7 @@ def patch_file(filepath: Path):
 
 if __name__ == "__main__":
     base_dir = Path(__file__).resolve().parent.parent
-    for folder in [base_dir / "app" / "pages", base_dir / "pages"]:
+    for folder in [base_dir / "pages"]:
         if folder.exists():
             for py_file in folder.glob("*.py"):
                 patch_file(py_file)

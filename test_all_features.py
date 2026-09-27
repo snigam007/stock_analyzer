@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 from pathlib import Path
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -27,7 +27,7 @@ print("Global Sentiment:", global_mkt["global_sentiment_index"], "| Verdict:", g
 print("\n=== 2. TESTING MULTI-ASSET STOCK/INDEX/COMMODITY ANALYSIS ===")
 import importlib.util
 
-spec2 = importlib.util.spec_from_file_location("p2", "app/pages/2_Stock_Analysis.py")
+spec2 = importlib.util.spec_from_file_location("p2", "pages/2_Stock_Analysis.py")
 p2 = importlib.util.module_from_spec(spec2)
 spec2.loader.exec_module(p2)
 
@@ -79,7 +79,7 @@ pdf_bytes = generate_institutional_advisory_pdf(
 print("Advisory PDF Generated successfully! Size:", len(pdf_bytes), "bytes")
 
 print("\n=== 3. TESTING DAILY TOP STOCKS (ALL TABS) ===")
-spec4 = importlib.util.spec_from_file_location("p4", "app/pages/4_Daily_Top_Stocks.py")
+spec4 = importlib.util.spec_from_file_location("p4", "pages/4_Daily_Top_Stocks.py")
 p4 = importlib.util.module_from_spec(spec4)
 spec4.loader.exec_module(p4)
 
@@ -106,7 +106,7 @@ champ = find_champion_strategy("TCS", session)
 print("Champion strategy for TCS:", champ["champion"]["strategy_name"], "| Return:", champ["champion"]["total_return_pct"], "%")
 
 print("\n=== 5. TESTING TRENDS & COMMODITY HUMAN NAMES ===")
-spec5 = importlib.util.spec_from_file_location("p5", "app/pages/5_Trends.py")
+spec5 = importlib.util.spec_from_file_location("p5", "pages/5_Trends.py")
 p5 = importlib.util.module_from_spec(spec5)
 spec5.loader.exec_module(p5)
 print("Commodity names mapped:", len(p5.COMMODITY_NAMES))

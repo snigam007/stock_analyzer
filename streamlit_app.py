@@ -1,6 +1,7 @@
 """
-Indian Stock Market Analyzer & Institutional Powerhouse
-Streamlit Community Cloud Master Entry Point
+Main Streamlit App — Indian Stock Market Analyzer & Institutional Powerhouse
+Single Master Entrypoint with Modern Workspace Navigation (st.navigation)
+Runs identically on Local and Streamlit Community Cloud.
 """
 import sys
 from pathlib import Path
@@ -8,129 +9,149 @@ import streamlit as st
 
 # Configure Root Paths
 BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
 
-# Page Configuration
+from config.settings import APP_TITLE, APP_VERSION, DISCLAIMER
+from db.database import create_all_tables, get_global_engine
+
+# ─── Ensure Database Schema ───────────────────────────────────────────────────
+@st.cache_resource
+def _ensure_db_tables():
+    create_all_tables(get_global_engine())
+    return True
+
+_ensure_db_tables()
+
+# ─── Global Page Configuration ────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Indian Stock Analyzer | Institutional Intelligence",
+    page_title=APP_TITLE,
     page_icon="🏛️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        "About": f"{APP_TITLE} v{APP_VERSION} — Institutional Quantitative Intelligence",
+    },
 )
 
-# Custom CSS Theme Styling
+# ─── Modern Design System CSS ─────────────────────────────────────────────────
 st.markdown("""
 <style>
-    /* Main Background */
-    [data-testid="stSidebar"] { background-color: #0d1117; }
-    .main { background-color: #0e1117; }
+    /* Dark Modern Theme Backgrounds */
+    [data-testid="stSidebar"] {
+        background-color: #0b0f19;
+        border-right: 1px solid #1e293b;
+    }
+    .main {
+        background-color: #0a0e17;
+    }
 
     /* Metric Cards */
     div[data-testid="metric-container"] {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        border-radius: 8px;
-        padding: 12px 16px;
+        background-color: #111827;
+        border: 1px solid #1f2937;
+        border-radius: 10px;
+        padding: 12px 18px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    /* Signal badges */
+    .signal-buy {
+        background-color: rgba(0, 200, 117, 0.15);
+        color: #00c875;
+        border: 1px solid rgba(0, 200, 117, 0.3);
+        padding: 4px 12px; border-radius: 20px;
+        font-weight: 700; font-size: 0.85em;
+    }
+    .signal-sell {
+        background-color: rgba(239, 68, 68, 0.15);
+        color: #ef4444;
+        border: 1px solid rgba(239, 68, 68, 0.3);
+        padding: 4px 12px; border-radius: 20px;
+        font-weight: 700; font-size: 0.85em;
+    }
+    .signal-watch {
+        background-color: rgba(245, 158, 11, 0.15);
+        color: #f59e0b;
+        border: 1px solid rgba(245, 158, 11, 0.3);
+        padding: 4px 12px; border-radius: 20px;
+        font-weight: 700; font-size: 0.85em;
+    }
+
+    /* Navigation styling */
+    [data-testid="stSidebarNav"] span {
+        font-weight: 500;
+        font-size: 0.92em;
+    }
+    [data-testid="stSidebarNav"] div[data-testid="stSidebarNavSeparator"] {
+        border-top: 1px solid #1e293b;
+        margin: 8px 0;
+    }
+
+    /* Disclaimer container */
+    .disclaimer-pill {
+        background-color: #111827;
+        border-left: 3px solid #f59e0b;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.75em;
+        color: #94a3b8;
+        line-height: 1.4;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Import Database & Core Modules
-from db.database import get_global_engine, get_session, create_all_tables
-from core.macro_regime import evaluate_macro_regime
-from core.global_markets import analyze_global_market_spillovers
-from core.news_sentiment import get_market_news_sentiment
-from core.data_status import get_database_status_summary
-
-engine = get_global_engine()
-create_all_tables(engine)
-session = get_session(engine)
-
-# Evaluate Live Regimes & DB Freshness
-macro = evaluate_macro_regime(session)
-global_mkt = analyze_global_market_spillovers(session)
-news_sent = get_market_news_sentiment()
-db_status = get_database_status_summary(session)
-session.close()
-
-# ── Title & Institutional Banner ──────────────────────────────────────────────
-st.title("🏛️ Indian Stock Market Analyzer & Institutional Powerhouse")
-st.caption("AI-Powered Quantitative Multi-Model Forecasting, Strategy Backtesting & Portfolio Optimization")
-
-# Live Data Refresh Banner
-st.markdown(f"""
-<div style="background: linear-gradient(90deg, #0e271f, #0c1822); border-left: 5px solid #00c875; padding: 12px 18px; border-radius: 6px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-    <div>
-        <span style="font-size: 1.1em; font-weight: bold; color: #00c875;">📅 Data Refresh Date: {db_status['max_date']} (Latest Market Session)</span> • 
-        <span style="color: #c8d0d8; font-size: 0.95em;"><b>{db_status['status_badge']}</b></span><br>
-        <span style="font-size: 0.88em; color: #a0aec0;">Universe Covered: <b>{db_status['stock_count']} Equities</b> • <b>{db_status['index_count']} Indexes</b> • <b>{db_status['commodity_count']} Commodities</b> ({db_status['total_assets']} Total Assets | {db_status['total_bars']:,} Historical Bars)</span>
+# ─── Sidebar Branding & Info ──────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown(f"""
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 0 10px 0;">
+        <span style="font-size: 1.8em;">🏛️</span>
+        <div>
+            <div style="font-weight: 800; font-size: 1.1em; color: #f8fafc; letter-spacing: 0.5px;">STOCK ANALYZER</div>
+            <div style="font-size: 0.75em; color: #38bdf8; font-weight: 600;">INSTITUTIONAL ADVISORY · v{APP_VERSION}</div>
+        </div>
     </div>
-    <div style="margin-top: 4px;">
-        <span style="background-color: #1f6feb; color: white; padding: 4px 10px; border-radius: 12px; font-size: 0.8em; font-weight: 600;">⚡ Scheduled: 08:00 AM IST</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-# Macro Regime Banner
-st.markdown(f"""
-<div style="background: linear-gradient(90deg, #102130, #0c1822); border-left: 5px solid #00a8ff; padding: 12px 18px; border-radius: 6px; margin-bottom: 12px;">
-    <span style="font-size: 1.1em; font-weight: bold; color: #00a8ff;">🏛️ Macro Market Regime: {macro['regime']} (Macro Score: {macro['macro_score']}/100)</span><br>
-    <span style="font-size: 0.9em; color: #c8d0d8;">{macro['summary']}</span><br>
-    <span style="font-size: 0.88em; color: #00e5ff;"><b>Advisory Asset Allocation:</b> Equities <b>{macro['recommended_allocation']['Equities %']}%</b> | Gold & Commodities <b>{macro['recommended_allocation']['Gold & Commodities %']}%</b> | Cash & Liquid <b>{macro['recommended_allocation']['Cash & Liquid %']}%</b></span>
-</div>
-""", unsafe_allow_html=True)
+# ─── Navigation Workspace Hierarchy ───────────────────────────────────────────
+workspaces = {
+    "🏛️ Market Pulse & Macro": [
+        st.Page(BASE_DIR / "pages/0_Overview.py", title="Market Overview", icon="🏠", default=True),
+        st.Page(BASE_DIR / "pages/1_Dashboard.py", title="Live Dashboard", icon="📈"),
+        st.Page(BASE_DIR / "pages/10_360_Asset_Summary.py", title="360° Macro & Multi-Asset", icon="🌐"),
+    ],
+    "🔍 Asset Intelligence": [
+        st.Page(BASE_DIR / "pages/2_Stock_Analysis.py", title="Stock Deep-Dive", icon="🔍"),
+        st.Page(BASE_DIR / "pages/3_Sector_Analysis.py", title="Sector Analysis & Rotation", icon="🏭"),
+        st.Page(BASE_DIR / "pages/5_Trends.py", title="Trend & AI Forecasts", icon="📉"),
+        st.Page(BASE_DIR / "pages/17_Mutual_Funds_Radar.py", title="Mutual Funds Radar", icon="📊"),
+    ],
+    "⚡ Opportunities & Screeners": [
+        st.Page(BASE_DIR / "pages/4_Daily_Top_Stocks.py", title="Daily Top Picks", icon="🏆"),
+        st.Page(BASE_DIR / "pages/12_Trading_Terminal_Matrix.py", title="Trading Terminal Matrix", icon="⚡"),
+        st.Page(BASE_DIR / "pages/16_Monthly_SIP_and_Sell_Radar.py", title="Monthly SIP & Sell Radar", icon="💰"),
+        st.Page(BASE_DIR / "pages/15_Institutional_Deals_and_Calendar.py", title="Deals & Macro Calendar", icon="🏦"),
+    ],
+    "💼 Portfolio & Wealth Lab": [
+        st.Page(BASE_DIR / "pages/11_Portfolio_Advisor.py", title="Portfolio Advisor & Audit", icon="💼"),
+        st.Page(BASE_DIR / "pages/8_Portfolio_Optimizer.py", title="Portfolio Optimizer & Frontier", icon="⚖️"),
+        st.Page(BASE_DIR / "pages/14_Watchlist_and_Alerts.py", title="Watchlists & 52W Radar", icon="⭐"),
+    ],
+    "🧪 Quant Lab & Operations": [
+        st.Page(BASE_DIR / "pages/7_Backtesting.py", title="Strategy Backtesting Engine", icon="🧪"),
+        st.Page(BASE_DIR / "pages/6_Strategies.py", title="Algorithmic Strategy Library", icon="📜"),
+        st.Page(BASE_DIR / "pages/9_Alerts_Dispatcher.py", title="Alerts & Notifications", icon="🔔"),
+        st.Page(BASE_DIR / "pages/13_Data_Refresh_Status.py", title="Data Health & Pipeline Sync", icon="🔄"),
+    ]
+}
 
-# News Sentiment & Global Markets Ticker
-st.markdown(f"""
-<div style="background: #14212d; border-left: 4px solid #00c875; padding: 10px 16px; border-radius: 6px; margin-bottom: 16px;">
-    <span style="font-weight: bold; color: #00c875;">📰 Real-Time Financial News Sentiment: {news_sent['overall_sentiment_score']:+.1f}/100 ({news_sent['overall_sentiment_verdict']})</span> • 
-    <span style="color: #00a8ff; font-weight: bold;">Global Overnight Sentiment: {global_mkt['global_sentiment_index']:+.1f}/100 ({global_mkt['sentiment_verdict']})</span>
-</div>
-""", unsafe_allow_html=True)
+# ─── Router Execution ─────────────────────────────────────────────────────────
+pg = st.navigation(workspaces)
 
-# Overview Quick Cards
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Universe Tracked", f"{db_status['total_assets']} Assets", f"{db_status['stock_count']} Stocks • {db_status['index_count']} Indexes • {db_status['commodity_count']} Cmd")
-c2.metric("Macro Regime", macro['regime'].split(' ')[1] if ' ' in macro['regime'] else macro['regime'], f"Score: {macro['macro_score']:.1f}/100")
-c3.metric("Global Sentiment", f"{global_mkt['global_sentiment_index']:+.1f}", global_mkt['sentiment_verdict'].split(' ')[1] if ' ' in global_mkt['sentiment_verdict'] else global_mkt['sentiment_verdict'])
-c4.metric("News Sentiment", f"{news_sent['overall_sentiment_score']:+.1f}", news_sent['overall_sentiment_verdict'].split(' ')[1] if ' ' in news_sent['overall_sentiment_verdict'] else news_sent['overall_sentiment_verdict'])
+# Render Sidebar Footer
+with st.sidebar:
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    st.markdown(f'<div class="disclaimer-pill">{DISCLAIMER[:120]}...</div>', unsafe_allow_html=True)
 
-st.markdown("---")
-
-# ── Platform Navigation Hub ───────────────────────────────────────────────────
-st.subheader("🧭 Platform Navigation Hub")
-st.caption("Select any module from the sidebar navigation or explore the capabilities below:")
-
-nav_col1, nav_col2, nav_col3 = st.columns(3)
-
-with nav_col1:
-    st.markdown("""
-    ### 📊 Market & Stock Analysis
-    - **1. 📊 Market Dashboard**: Macro regime, market breadth, and sector heatmap.
-    - **2. 🔍 Asset Deep-Dive**: 349 assets search, 5-Model ML ensemble, F&O profile, CPR, and 1-Click Advisory PDF.
-    - **3. 🏭 Sector Analysis**: Sector breadth, 50/200 EMA leadership, and RS ranking.
-    - **13. 🔄 Data Refresh Status**: Daily stock counts, max refresh date, and searchable universe catalog.
-    """)
-
-with nav_col2:
-    with st.container():
-        st.markdown("""
-        ### ⚡ Signals & Predictive AI
-        - **4. 🏆 Daily Top Opportunities**: Top BUY/SELL rankings, Index & Commodity signals, and CPR & VSA Breakouts.
-        - **5. 📈 Trend Forecasts**: 5-Model ML Ensemble vs Champion Trajectory projections.
-        - **6. ⚡ Strategies & Rules**: Algorithmic technical setups and scorecards.
-        """)
-
-with nav_col3:
-    with st.container():
-        st.markdown("""
-        ### 💼 Institutional Portfolio & Alerts
-        - **7. 🧪 Strategy Backtester**: Walk-forward equity curves, win rates, and alpha metrics.
-        - **8. 💼 Portfolio Optimizer**: Markowitz MPT Efficient Frontier (4,000 paths) and Live Paper Trading.
-        - **9. 📱 Alerts & Dispatcher**: 8:45 AM Pre-Market Morning Intelligence & Webhook dispatching.
-        - **14. ⭐ Watchlists & 52W Radar**: Multi-watchlist targets, stop-losses, and proximity breakdown alerts.
-        - **15. 🏦 Institutional Deals & Calendar**: Official NSE bulk/block whale flows and RBI/F&O macro calendar.
-        """)
-
-st.markdown("---")
-st.info("👈 **Use the left sidebar** to switch between pages and explore any section.")
+# Run Selected Page
+pg.run()

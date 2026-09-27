@@ -78,8 +78,8 @@ def launch_streamlit(port: int = 8501, legacy: bool = False):
         logger.warning(f"⚠️ Port {port} is occupied. Automatically routing to open port {available_port}...")
     ui_type = "Legacy UI" if legacy else "Modern Simplified UI"
     logger.info(f"\n🚀 Launching Streamlit App ({ui_type}) on http://localhost:{available_port} ...")
-    script_name = "legacy_main.py" if legacy else "main.py"
-    app_main = str(BASE_DIR / "app" / script_name)
+    script_path = (BASE_DIR / "app" / "legacy_main.py") if legacy else (BASE_DIR / "streamlit_app.py")
+    app_main = str(script_path)
     
     # Try finding streamlit inside virtualenv or PATH
     python_exe = sys.executable

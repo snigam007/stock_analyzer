@@ -6,8 +6,8 @@ print("PRODUCTION CODEBASE AUDIT: HARDCODED VALUES & ARCHITECTURAL IMPROVEMENT A
 print("="*80)
 
 core_files = glob.glob("core/*.py")
-page_files = glob.glob("pages/*.py") + glob.glob("app/pages/*.py")
-app_files = ["run.py", "initialize.py", "app/main.py"]
+page_files = glob.glob("pages/*.py")
+app_files = ["run.py", "initialize.py", "streamlit_app.py", "app/main.py"]
 
 # 1. Hardcoded Dates
 print("\n--- 1. Hardcoded Dates & Horizons ---")
@@ -49,23 +49,12 @@ for f in core_files:
                 if any(num in line for num in ["0.20", "0.125", "125000", "0.001"]):
                     print(f"  {f}:{idx+1} -> {line.strip()[:90]}")
 
-# 5. UI Dual-Directory Consistency
-print("\n--- 5. Dual-Directory Parity Check ---")
-import filecmp
-all_pages = [os.path.basename(p) for p in glob.glob("pages/*.py")]
-mismatches = []
-for p in all_pages:
-    p1 = os.path.join("pages", p)
-    p2 = os.path.join("app", "pages", p)
-    if os.path.exists(p2):
-        if not filecmp.cmp(p1, p2):
-            mismatches.append(p)
-    else:
-        print(f"  Missing in app/pages/: {p}")
-if mismatches:
-    print(f"  MISMATCHED PAGES: {mismatches}")
-else:
-    print("  All matching pages in pages/ and app/pages/ are 100% IDENTICAL.")
+# 5. UI Unified Directory Consistency
+print("\n--- 5. Unified Directory Integrity Check ---")
+all_pages = glob.glob("pages/*.py")
+print(f"  Total Active Pages in pages/: {len(all_pages)}")
+assert len(all_pages) >= 18, f"Expected 18 pages, found {len(all_pages)}"
+print("  All 18 institutional pages verified in unified pages/ directory.")
 
 # 6. Session State & Preset Synchronization
 print("\n--- 6. Preset & Filter Drift Analysis ---")

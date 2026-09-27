@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-content = Path("app/pages/4_Daily_Top_Stocks.py").read_text(encoding="utf-8")
+content = Path("pages/4_Daily_Top_Stocks.py").read_text(encoding="utf-8")
 
 # 1. Replace the old tabs declaration
 old_tabs_pattern = r"tabs\s*=\s*st\.tabs\(\[\s*\"🟢 Top BUY Stocks\"[\s\S]*?\"⚡ Pairs Trading & Stat Arb\"\s*\]\)"
@@ -97,6 +97,6 @@ for i, m in enumerate(matches):
 
 final_code = header + middle_section + "".join(transformed_blocks)
 
-out_file = Path("app/pages/4_Daily_Top_Stocks.py")
+out_file = Path("pages/4_Daily_Top_Stocks.py")
 out_file.write_text(final_code, encoding="utf-8")
-print("Transformed app/pages/4_Daily_Top_Stocks.py successfully!")
+print("Transformed pages/4_Daily_Top_Stocks.py successfully!")

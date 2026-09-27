@@ -1,4 +1,4 @@
-﻿# 🚀 1-Click Streamlit Community Cloud Deployment Guide
+# 🚀 1-Click Streamlit Community Cloud Deployment Guide
 
 This guide enables you to deploy the **Autonomous Quantitative Trading & Analytics Platform** to **Streamlit Community Cloud** (100% Free) so you can access all 12 pages seamlessly on your **mobile phone, tablet, and laptop simultaneously** from anywhere in the world.
 
@@ -28,7 +28,7 @@ This guide enables you to deploy the **Autonomous Quantitative Trading & Analyti
 1. Go to **[share.streamlit.io](https://share.streamlit.io/)** and sign in with your GitHub account.
 2. Click **"New app"**.
 3. Select your repository: `<your-github-username>/indian-stock-quant-platform`.
-4. Set **Main file path**: `app/1_Dashboard.py` (or `1_Dashboard.py`).
+4. Set **Main file path**: `streamlit_app.py` (Default).
 5. Click **"Deploy!"**.
 
 ---

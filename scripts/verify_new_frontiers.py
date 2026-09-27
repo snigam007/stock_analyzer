@@ -226,30 +226,25 @@ def test_frontier_4_friction_and_tax():
 
 def test_frontier_5_ui_parity_and_compilation():
     print("\n" + "="*70)
-    print("TEST 5: UI Parity & Compilation Verification")
+    print("TEST 5: Unified UI Parity & Compilation Verification")
     print("="*70)
 
     pages = [
-        ("pages/4_Daily_Top_Stocks.py", "app/pages/4_Daily_Top_Stocks.py"),
-        ("pages/16_Monthly_SIP_and_Sell_Radar.py", "app/pages/16_Monthly_SIP_and_Sell_Radar.py")
+        "pages/4_Daily_Top_Stocks.py",
+        "pages/16_Monthly_SIP_and_Sell_Radar.py"
     ]
 
-    for p1, p2 in pages:
-        # Check existence
-        path1 = BASE_DIR / p1
-        path2 = BASE_DIR / p2
-        log(f"File Exists: {p1}", path1.exists(), str(path1))
-        log(f"File Exists: {p2}", path2.exists(), str(path2))
+    for p in pages:
+        path = BASE_DIR / p
+        log(f"File Exists: {p}", path.exists(), str(path))
+        py_compile.compile(str(path), doraise=True)
+        log(f"PyCompile: {p}", True, "Syntax valid, byte-compiled with zero errors")
 
-        # Check Byte-for-byte parity
-        with open(path1, "rb") as f1, open(path2, "rb") as f2:
-            identical = (f1.read() == f2.read())
-        log(f"Byte Parity: {p1} == {p2}", identical, "100% byte-for-byte identical")
-
-        # Compile check
-        py_compile.compile(str(path1), doraise=True)
-        py_compile.compile(str(path2), doraise=True)
-        log(f"PyCompile: {p1}", True, "Syntax valid, byte-compiled with zero errors")
+    for entry in ["streamlit_app.py", "app/main.py"]:
+        epath = BASE_DIR / entry
+        log(f"Entrypoint Exists: {entry}", epath.exists(), str(epath))
+        py_compile.compile(str(epath), doraise=True)
+        log(f"PyCompile: {entry}", True, "Syntax valid, byte-compiled with zero errors")
 
 
 def main():

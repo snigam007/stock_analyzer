@@ -16,10 +16,8 @@ import unittest
 from unittest.mock import MagicMock
 
 # Test importing page 16 syntax
-import py_compile
 py_compile.compile(str(BASE_DIR / "pages" / "16_Monthly_SIP_and_Sell_Radar.py"), doraise=True)
-py_compile.compile(str(BASE_DIR / "app" / "pages" / "16_Monthly_SIP_and_Sell_Radar.py"), doraise=True)
-print("Syntax check passed for both pages/16_Monthly_SIP_and_Sell_Radar.py and app/pages/16_Monthly_SIP_and_Sell_Radar.py!")
+print("Syntax check passed for pages/16_Monthly_SIP_and_Sell_Radar.py!")
 
 # Let's verify preset definitions in INSTITUTIONAL_PRESETS
 # We can parse the ast or test INSTITUTIONAL_PRESETS directly

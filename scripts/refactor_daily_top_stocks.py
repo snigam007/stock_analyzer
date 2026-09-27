@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-target = Path("app/pages/4_Daily_Top_Stocks.py")
+target = Path("pages/4_Daily_Top_Stocks.py")
 content = target.read_text(encoding="utf-8")
 
 # 1. Replace the giant tabs = st.tabs([...]) block

@@ -30,8 +30,8 @@ pip install -r requirements.txt
 # Initialize database (one-time, downloads all historical data)
 python initialize.py
 
-# Launch dashboard
-streamlit run app/main.py
+# Launch dashboard (Local & Cloud entrypoint)
+streamlit run streamlit_app.py
 ```
 
 ---
@@ -91,14 +91,10 @@ Displays last 20 days as: `↑↑↓↑↑↓↓↑↑↑`
 ## 📁 Project Structure
 ```
 stock_analyzer/
-├── app/                    # Streamlit UI (6 pages)
-│   ├── main.py             # Landing page
-│   └── pages/
-│       ├── 2_Stock_Analysis.py
-│       ├── 3_Sector_Analysis.py
-│       ├── 4_Daily_Top_Stocks.py
-│       ├── 5_Trends.py
-│       └── 6_Strategies.py
+├── streamlit_app.py        # Master Streamlit UI & Workspace Router (Local & Cloud)
+├── pages/                  # Streamlit UI modules (18 institutional workspaces)
+├── app/                    # UI delegates and legacy launcher
+│   └── main.py             # Delegating entrypoint to streamlit_app.py
 ├── core/                   # Analysis engine
 │   ├── data_fetcher.py     # yfinance + anti-bot
 │   ├── indicators.py       # 10 technical indicators

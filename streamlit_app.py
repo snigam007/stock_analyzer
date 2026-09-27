@@ -127,6 +127,7 @@ workspaces = {
         st.Page(BASE_DIR / "pages/17_Mutual_Funds_Radar.py", title="Mutual Funds Radar", icon="📊"),
     ],
     "⚡ Opportunities & Screeners": [
+        st.Page(BASE_DIR / "pages/18_Quantum_Engine.py", title="Quantum Multi-Timeframe Lab", icon="⚛️"),
         st.Page(BASE_DIR / "pages/4_Daily_Top_Stocks.py", title="Daily Top Picks", icon="🏆"),
         st.Page(BASE_DIR / "pages/12_Trading_Terminal_Matrix.py", title="Trading Terminal Matrix", icon="⚡"),
         st.Page(BASE_DIR / "pages/16_Monthly_SIP_and_Sell_Radar.py", title="Monthly SIP & Sell Radar", icon="💰"),

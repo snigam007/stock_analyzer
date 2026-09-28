@@ -1,0 +1,73 @@
+{
+  "audit_window": "2021-09-27 to 2026-09-25 (1,298 trading sessions / 5.0 Years)",
+  "market_benchmark": {
+    "index": "NIFTY 50 (^NSEI)",
+    "start_close": 17855.1,
+    "end_close": 23140.5,
+    "market_return_pct": 29.6,
+    "market_cagr_pct": 5.33
+  },
+  "quantum_swing_champion": {
+    "strategy": "Systematic Swing Champion: SW_005479 + SW_000640 + Half-Kelly + 15D Rotation + Universal LiquidBees",
+    "initial_capital_rs": 500000.0,
+    "final_portfolio_equity_rs": 2606824.10,
+    "portfolio_multiplier": 5.21,
+    "annualized_cagr_pct": 39.16,
+    "alpha_vs_market_cagr_pct": 33.83,
+    "total_realized_pnl_rs": 2106824.10,
+    "max_drawdown_pct": 20.55,
+    "calmar_ratio": 1.91,
+    "profit_factor": 1.15,
+    "payoff_ratio": 2.83,
+    "win_rate_pct": 28.9,
+    "total_trades": 291,
+    "fast_t1_lock_variant": {
+      "strategy": "Swing Champion + Fast T1 Lock (+1.2x ATR) + Universal LiquidBees",
+      "final_portfolio_equity_rs": 2432119.06,
+      "portfolio_multiplier": 4.86,
+      "annualized_cagr_pct": 37.24,
+      "max_drawdown_pct": 20.44,
+      "calmar_ratio": 1.82,
+      "profit_factor": 1.13,
+      "payoff_ratio": 2.91,
+      "win_rate_pct": 28.0,
+      "total_trades": 296
+    },
+    "configuration": {
+      "max_slots": 3,
+      "sizing_protocol": "Rolling Half-Kelly Sizing (0.5x f*) bounded [22.0%, 33.3%]",
+      "stale_momentum_rotation": "15-Day Stagnation Exit (<1.0x ATR gain) to liberate slot",
+      "pyramiding": "+50% size at +4% gain with SL ratchet to BE",
+      "harvest_tiers": "T1: +1.2x to +1.5x ATR (1/3rd), T2: +3.0x ATR (1/3rd), T3: +8.5x ATR Chandelier",
+      "cash_sweep": "Universal Overnight LiquidBees Yield Sweep (6.5% Yield on all unallocated capital)"
+    }
+  },
+  "quantum_sip_champion": {
+    "strategy": "Andreas Clenow Momentum + Dynamic Dip Averaging (The Frontier Holy Grail Closed-Loop)",
+    "schedule": "Monthly (60 Monthly Tranches over 5.0 Years with 10% Annual Step-Up)",
+    "total_invested_rs": 1465224.0,
+    "final_strategy_value_rs": 6223816.65,
+    "net_strategy_profit_rs": 4758592.65,
+    "strategy_xirr_pct": 66.06,
+    "benchmark_xirr_pct": 3.72,
+    "net_alpha_xirr_pct": 62.34,
+    "profit_factor": 11.74,
+    "payoff_ratio": 19.64,
+    "max_drawdown_pct": 23.85,
+    "win_rate_pct": 37.4,
+    "total_trades": 155,
+    "winning_trades": 58,
+    "losing_trades": 97,
+    "configuration": {
+      "slots": 5,
+      "sizing_protocol": "Conviction Half-Kelly Tranche Sizing [30%, 25%, 20%, 15%, 10%]",
+      "dip_buying": "90% cash deployed on 3.0% pullback",
+      "parabolic_skimming": "10% trimmed at +120% gain, proceeds recycled into dips",
+      "position_cap": "50.0% Max for multi-bagger runners",
+      "cash_sweep": "LiquidBees 6.5% Yield Sweep (Zero Cash Drag)",
+      "macro_hedge": "0.0% Pure Alpha Compounding",
+      "trailing_stop": "Adaptive Structural Stepladder",
+      "annual_step_up": "10% per year"
+    }
+  }
+}

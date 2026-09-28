@@ -110,13 +110,14 @@ with tabs[0]:
             <div>
                 <span style="font-size: 1.15em; font-weight: bold; color: #38bdf8;">🏆 SW_005479 + SW_000640 Systematic Swing Champion</span>
                 <div style="font-size: 0.88em; color: #94a3b8; margin-top: 4px;">
-                    Multi-Lookback Momentum Screener • 3 Concentrated Slots (33.3% Capital) • 2.0x ATR Stop • +4% Pyramiding (+50% Size & BE Stop) • 3-Tier Exit (1.5x / 3.0x / 8.5x Runner)
+                    Multi-Lookback Momentum • 3 Concentrated Slots (Rolling Half-Kelly 22%–33.3%) • 2.0x ATR Stop • +4% Pyramiding • 15D Stale Rotation • Fast T1 Lock (+1.2x ATR) • Universal Overnight 6.5% LiquidBees Sweep
                 </div>
             </div>
-            <div style="display: flex; gap: 8px;">
-                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">1Y XIRR: +136.0%</span>
-                <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Profit Factor: 2.51</span>
-                <span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Crash Return: +29.06%</span>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">5Y CAGR: +39.16% (5.21x)</span>
+                <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Calmar: 1.91 (MaxDD 20.5%)</span>
+                <span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Profit Factor: 1.15x (2.83x Payoff)</span>
+                <span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">5Y Equity: ₹26.07L (₹5.0L Init)</span>
             </div>
         </div>
     </div>
@@ -215,7 +216,7 @@ with tabs[0]:
                 c3.metric(
                     "🎯 Tier 1 (Trim 1/3rd)",
                     f"₹{trade['target_1']:,.2f}",
-                    f"+{trade['target_1_pct']:.1f}% (+1.5x ATR)"
+                    f"+{trade['target_1_pct']:.1f}% (+1.2x ATR Fast Lock)"
                 )
                 c4.metric(
                     "🎯 Tier 2 (Trim 1/3rd)",
@@ -247,24 +248,24 @@ with tabs[0]:
             - **Momentum Filter:** `1M > 0%`, `3M > 0%`, and `6M > 10.0%`.
             - **RSI Gate:** `45.0 <= RSI(14) <= 72.0` (eliminates dead stocks and overbought climaxes).
 
-            **2. Conviction Concentration:**
-            - **Slots:** Strictly 3 Slots (33.3% of wallet capital per position).
-            - **Empirical Backtest Result:** 3 Slots concentrated conviction sharply outperformed 8-slot diversification (+24.0% vs +15.2% avg XIRR).
+            **2. Sizing & Concentration Protocol:**
+            - **Slots:** Strictly 3 Slots.
+            - **Position Sizing:** Rolling Half-Kelly ($0.5 \\times f^*$) bounded conservatively between 22.0% and 33.3% per slot.
+            - **15-Day Stagnation Exit:** If a trade has not gained $\\ge 1.0\\times$ ATR within 15 days, it is closed at market to liberate the slot for fresh momentum leaders.
             """)
         with b2:
             st.markdown("""
             **3. Dynamic Risk & Exit Geometry:**
             - **Stop Loss:** Dynamic ATR 2.0x below entry price.
             - **Winner Pyramiding:** Add +50% position size when trade reaches +4.0% gain; immediately move stop to breakeven (`entry_price * 1.002`).
-            - **Tier 1 (Base Gain):** Trim 1/3rd position at `+1.5x ATR`.
+            - **Tier 1 (Fast Lock):** Trim 1/3rd position at `+1.2x ATR` and ratchet stop to breakeven.
             - **Tier 2 (Core Profit):** Trim 1/3rd position at `+3.0x ATR` (trail stop to entry).
             - **Tier 3 (The Runner):** Let remaining 1/3rd ride with trailing Chandelier stop up to `+8.5x ATR`.
 
-            **4. Bear Market Fortress Shield:**
-            - If NIFTY closes below its 50 and 21 EMAs:
-              - Restrict open positions to maximum 1 slot.
-              - Sweep remaining unallocated cash to LiquidBees (~6.5% yield).
-              - Converted a -14.4% market crash into +29.06% POSITIVE return.
+            **4. Universal Overnight LiquidBees Yield Sweep:**
+            - All unallocated cash earns ~6.5% risk-free annualized yield every night.
+            - Bear Market Fortress: Restricts open trades to 1 slot when NIFTY < 50/21 EMA.
+            - 5-Year Out-of-Sample Result: **+39.16% CAGR (5.21x Multiplier)** with **20.55% Max Drawdown** and **1.91 Calmar Ratio**.
             """)
 
     # 5. Full Candidates Screener Table

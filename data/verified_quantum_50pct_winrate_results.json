@@ -1,0 +1,72 @@
+[
+  {
+    "variant": "1. Previous Best (Pullback + T1 @ 1.5 ATR)",
+    "final_val": 1384159.01,
+    "cagr": 22.59,
+    "max_dd": 20.51,
+    "calmar": 1.1,
+    "trades": 246,
+    "win_rate": 42.3,
+    "sl_hit_rate": 57.7,
+    "profit_factor": 1.64,
+    "payoff_ratio": 1.7,
+    "avg_win_pct": 7.26,
+    "avg_loss_pct": -4.27
+  },
+  {
+    "variant": "2. + Fast T1 Harvest (+1.0x ATR + Instant Breakeven)",
+    "final_val": 2256662.66,
+    "cagr": 35.18,
+    "max_dd": 18.92,
+    "calmar": 1.86,
+    "trades": 255,
+    "win_rate": 46.7,
+    "sl_hit_rate": 53.3,
+    "profit_factor": 1.98,
+    "payoff_ratio": 1.75,
+    "avg_win_pct": 6.92,
+    "avg_loss_pct": -3.95
+  },
+  {
+    "variant": "3. + Clenow R^2 Trend Smoothness Gate (R^2 > 0.45)",
+    "final_val": 898348.63,
+    "cagr": 12.43,
+    "max_dd": 25.66,
+    "calmar": 0.48,
+    "trades": 228,
+    "win_rate": 37.7,
+    "sl_hit_rate": 62.3,
+    "profit_factor": 1.45,
+    "payoff_ratio": 1.79,
+    "avg_win_pct": 6.94,
+    "avg_loss_pct": -3.88
+  },
+  {
+    "variant": "4. Clenow Gate + Fast T1 Harvest (+1.0x ATR BE)",
+    "final_val": 763967.96,
+    "cagr": 8.85,
+    "max_dd": 30.47,
+    "calmar": 0.29,
+    "trades": 228,
+    "win_rate": 41.2,
+    "sl_hit_rate": 58.8,
+    "profit_factor": 1.33,
+    "payoff_ratio": 1.39,
+    "avg_win_pct": 5.63,
+    "avg_loss_pct": -4.04
+  },
+  {
+    "variant": "5. Apex Quantum Champion: Fast T1 + Clenow + JEV Sizing",
+    "final_val": 777597.33,
+    "cagr": 9.23,
+    "max_dd": 24.57,
+    "calmar": 0.38,
+    "trades": 229,
+    "win_rate": 40.2,
+    "sl_hit_rate": 59.8,
+    "profit_factor": 1.38,
+    "payoff_ratio": 1.49,
+    "avg_win_pct": 6.01,
+    "avg_loss_pct": -4.04
+  }
+]

@@ -1,0 +1,138 @@
+{
+  "timestamp": "2026-09-30T23:57:55.648737",
+  "audit_window": "2021-09-27 to 2026-09-25 (5.0 Years)",
+  "sip_comparisons": [
+    {
+      "label": "\ud83d\udc51 Current Champion (5-Stock Holy Grail Base)",
+      "xirr": 62.16,
+      "corpus": 5790578.39,
+      "profit": 4325354.39,
+      "pf": 9.57,
+      "payoff": 17.58,
+      "dd": 23.6,
+      "trades": 156,
+      "win_rate": 35.3,
+      "calmar": 2.63,
+      "elapsed": 3.096015453338623
+    },
+    {
+      "label": "\u26a1 Challenger 1: Apex Quad Alpha (4-Stock Basket)",
+      "xirr": 62.7,
+      "corpus": 5854319.11,
+      "profit": 4389095.11,
+      "pf": 11.5,
+      "payoff": 18.78,
+      "dd": 21.49,
+      "trades": 129,
+      "win_rate": 38.0,
+      "calmar": 2.92,
+      "elapsed": 2.8419902324676514
+    },
+    {
+      "label": "\u26a1 Challenger 2: Sector Duopoly Engine (5 Stocks, Max 2 in #1 Sector)",
+      "xirr": 61.72,
+      "corpus": 5739086.12,
+      "profit": 4273862.12,
+      "pf": 11.12,
+      "payoff": 19.85,
+      "dd": 24.66,
+      "trades": 156,
+      "win_rate": 35.9,
+      "calmar": 2.5,
+      "elapsed": 2.9380557537078857
+    },
+    {
+      "label": "\ud83d\udc8e Challenger 3: Apex Quad Alpha + Sector Duopoly (4 Stocks + Duopoly)",
+      "xirr": 58.02,
+      "corpus": 5319099.11,
+      "profit": 3853875.11,
+      "pf": 9.38,
+      "payoff": 15.39,
+      "dd": 24.21,
+      "trades": 132,
+      "win_rate": 37.9,
+      "calmar": 2.4,
+      "elapsed": 2.919612169265747
+    },
+    {
+      "label": "\ud83d\ude80 Challenger 4: Dynamic Runner Cap Expansion (55% Cap)",
+      "xirr": 62.16,
+      "corpus": 5790578.39,
+      "profit": 4325354.39,
+      "pf": 9.57,
+      "payoff": 17.58,
+      "dd": 23.6,
+      "trades": 156,
+      "win_rate": 35.3,
+      "calmar": 2.63,
+      "elapsed": 2.8816566467285156
+    }
+  ],
+  "swing_comparisons": [
+    {
+      "final_val": 1950411.18,
+      "cagr": 31.31,
+      "multiple": 3.9,
+      "max_dd": 21.0,
+      "trades": 293,
+      "win_rate": 27.3,
+      "profit_factor": 1.05,
+      "payoff_ratio": 2.8,
+      "calmar": 1.49,
+      "label": "\ud83d\udc51 Current Champion (Intraday SL + 15D Rotation)",
+      "elapsed": 4.604232549667358
+    },
+    {
+      "final_val": 1464318.56,
+      "cagr": 23.99,
+      "multiple": 2.93,
+      "max_dd": 22.44,
+      "trades": 230,
+      "win_rate": 27.8,
+      "profit_factor": 0.92,
+      "payoff_ratio": 2.4,
+      "calmar": 1.07,
+      "label": "\u26a1 Challenger 1: Close-Confirmed Stop Loss (Daily Close <= SL)",
+      "elapsed": 3.7338016033172607
+    },
+    {
+      "final_val": 925704.75,
+      "cagr": 13.12,
+      "multiple": 1.85,
+      "max_dd": 18.65,
+      "trades": 222,
+      "win_rate": 32.0,
+      "profit_factor": 1.03,
+      "payoff_ratio": 2.2,
+      "calmar": 0.7,
+      "label": "\u26a1 Challenger 2: Close-Confirmed SL + SL Cap <= 6.5%",
+      "elapsed": 3.6460280418395996
+    },
+    {
+      "final_val": 2542038.38,
+      "cagr": 38.46,
+      "multiple": 5.08,
+      "max_dd": 24.32,
+      "trades": 252,
+      "win_rate": 29.0,
+      "profit_factor": 1.19,
+      "payoff_ratio": 2.91,
+      "calmar": 1.58,
+      "label": "\ud83d\udc8e Challenger 3: Pure Baseline Without 15D Stagnation (Intraday SL)",
+      "elapsed": 3.9419829845428467
+    },
+    {
+      "final_val": 925704.75,
+      "cagr": 13.12,
+      "multiple": 1.85,
+      "max_dd": 18.65,
+      "trades": 222,
+      "win_rate": 32.0,
+      "profit_factor": 1.03,
+      "payoff_ratio": 2.2,
+      "calmar": 0.7,
+      "label": "\ud83c\udfc6 Challenger 4: The Apex Hardened Swing Champion (Close SL + 15D Rotation + SL Cap 6.5%)",
+      "elapsed": 3.7962350845336914
+    }
+  ]
+}

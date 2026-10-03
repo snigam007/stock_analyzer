@@ -41,6 +41,7 @@ try:
 except Exception:
     pass
 from core.macro_regime import evaluate_macro_regime
+from core.ui_components import render_clean_html, fmt_inr, generate_broker_order_clipboard
 
 engine = get_global_engine()
 
@@ -56,28 +57,15 @@ session_m = get_session(engine)
 macro = evaluate_macro_regime(session_m)
 session_m.close()
 
-st.markdown(f"""
+render_clean_html(f"""
 <div style="background: linear-gradient(90deg, #102130, #0c1822); border-left: 5px solid #00a8ff; padding: 10px 16px; border-radius: 6px; margin-bottom: 15px;">
     <span style="font-weight: bold; color: #00a8ff;">🏛️ Macro Allocation Guide: {macro['regime']} (Score: {macro['macro_score']}/100)</span><br>
     <span style="font-size: 0.88em; color: #c8d0d8;">Recommended Distribution: Equities <b>{macro['recommended_allocation']['Equities %']}%</b> | Gold/Commodities <b>{macro['recommended_allocation']['Gold & Commodities %']}%</b> | Cash Buffer <b>{macro['recommended_allocation']['Cash & Liquid %']}%</b></span>
 </div>
-""", unsafe_allow_html=True)
+""")
 
-tabs = st.tabs([
-    "📐 Markowitz Efficient Frontier (MPT)",
-    "📈 Live Paper Trading Ledger",
-    "⚡ Execute Paper Trade",
-    "📜 Realized Trade History",
-    "📊 Hedge Fund Performance Tearsheet",
-    "🛡️ Black Swan Crisis Stress-Test",
-    "🏛️ Barra & Fama-French Factor Risk Attribution",
-    "🏰 Bridgewater Risk Parity & HRP",
-    "🎯 MAE / MFE Trade Analytics",
-    "⚠️ Portfolio Risk & Kelly Sizing",
-])
 
-# ── Tab 1: Efficient Frontier Optimizer ────────────────────────────────────────
-with tabs[0]:
+def render_mpt_frontier():
     st.subheader("📐 Markowitz Modern Portfolio Theory (MPT) Optimizer")
     st.caption("Mathematically determine the optimal asset weights that maximize Sharpe Ratio or minimize portfolio risk")
 
@@ -235,8 +223,10 @@ with tabs[0]:
             st.info("Select at least 2 assets to compute the Markowitz Efficient Frontier.")
 
 
-# ── Tab 2: Live Paper Trading Ledger ──────────────────────────────────────────
-with tabs[1]:
+    # ── Tab 2: Live Paper Trading Ledger ──────────────────────────────────────────
+
+
+def render_paper_ledger():
     st.subheader("📈 Live Paper Trading Portfolio Ledger")
     session_p = get_session(engine)
     port = get_paper_portfolio(session_p, starting_capital=1000000.0)
@@ -290,8 +280,10 @@ with tabs[1]:
                         st.rerun()
 
 
-# ── Tab 3: Execute Paper Trade ────────────────────────────────────────────────
-with tabs[2]:
+    # ── Tab 3: Execute Paper Trade ────────────────────────────────────────────────
+
+
+def render_paper_execution():
     st.subheader("⚡ Execute Simulated Paper Trade")
     st.caption("Place simulated buy orders with strategy-calibrated position sizing and targets")
 
@@ -302,14 +294,14 @@ with tabs[2]:
     ex_col1, ex_col2 = st.columns(2)
     with ex_col1:
         buy_sym = st.selectbox("Select Asset to Buy", [s[0] for s in stocks_for_buy], format_func=lambda x: f"{x} — {dict(stocks_for_buy).get(x, '')}")
-        
+    
         session_price = get_session(engine)
         p_latest = session_price.execute(text("SELECT close FROM daily_prices WHERE symbol=:s ORDER BY date DESC LIMIT 1"), {"s": buy_sym}).scalar()
         session_price.close()
-        
+    
         buy_price = float(p_latest) if p_latest else 1000.0
         st.metric("Latest Market Price", format_price(buy_price))
-        
+    
         shares_input = st.number_input("Number of Shares", min_value=1, max_value=100000, value=25, step=5)
         st.caption(f"Estimated Order Value: **{format_price(shares_input * buy_price)}**")
 
@@ -337,8 +329,10 @@ with tabs[2]:
             st.rerun()
 
 
-# ── Tab 4: Realized Trade History ─────────────────────────────────────────────
-with tabs[3]:
+    # ── Tab 4: Realized Trade History ─────────────────────────────────────────────
+
+
+def render_trade_history():
     st.subheader("📜 Realized Paper Trade Audit Log")
     session_h = get_session(engine)
     port_h = get_paper_portfolio(session_h)
@@ -358,8 +352,10 @@ with tabs[3]:
             hide_index=True,
         )
 
-# ── Tab 5: Hedge Fund Performance Tearsheet ───────────────────────────────────
-with tabs[4]:
+    # ── Tab 5: Hedge Fund Performance Tearsheet ───────────────────────────────────
+
+
+def render_tearsheet():
     st.subheader("📊 Hedge Fund Performance Tearsheet & Equity Growth Curve")
     st.caption("Mathematical expectancy, Sortino/Calmar ratios, and cumulative benchmark performance")
 
@@ -397,8 +393,10 @@ with tabs[4]:
     if "underwater_figure" in tearsheet and tearsheet["underwater_figure"]:
         st.plotly_chart(tearsheet["underwater_figure"], use_container_width=True)
 
-# ── Tab 6: Black Swan Crisis Stress-Test ──────────────────────────────────────
-with tabs[5]:
+    # ── Tab 6: Black Swan Crisis Stress-Test ──────────────────────────────────────
+
+
+def render_stress_test():
     st.subheader("🛡️ Portfolio Black Swan Crisis & Macro Stress-Test")
     st.caption("Simulates historical market crashes against your active paper portfolio holdings")
 
@@ -434,8 +432,10 @@ with tabs[5]:
             hide_index=True,
         )
 
-# ── Tab 7: Barra & Fama-French Factor Risk Attribution ─────────────────────────
-with tabs[6]:
+    # ── Tab 7: Barra & Fama-French Factor Risk Attribution ─────────────────────────
+
+
+def render_factor_attribution():
     st.subheader("🏛️ Institutional Multi-Factor Risk & Empirical Alpha Attribution")
     st.caption("Decomposes portfolio systematic risk into empirical NSE factors vs Idiosyncratic Alpha (Skill)")
 
@@ -515,15 +515,17 @@ with tabs[6]:
     )
     st.plotly_chart(fig_radar, use_container_width=True)
 
-# ── Tab 8: Bridgewater All-Weather Risk Parity & HRP ─────────────────────────
-with tabs[7]:
+    # ── Tab 8: Bridgewater All-Weather Risk Parity & HRP ─────────────────────────
+
+
+def render_risk_parity():
     st.subheader("🏰 Bridgewater All-Weather Risk Parity & Hierarchical Risk Parity (HRP)")
     st.caption("Equal Risk Contribution (ERC) & Machine Learning Graph-Clustering Portfolio Allocation (Marcos López de Prado)")
 
     from core.risk_parity import compute_hierarchical_risk_parity
 
     rp_symbols = ["RELIANCE", "TCS", "HDFCBANK", "INFY", "ITC", "LT"]
-    
+
     # Fetch real historical returns from database
     try:
         session_rp = get_session(engine)
@@ -575,8 +577,10 @@ with tabs[7]:
             fig_erc.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
             st.plotly_chart(fig_erc, use_container_width=True)
 
-# ── Tab 9: Trade Performance Analytics & MAE / MFE Journal ───────────────────
-with tabs[8]:
+    # ── Tab 9: Trade Performance Analytics & MAE / MFE Journal ───────────────────
+
+
+def render_mae_mfe():
     st.subheader("🎯 Trade Execution Efficiency, MAE / MFE & Setup Journal")
     st.caption("Maximum Adverse Excursion (MAE) vs Maximum Favorable Excursion (MFE) and Setup Archetype Win Rates")
 
@@ -621,8 +625,10 @@ with tabs[8]:
     )
 
 
-# ── Tab 10: Portfolio Risk Dashboard & Kelly Sizing (Items 4.1 + 5.3) ──────────
-with tabs[9]:
+    # ── Tab 10: Portfolio Risk Dashboard & Kelly Sizing (Items 4.1 + 5.3) ──────────
+
+
+def render_kelly_sizing():
     st.subheader("⚠️ Portfolio Risk Dashboard & Kelly Position Sizing")
     st.caption("Beta-weighted VaR, sector concentration, correlation matrix, and optimal Kelly fraction per position")
 
@@ -768,3 +774,46 @@ with tabs[9]:
     finally:
         risk_sess.close()
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Master Workspaces (Consolidated from 10 tabs into 4 institutional cockpits)
+# ═══════════════════════════════════════════════════════════════════════════════
+tab_paper, tab_opt, tab_risk, tab_tearsheet = st.tabs([
+    "💼 Paper Portfolio & Execution",
+    "📐 Optimization & Risk Parity",
+    "🛡️ Risk & Crisis Stress-Test",
+    "📊 Performance Tearsheet & Factors"
+])
+
+with tab_paper:
+    sub_p1, sub_p2, sub_p3 = st.tabs(["📈 Live Portfolio Ledger", "⚡ 1-Click Order Execution", "📜 Realized Trade History"])
+    with sub_p1:
+        render_paper_ledger()
+    with sub_p2:
+        render_paper_execution()
+    with sub_p3:
+        render_trade_history()
+
+with tab_opt:
+    sub_o1, sub_o2 = st.tabs(["📐 Markowitz Efficient Frontier (MPT)", "🏰 Bridgewater Risk Parity & HRP"])
+    with sub_o1:
+        render_mpt_frontier()
+    with sub_o2:
+        render_risk_parity()
+
+with tab_risk:
+    sub_r1, sub_r2 = st.tabs(["🛡️ Black Swan Stress-Test", "⚠️ VaR, CVaR & Kelly Sizing"])
+    with sub_r1:
+        render_stress_test()
+    with sub_r2:
+        render_kelly_sizing()
+
+with tab_tearsheet:
+    sub_t1, sub_t2, sub_t3 = st.tabs(["📊 Hedge Fund Tearsheet", "🏛️ Factor Attribution", "🎯 MAE / MFE Analytics"])
+    with sub_t1:
+        render_tearsheet()
+    with sub_t2:
+        render_factor_attribution()
+    with sub_t3:
+        render_mae_mfe()

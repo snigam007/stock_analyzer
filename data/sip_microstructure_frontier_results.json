@@ -1,0 +1,66 @@
+[
+  {
+    "variant_name": "1. Canonical Holy Grail (Dip 90% @ 3.0%, Skim 120%)",
+    "invested": 1465224.0,
+    "final_value": 4680929.27,
+    "net_profit": 3215705.27,
+    "xirr": 53.54,
+    "profit_factor": 9.0
+  },
+  {
+    "variant_name": "2. Deep Auction Dip (Dip 95% @ 4.0% Pullback)",
+    "invested": 1465224.0,
+    "final_value": 3892437.25,
+    "net_profit": 2427213.25,
+    "xirr": 44.6,
+    "profit_factor": 9.0
+  },
+  {
+    "variant_name": "3. Frequent Auction Dip (Dip 85% @ 2.5% Pullback)",
+    "invested": 1465224.0,
+    "final_value": 3661553.21,
+    "net_profit": 2196329.21,
+    "xirr": 41.69,
+    "profit_factor": 9.0
+  },
+  {
+    "variant_name": "4. + 52-Week High Proximity (Auction Discovery)",
+    "invested": 1465224.0,
+    "final_value": 5280018.35,
+    "net_profit": 3814794.35,
+    "xirr": 59.49,
+    "profit_factor": 8.999999999999998
+  },
+  {
+    "variant_name": "5. + Clenow Momentum Smoothness (R^2 Filter)",
+    "invested": 1465224.0,
+    "final_value": 3503946.28,
+    "net_profit": 2038722.28,
+    "xirr": 39.6,
+    "profit_factor": 9.0
+  },
+  {
+    "variant_name": "6. + Multi-Lookback Momentum Blend (45/35/20)",
+    "invested": 1465224.0,
+    "final_value": 3624883.93,
+    "net_profit": 2159659.93,
+    "xirr": 41.21,
+    "profit_factor": 9.0
+  },
+  {
+    "variant_name": "7. + Equal Sizing 4-Stock (Unbiased AMT)",
+    "invested": 1465224.0,
+    "final_value": 5601288.47,
+    "net_profit": 4136064.47,
+    "xirr": 62.45,
+    "profit_factor": 9.0
+  },
+  {
+    "variant_name": "8. Microstructure Confluence (Deep Dip + 52W + Skim 120%)",
+    "invested": 1465224.0,
+    "final_value": 4968027.6,
+    "net_profit": 3502803.6,
+    "xirr": 56.47,
+    "profit_factor": 9.0
+  }
+]

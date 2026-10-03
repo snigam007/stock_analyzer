@@ -167,49 +167,50 @@ CANDIDATES = [
     }),
 ]
 
-print("=" * 125)
-print("🚀 ADVANCED QUANTITATIVE GRID: SEARCHING FOR 60.0%+ NET XIRR (60-MONTH POINT-IN-TIME EMPIRICAL BACKTEST)")
-print("=" * 125)
+if __name__ == '__main__':
+    print("=" * 125)
+    print("🚀 ADVANCED QUANTITATIVE GRID: SEARCHING FOR 60.0%+ NET XIRR (60-MONTH POINT-IN-TIME EMPIRICAL BACKTEST)")
+    print("=" * 125)
 
-results = []
-session = Session()
-try:
-    for idx, (name, overrides) in enumerate(CANDIDATES):
-        t0 = time.time()
-        cfg = BASE_CHAMP.copy()
-        cfg.update(overrides)
-        res = run_monthly_sip_backtest(session, **cfg)
-        elapsed = time.time() - t0
-        
-        xirr = res.get("strategy_xirr", 0.0)
-        corpus = res.get("final_strategy_value", 0.0)
-        trades = res.get("total_trades", 0)
-        win_rate = res.get("win_rate", 0.0)
-        pf = res.get("profit_factor", 0.0)
-        payoff = res.get("payoff_ratio", 0.0)
-        dd = res.get("max_drawdown_pct", 0.0)
-        calmar = round(xirr / max(1.0, dd), 2)
-        delta_champ = xirr - 57.42
-        
-        results.append({
-            "name": name, "xirr": xirr, "delta": delta_champ,
-            "corpus": corpus, "trades": trades, "win_rate": win_rate,
-            "pf": pf, "payoff": payoff, "dd": dd, "calmar": calmar
-        })
-        
-        print(f"[{idx+1:02d}/{len(CANDIDATES):02d}] {name:<72} | XIRR: {xirr:5.2f}% ({delta_champ:+5.2f}%) | Corpus: ₹{corpus/1e5:5.2f}L | PF: {pf:4.2f} | Payoff: {payoff:5.2f}x | DD: {dd:4.1f}% | ({elapsed:.1f}s)")
-finally:
-    session.close()
+    results = []
+    session = Session()
+    try:
+        for idx, (name, overrides) in enumerate(CANDIDATES):
+            t0 = time.time()
+            cfg = BASE_CHAMP.copy()
+            cfg.update(overrides)
+            res = run_monthly_sip_backtest(session, **cfg)
+            elapsed = time.time() - t0
+            
+            xirr = res.get("strategy_xirr", 0.0)
+            corpus = res.get("final_strategy_value", 0.0)
+            trades = res.get("total_trades", 0)
+            win_rate = res.get("win_rate", 0.0)
+            pf = res.get("profit_factor", 0.0)
+            payoff = res.get("payoff_ratio", 0.0)
+            dd = res.get("max_drawdown_pct", 0.0)
+            calmar = round(xirr / max(1.0, dd), 2)
+            delta_champ = xirr - 57.42
+            
+            results.append({
+                "name": name, "xirr": xirr, "delta": delta_champ,
+                "corpus": corpus, "trades": trades, "win_rate": win_rate,
+                "pf": pf, "payoff": payoff, "dd": dd, "calmar": calmar
+            })
+            
+            print(f"[{idx+1:02d}/{len(CANDIDATES):02d}] {name:<72} | XIRR: {xirr:5.2f}% ({delta_champ:+5.2f}%) | Corpus: ₹{corpus/1e5:5.2f}L | PF: {pf:4.2f} | Payoff: {payoff:5.2f}x | DD: {dd:4.1f}% | ({elapsed:.1f}s)")
+    finally:
+        session.close()
 
-# Sort results by Net XIRR descending
-results.sort(key=lambda x: x["xirr"], reverse=True)
+    # Sort results by Net XIRR descending
+    results.sort(key=lambda x: x["xirr"], reverse=True)
 
-print("\n" + "=" * 135)
-print("🏆 FINAL LEADERBOARD: 60%+ ALPHA FRONTIER CANDIDATES (RANKED BY NET XIRR)")
-print("=" * 135)
-print(f"{'Rank':<4} | {'Strategy Variant':<75} | {'Net XIRR':<10} | {'Δ vs 57.4%':<11} | {'Final Corpus':<14} | {'Max DD':<7} | {'PF':<5} | {'Payoff':<8} | {'Calmar'}")
-print("-" * 135)
-for r_idx, r in enumerate(results):
-    prefix = "👑" if r["xirr"] >= 60.0 else ("⚡" if r["xirr"] >= 57.42 else "  ")
-    print(f"{r_idx+1:2d}   | {prefix} {r['name']:<73} | {r['xirr']:7.2f}%  | {r['delta']:+8.2f}%   | ₹{r['corpus']:12,.0f} | {r['dd']:5.1f}% | {r['pf']:4.2f} | {r['payoff']:5.2f}x | {r['calmar']:5.2f}")
-print("=" * 135)
+    print("\n" + "=" * 135)
+    print("🏆 FINAL LEADERBOARD: 60%+ ALPHA FRONTIER CANDIDATES (RANKED BY NET XIRR)")
+    print("=" * 135)
+    print(f"{'Rank':<4} | {'Strategy Variant':<75} | {'Net XIRR':<10} | {'Δ vs 57.4%':<11} | {'Final Corpus':<14} | {'Max DD':<7} | {'PF':<5} | {'Payoff':<8} | {'Calmar'}")
+    print("-" * 135)
+    for r_idx, r in enumerate(results):
+        prefix = "👑" if r["xirr"] >= 60.0 else ("⚡" if r["xirr"] >= 57.42 else "  ")
+        print(f"{r_idx+1:2d}   | {prefix} {r['name']:<73} | {r['xirr']:7.2f}%  | {r['delta']:+8.2f}%   | ₹{r['corpus']:12,.0f} | {r['dd']:5.1f}% | {r['pf']:4.2f} | {r['payoff']:5.2f}x | {r['calmar']:5.2f}")
+    print("=" * 135)

@@ -240,7 +240,7 @@ def run_monthly_sip_backtest(
       3. BUY_AND_HOLD: Passive long-term compounding (no exits).
     """
     monthly_wallet = max(5000.0, float(monthly_wallet))
-    months_lookback = max(6, min(60, months_lookback))
+    months_lookback = max(6, min(240, months_lookback))
 
     # Handle backwards compatibility
     if use_sell_reminders is False:

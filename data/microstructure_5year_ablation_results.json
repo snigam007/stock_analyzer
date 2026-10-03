@@ -1,0 +1,110 @@
+[
+  {
+    "variant_name": "Baseline (Persistent Pullback T1@1.00)",
+    "final_val": 2043476.6640583484,
+    "cagr": 32.56557941936471,
+    "max_dd": 18.996728315614646,
+    "calmar": 1.71427305156525,
+    "trades": 261,
+    "win_rate": 40.99616858237548,
+    "profit_factor": 1.9250582770314038,
+    "total_gain": 3211994.964344797,
+    "total_loss": 1668518.3002864486
+  },
+  {
+    "variant_name": "Ablation 1: + Anchored VWAP (AVWAP 60D Low)",
+    "final_val": 1896508.621521127,
+    "cagr": 30.598986017690688,
+    "max_dd": 17.89952072069881,
+    "calmar": 1.7094863317935858,
+    "trades": 260,
+    "win_rate": 41.15384615384615,
+    "profit_factor": 1.90240861138462,
+    "total_gain": 2944043.301380155,
+    "total_loss": 1547534.6798590277
+  },
+  {
+    "variant_name": "Ablation 2: + Volume Profile (VAL / POC Retest)",
+    "final_val": 1747385.051283292,
+    "cagr": 28.4747524174644,
+    "max_dd": 21.348223570245676,
+    "calmar": 1.3338230379576597,
+    "trades": 256,
+    "win_rate": 42.578125,
+    "profit_factor": 1.7868104051677034,
+    "total_gain": 2832754.3385862745,
+    "total_loss": 1585369.287302982
+  },
+  {
+    "variant_name": "Ablation 3: + Wyckoff Absorption Trigger",
+    "final_val": 831798.0438997837,
+    "cagr": 10.729697357406632,
+    "max_dd": 17.477261774520308,
+    "calmar": 0.6139232504401352,
+    "trades": 264,
+    "win_rate": 42.42424242424242,
+    "profit_factor": 1.3757250971263788,
+    "total_gain": 1214048.7354210122,
+    "total_loss": 882479.1653193817
+  },
+  {
+    "variant_name": "Ablation 4: + Synthetic CVD Delta Positive",
+    "final_val": 833665.2182485923,
+    "cagr": 10.779426045131956,
+    "max_dd": 20.626172620866466,
+    "calmar": 0.522609125952284,
+    "trades": 265,
+    "win_rate": 41.509433962264154,
+    "profit_factor": 1.3707796279825277,
+    "total_gain": 1233566.920141218,
+    "total_loss": 899901.7018926264
+  },
+  {
+    "variant_name": "Ablation 5: + Index GEX Short-Gamma Gate",
+    "final_val": 2172311.136604999,
+    "cagr": 34.19854103574767,
+    "max_dd": 25.20082891391987,
+    "calmar": 1.357040324052906,
+    "trades": 250,
+    "win_rate": 43.2,
+    "profit_factor": 2.0620584893195186,
+    "total_gain": 3240452.6653082483,
+    "total_loss": 1571464.961877779
+  },
+  {
+    "variant_name": "Ablation 6: Confluence (AVWAP + Absorption)",
+    "final_val": 777415.9150958696,
+    "cagr": 9.24057435958301,
+    "max_dd": 17.51684060955515,
+    "calmar": 0.5275251722358213,
+    "trades": 255,
+    "win_rate": 42.745098039215684,
+    "profit_factor": 1.3661393203809484,
+    "total_gain": 1034768.9501522207,
+    "total_loss": 757440.2805884213
+  },
+  {
+    "variant_name": "Ablation 7: Confluence (AVWAP + Volume Profile)",
+    "final_val": 2272551.0492874472,
+    "cagr": 35.41630258506934,
+    "max_dd": 19.187486063931793,
+    "calmar": 1.8458021268166085,
+    "trades": 262,
+    "win_rate": 49.61832061068702,
+    "profit_factor": 2.002437259924029,
+    "total_gain": 3540792.4347101934,
+    "total_loss": 1768241.3854227464
+  },
+  {
+    "variant_name": "Ablation 8: Full Confluence (AVWAP + VP + Absorption + GEX)",
+    "final_val": 909842.6025440623,
+    "cagr": 12.736201211404797,
+    "max_dd": 15.682385733588697,
+    "calmar": 0.812134162988114,
+    "trades": 273,
+    "win_rate": 43.58974358974359,
+    "profit_factor": 1.4921923240287582,
+    "total_gain": 1234477.0367621118,
+    "total_loss": 827290.8370344361
+  }
+]

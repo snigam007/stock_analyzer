@@ -34,6 +34,7 @@ from core.mf_sip_planner import (
     run_mf_sip_backtest,
     calculate_mf_sip_accuracy
 )
+from core.ui_components import render_clean_html, fmt_inr
 
 try:
     st.set_page_config(page_title="Mutual Funds Radar & Signals", page_icon="🏛️", layout="wide")
@@ -108,24 +109,24 @@ except Exception as e:
 nav_display = str(latest_nav_date) if latest_nav_date else "Not Synced"
 sig_display = str(latest_sig_date) if latest_sig_date else ("Pending" if latest_nav_date else "Not Run")
 
-st.markdown(f"""
+render_clean_html(f"""
 <div style="background: rgba(15, 23, 42, 0.85); border: 1px solid #1e293b; padding: 7px 16px; border-radius: 6px; margin-bottom: 14px; font-size: 0.82em; color: #94a3b8; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
     <span>🏛️ <b>Official AMFI NAV Date:</b> {nav_display} • <b>Signals Run:</b> {sig_display}</span>
     <span>ℹ️ <i>Mutual Fund NAVs are released daily by AMFI between 9:00 PM and 11:00 PM IST post-market close.</i></span>
 </div>
-""", unsafe_allow_html=True)
+""")
 
-# Main Tabs
-tab1, tab_delta, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊 Daily MF Buy & Sell Signals",
-    "⚡ Daily NAV Delta Tracker",
-    "🎯 Signals Accuracy & Audit",
-    "📈 3-Year Rolling Return Leaderboard",
-    "🔍 Direct Stock vs MF Overlap Analyzer",
-    "💡 Dedicated MF SIP Planner & Curated Baskets"
+# Main Tabs: Consolidated into 4 clean master workspaces
+tab1, tab_delta, tab_audit, tab_rolling, tab_overlap, tab_sip = st.tabs([
+    "📊 Tactical Signals",
+    "⚡ Daily NAV Deltas",
+    "🎯 Accuracy Audit",
+    "📈 Rolling Consistency",
+    "🔬 Look-Through Overlap",
+    "💡 Curated SIP Baskets"
 ])
 
-# ─── TAB 1: Daily MF Buy & Sell Signals ────────────────────────────────────────
+# ─── TAB 1: Tactical Signals ──────────────────────────────────────────────────
 with tab1:
     st.subheader("⚡ Daily Tactical Mutual Fund Signals")
     st.caption("Quantitative momentum, 50-EMA support dips, and parabolic profit-skim triggers on Direct-Growth category leaders.")
@@ -365,8 +366,8 @@ with tab_delta:
     else:
         st.warning("No mutual fund daily delta data available. Click 'Sync MF Daily Deltas Now' above.")
 
-# ─── TAB 2: Signals Accuracy & Audit ──────────────────────────────────────────
-with tab2:
+# ─── TAB AUDIT: Signals Accuracy & Audit ──────────────────────────────────────
+with tab_audit:
     st.subheader("🎯 Quantitative Accuracy & Audit Track Record")
     st.caption("Verifiable track record of realized forward 30-day and 90-day returns and benchmark alpha against NIFTY 50 TRI for all past signals.")
 
@@ -446,8 +447,8 @@ with tab2:
     else:
         st.info("No audited records available yet. Click 'Generate Signals' to backfill.")
 
-# ─── TAB 3: 3-Year Rolling Return Leaderboard ──────────────────────────────────
-with tab3:
+# ─── TAB ROLLING: 3-Year Rolling Return Leaderboard ───────────────────────────
+with tab_rolling:
     st.subheader("📈 3-Year Rolling Return & Downside Protection Leaderboard")
     st.caption("Point-to-point returns are deceptive. Rolling returns measure true compounding consistency across bull, bear, and choppy cycles.")
 
@@ -492,8 +493,8 @@ with tab3:
         else:
             st.warning(roll["error"])
 
-# ─── TAB 4: Direct Stock vs MF Overlap & True Concentration Lab ───────────────
-with tab4:
+# ─── MASTER TAB 3: Direct Stock vs MF Overlap & True Concentration Lab ───────
+with tab_overlap:
     st.subheader("🔍 Direct Stock vs. Mutual Fund Overlap & True Concentration Lab")
     st.caption("Prevent accidental over-concentration. Discover which of your direct stock holdings are already heavily owned inside mutual funds, calculate true look-through risk, and prevent fee cannibalization.")
 
@@ -781,8 +782,8 @@ with tab4:
                     "overlap_contribution": "Overlap Contribution (%)"
                 })
                 st.dataframe(pw_df, use_container_width=True, hide_index=True)
-# ─── TAB 5: Dedicated MF SIP Planner & Curated Baskets ─────────────────────────
-with tab5:
+# ─── MASTER TAB 2: Dedicated MF SIP Planner & Curated Baskets ─────────────────
+with tab_sip:
     st.subheader("💡 Dedicated Mutual Fund SIP Planner & Curated Baskets")
     st.caption("Plan, budget, and backtest institutional-grade Mutual Fund portfolios with independent budgets across Monthly, Quarterly, and Yearly frequencies.")
 

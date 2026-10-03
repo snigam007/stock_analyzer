@@ -27,24 +27,30 @@ if str(BASE_DIR) not in sys.path:
 
 try:
     st.set_page_config(page_title="Institutional Portfolio Advisor", page_icon="💼", layout="wide")
-    
-    import importlib
-    import core.portfolio_analyzer
-    importlib.reload(core.portfolio_analyzer)
-    
-    from db.database import get_global_engine, get_session
-    from sqlalchemy import text
-    from core.portfolio_advisor import generate_institutional_portfolio
-    from core.portfolio_optimizer import execute_paper_buy
-    from core.macro_regime import evaluate_macro_regime
-    from core.portfolio_analyzer import (
-        parse_portfolio_text,
-        parse_portfolio_csv,
-        analyze_custom_portfolio,
-        get_searchable_assets_catalog
-    )
 except Exception:
     pass
+
+import importlib
+import core.portfolio_analyzer
+importlib.reload(core.portfolio_analyzer)
+
+from db.database import get_global_engine, get_session
+from sqlalchemy import text
+from core.portfolio_advisor import generate_institutional_portfolio
+from core.portfolio_optimizer import execute_paper_buy
+from core.macro_regime import evaluate_macro_regime
+from core.portfolio_analyzer import (
+    parse_portfolio_text,
+    parse_portfolio_csv,
+    analyze_custom_portfolio,
+    get_searchable_assets_catalog
+)
+from core.ui_components import (
+    render_clean_html,
+    fmt_inr,
+    generate_broker_order_clipboard,
+    render_empty_defensive_state
+)
 
 engine = get_global_engine()
 
@@ -60,12 +66,12 @@ session_m = get_session(engine)
 macro_info = evaluate_macro_regime(session_m)
 session_m.close()
 
-st.markdown(f"""
-<div style="background: #101c28; border-left: 4px solid #38bdf8; padding: 10px 16px; border-radius: 6px; margin-bottom: 15px;">
-    <span style="font-weight: bold; color: #38bdf8;">🏛️ Current Macro Regime: {macro_info['regime']} (Score: {macro_info['macro_score']}/100)</span> &nbsp;•&nbsp; 
-    <span style="color: #cbd5e1; font-size: 0.9em;">Recommended Strategic Tilt: Equities <b>{macro_info['recommended_allocation']['Equities %']}%</b> | Gold/Commodities <b>{macro_info['recommended_allocation']['Gold & Commodities %']}%</b> | Cash <b>{macro_info['recommended_allocation']['Cash & Liquid %']}%</b></span>
+render_clean_html(f"""
+<div style="background: #101c28; border-left: 4px solid #00eefc; padding: 12px 18px; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 4px 14px rgba(0,238,252,0.06);">
+    <span style="font-weight: bold; color: #00eefc; font-size: 1.02em;">🏛️ Current Macro Regime: {macro_info['regime']} (Score: {macro_info['macro_score']}/100)</span> &nbsp;•&nbsp; 
+    <span style="color: #cbd5e1; font-size: 0.9em;">Recommended Strategic Tilt: Equities <b style="color: #00ff66;">{macro_info['recommended_allocation']['Equities %']}%</b> | Gold/Commodities <b style="color: #f59e0b;">{macro_info['recommended_allocation']['Gold & Commodities %']}%</b> | Cash <b style="color: #38bdf8;">{macro_info['recommended_allocation']['Cash & Liquid %']}%</b></span>
 </div>
-""", unsafe_allow_html=True)
+""")
 
 tab_user_port, tab_overlap_port, tab_model_port = st.tabs([
     "📥 Punch In My Current Portfolio (Audit & Insights)",
@@ -670,141 +676,158 @@ with tab_model_port:
 
     st.markdown("---")
 
-# ── Asset Class & Sector Allocation Donut Charts ─────────────────────────────
-ch_col1, ch_col2 = st.columns(2)
+    # ── Asset Class & Sector Allocation Donut Charts ─────────────────────────────
 
-with ch_col1:
-    st.markdown("##### 🥧 Multi-Asset Class Distribution")
-    df_ac = pd.DataFrame(list(portfolio["asset_class_summary"].items()), columns=["Asset Class", "Allocation %"])
-    fig_ac = px.pie(df_ac, names="Asset Class", values="Allocation %", hole=0.45, color_discrete_sequence=["#38bdf8", "#00c875", "#f0a500"])
-    fig_ac.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
-    st.plotly_chart(fig_ac, use_container_width=True)
+    ch_col1, ch_col2 = st.columns(2)
 
-with ch_col2:
-    st.markdown("##### 🌐 Equity Sector & Commodity Diversification (≤25% Cap)")
-    df_sec = pd.DataFrame(list(portfolio["sector_summary"].items()), columns=["Sector / Vertical", "Allocation %"])
-    fig_sec = px.pie(df_sec, names="Sector / Vertical", values="Allocation %", hole=0.45, color_discrete_sequence=px.colors.sequential.Tealgrn)
-    fig_sec.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
-    st.plotly_chart(fig_sec, use_container_width=True)
+    with ch_col1:
+        st.markdown("##### 🥧 Multi-Asset Class Distribution")
+        df_ac = pd.DataFrame(list(portfolio["asset_class_summary"].items()), columns=["Asset Class", "Allocation %"])
+        fig_ac = px.pie(df_ac, names="Asset Class", values="Allocation %", hole=0.45, color_discrete_sequence=["#38bdf8", "#00c875", "#f0a500"])
+        fig_ac.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+        st.plotly_chart(fig_ac, use_container_width=True)
 
-st.markdown("---")
+    with ch_col2:
+        st.markdown("##### 🌐 Equity Sector & Commodity Diversification (≤25% Cap)")
+        df_sec = pd.DataFrame(list(portfolio["sector_summary"].items()), columns=["Sector / Vertical", "Allocation %"])
+        fig_sec = px.pie(df_sec, names="Sector / Vertical", values="Allocation %", hole=0.45, color_discrete_sequence=px.colors.sequential.Tealgrn)
+        fig_sec.update_layout(height=300, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
+        st.plotly_chart(fig_sec, use_container_width=True)
 
-# ── Projected Wealth Compounding Growth Curve ────────────────────────────────
-st.markdown("##### 📈 5-Year Projected Capital Compounding Trajectory (₹)")
-years = list(range(6))
-growth_curve = [round(total_capital * ((1.0 + portfolio['expected_cagr_pct'] / 100.0) ** y), 2) for y in years]
-df_growth = pd.DataFrame({"Year": [f"Year {y}" if y > 0 else "Today" for y in years], "Portfolio Capital (₹)": growth_curve})
+    st.markdown("---")
 
-fig_growth = go.Figure()
-fig_growth.add_trace(go.Scatter(x=df_growth["Year"], y=df_growth["Portfolio Capital (₹)"], mode="lines+markers+text", text=[f"₹{v:,.0f}" for v in growth_curve], textposition="top center", line=dict(color="#00c875", width=3), name="Compounded Value"))
-fig_growth.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"), yaxis_title="Portfolio Capital (₹)")
-st.plotly_chart(fig_growth, use_container_width=True)
+    # ── Projected Wealth Compounding Growth Curve ────────────────────────────────
+    st.markdown("##### 📈 5-Year Projected Capital Compounding Trajectory (₹)")
+    years = list(range(6))
+    growth_curve = [round(total_capital * ((1.0 + portfolio['expected_cagr_pct'] / 100.0) ** y), 2) for y in years]
+    df_growth = pd.DataFrame({"Year": [f"Year {y}" if y > 0 else "Today" for y in years], "Portfolio Capital (₹)": growth_curve})
 
-st.markdown("---")
+    fig_growth = go.Figure()
+    fig_growth.add_trace(go.Scatter(x=df_growth["Year"], y=df_growth["Portfolio Capital (₹)"], mode="lines+markers+text", text=[f"₹{v:,.0f}" for v in growth_curve], textposition="top center", line=dict(color="#00c875", width=3), name="Compounded Value"))
+    fig_growth.update_layout(height=300, margin=dict(l=20, r=20, t=30, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"), yaxis_title="Portfolio Capital (₹)")
+    st.plotly_chart(fig_growth, use_container_width=True)
 
-# ── Action Buttons (Deploy & Export) ──────────────────────────────────────────
-act_col1, act_col2, act_col3 = st.columns([1.5, 1.5, 2])
+    st.markdown("---")
 
-with act_col1:
-    if st.button("🚀 Deploy to Live Paper Trading Ledger", type="primary", use_container_width=True):
-        session_exec = get_session(engine)
-        deploy_count = 0
-        for item in portfolio["assets"]:
-            if item["asset_class"] == "Equity" and item["shares_to_buy"] > 0:
-                execute_paper_buy(
-                    session=session_exec,
-                    symbol=item["symbol"],
-                    shares=item["shares_to_buy"],
-                    buy_price=item["current_price"],
-                    stop_loss=item["stop_loss"],
-                    target_1=item["target_price_1"],
-                    target_2=item["target_price_1"] * 1.04,
-                    target_3=item["target_price_1"] * 1.10
-                )
-                deploy_count += 1
-        session_exec.close()
-        st.success(f"🎉 Successfully deployed {deploy_count} positions to your Live Paper Trading Ledger (Page 8)!")
+    # ── Action Buttons (Deploy & Export) ──────────────────────────────────────────
+    act_col1, act_col2, act_col3, act_col4 = st.columns([1.2, 1.2, 1.3, 1.5])
 
-with act_col2:
-    # Generate HTML Mandate
-    mandate_html = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Institutional Portfolio Mandate - {portfolio['n_assets']} Assets</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; background: #0a0e14; color: #f0f4f8; padding: 30px; }}
-            .header {{ border-bottom: 2px solid #00c875; padding-bottom: 15px; margin-bottom: 20px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-            th, td {{ border: 1px solid #1e293b; padding: 10px; text-align: left; }}
-            th {{ background: #111a24; color: #38bdf8; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h2>🏛️ Institutional Portfolio Advisory Mandate</h2>
-            <p><b>Risk Profile:</b> {risk_code} | <b>Horizon:</b> {horizon_choice} | <b>Total Capital:</b> ₹{total_capital:,.2f} | <b>Expected CAGR:</b> {portfolio['expected_cagr_pct']:+.1f}%</p>
-        </div>
-        <table>
-            <tr><th>Symbol</th><th>Asset Class</th><th>Sector</th><th>Weight %</th><th>Allocated Capital (₹)</th><th>Price (₹)</th><th>Target (₹)</th><th>Stop Loss (₹)</th></tr>
-            {''.join([f"<tr><td><b>{x['symbol']}</b></td><td>{x['asset_class']}</td><td>{x['sector']}</td><td>{x['weight_pct']:.2f}%</td><td>₹{x['allocated_capital_inr']:,.2f}</td><td>₹{x['current_price']:,.2f}</td><td>₹{x['target_price_1']:,.2f}</td><td>₹{x['stop_loss']:,.2f}</td></tr>" for x in portfolio['assets']])}
-        </table>
-    </body>
-    </html>
-    """
-    st.download_button(
-        "📥 Export Portfolio Mandate (HTML/PDF)",
-        data=mandate_html,
-        file_name=f"Institutional_Portfolio_Mandate_{portfolio['n_assets']}_Assets.html",
-        mime="text/html",
-        use_container_width=True
-    )
+    with act_col1:
+        if st.button("🚀 Deploy to Live Paper Trading Ledger", type="primary", use_container_width=True):
+            session_exec = get_session(engine)
+            deploy_count = 0
+            for item in portfolio["assets"]:
+                if item["asset_class"] == "Equity" and item["shares_to_buy"] > 0:
+                    execute_paper_buy(
+                        session=session_exec,
+                        symbol=item["symbol"],
+                        shares=item["shares_to_buy"],
+                        buy_price=item["current_price"],
+                        stop_loss=item["stop_loss"],
+                        target_1=item["target_price_1"],
+                        target_2=item["target_price_1"] * 1.04,
+                        target_3=item["target_price_1"] * 1.10
+                    )
+                    deploy_count += 1
+            session_exec.close()
+            st.success(f"🎉 Successfully deployed {deploy_count} positions to your Live Paper Trading Ledger (Page 8)!")
 
-with act_col3:
-    if st.button("📌 Lock as Tracked Active Mandate", use_container_width=True):
-        from core.recommendation_tracker import save_active_recommendation_mandate
-        session_m = get_session(engine)
-        mid = save_active_recommendation_mandate(
-            session_m,
-            name=f"Institutional {portfolio['n_assets']} Assets ({risk_code})",
-            strategy=f"INSTITUTIONAL_{risk_code}",
-            assets=portfolio["assets"],
-            source="Portfolio Advisor",
-            monthly_outlay=total_capital,
-            notes=f"Institutional allocation generated for {horizon_choice}"
+    with act_col2:
+        # Generate HTML Mandate
+        mandate_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Institutional Portfolio Mandate - {portfolio['n_assets']} Assets</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; background: #0a0e14; color: #f0f4f8; padding: 30px; }}
+                .header {{ border-bottom: 2px solid #00c875; padding-bottom: 15px; margin-bottom: 20px; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                th, td {{ border: 1px solid #1e293b; padding: 10px; text-align: left; }}
+                th {{ background: #111a24; color: #38bdf8; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>🏛️ Institutional Portfolio Advisory Mandate</h2>
+                <p><b>Risk Profile:</b> {risk_code} | <b>Horizon:</b> {horizon_choice} | <b>Total Capital:</b> ₹{total_capital:,.2f} | <b>Expected CAGR:</b> {portfolio['expected_cagr_pct']:+.1f}%</p>
+            </div>
+            <table>
+                <tr><th>Symbol</th><th>Asset Class</th><th>Sector</th><th>Weight %</th><th>Allocated Capital (₹)</th><th>Price (₹)</th><th>Target (₹)</th><th>Stop Loss (₹)</th></tr>
+                {''.join([f"<tr><td><b>{x['symbol']}</b></td><td>{x['asset_class']}</td><td>{x['sector']}</td><td>{x['weight_pct']:.2f}%</td><td>₹{x['allocated_capital_inr']:,.2f}</td><td>₹{x['current_price']:,.2f}</td><td>₹{x['target_price_1']:,.2f}</td><td>₹{x['stop_loss']:,.2f}</td></tr>" for x in portfolio['assets']])}
+            </table>
+        </body>
+        </html>
+        """
+        st.download_button(
+            "📥 Export Portfolio Mandate (HTML/PDF)",
+            data=mandate_html,
+            file_name=f"Institutional_Portfolio_Mandate_{portfolio['n_assets']}_Assets.html",
+            mime="text/html",
+            use_container_width=True
         )
-        session_m.close()
-        st.success(f"✅ Mandate #{mid} saved! You can follow live trailing stops and daily shift alerts in Page 16.")
 
-# ── Detailed Asset Allocation Table ──────────────────────────────────────────
-st.subheader(f"📋 Complete Asset Allocation Matrix ({portfolio['n_assets']} Assets)")
+    with act_col3:
+        if st.button("📌 Lock as Tracked Active Mandate", use_container_width=True):
+            from core.recommendation_tracker import save_active_recommendation_mandate
+            session_m = get_session(engine)
+            mid = save_active_recommendation_mandate(
+                session_m,
+                name=f"Institutional {portfolio['n_assets']} Assets ({risk_code})",
+                strategy=f"INSTITUTIONAL_{risk_code}",
+                assets=portfolio["assets"],
+                source="Portfolio Advisor",
+                monthly_outlay=total_capital,
+                notes=f"Institutional allocation generated for {horizon_choice}"
+            )
+            session_m.close()
+            st.success(f"✅ Mandate #{mid} saved! You can follow live trailing stops and daily shift alerts in Page 16.")
 
-df_assets = pd.DataFrame(portfolio["assets"])
-st.dataframe(
-    df_assets[[
-        "symbol", "name", "asset_class", "sector", "weight_pct", "allocated_capital_inr", "shares_to_buy", "current_price", "target_price_1", "stop_loss", "expected_1y_ret_pct", "risk_level"
-    ]].rename(columns={
-        "symbol": "Symbol",
-        "name": "Asset Name",
-        "asset_class": "Asset Class",
-        "sector": "Sector / Theme",
-        "weight_pct": "Target Weight %",
-        "allocated_capital_inr": "Capital (₹)",
-        "shares_to_buy": "Units / Shares",
-        "current_price": "Price (₹)",
-        "target_price_1": "Target (₹)",
-        "stop_loss": "Stop Loss (₹)",
-        "expected_1y_ret_pct": "Expected Return %",
-        "risk_level": "Risk Rating"
-    }).style.format({
-        "Target Weight %": "{:.2f}%",
-        "Capital (₹)": "₹{:,.2f}",
-        "Units / Shares": "{:,}",
-        "Price (₹)": "₹{:,.2f}",
-        "Target (₹)": "₹{:,.2f}",
-        "Stop Loss (₹)": "₹{:,.2f}",
-        "Expected Return %": "{:+.1f}%"
-    }),
-    use_container_width=True,
-    hide_index=True
-)
+    with act_col4:
+        broker_order_items = []
+        for it in portfolio.get("assets", []):
+            if it.get("shares_to_buy", 0) > 0:
+                broker_order_items.append({
+                    "symbol": it["symbol"],
+                    "shares": it["shares_to_buy"],
+                    "current_price": it.get("current_price", 0),
+                    "action": "BUY"
+                })
+        if broker_order_items:
+            generate_broker_order_clipboard(broker_order_items, label="📋 Copy Broker Orders (Zerodha / Groww)")
+        else:
+            st.info("No active equity share allocations to export.")
+
+
+    # ── Detailed Asset Allocation Table ──────────────────────────────────────────
+    st.subheader(f"📋 Complete Asset Allocation Matrix ({portfolio['n_assets']} Assets)")
+
+    df_assets = pd.DataFrame(portfolio["assets"])
+    st.dataframe(
+        df_assets[[
+            "symbol", "name", "asset_class", "sector", "weight_pct", "allocated_capital_inr", "shares_to_buy", "current_price", "target_price_1", "stop_loss", "expected_1y_ret_pct", "risk_level"
+        ]].rename(columns={
+            "symbol": "Symbol",
+            "name": "Asset Name",
+            "asset_class": "Asset Class",
+            "sector": "Sector / Theme",
+            "weight_pct": "Target Weight %",
+            "allocated_capital_inr": "Capital (₹)",
+            "shares_to_buy": "Units / Shares",
+            "current_price": "Price (₹)",
+            "target_price_1": "Target (₹)",
+            "stop_loss": "Stop Loss (₹)",
+            "expected_1y_ret_pct": "Expected Return %",
+            "risk_level": "Risk Rating"
+        }).style.format({
+            "Target Weight %": "{:.2f}%",
+            "Capital (₹)": "₹{:,.2f}",
+            "Units / Shares": "{:,}",
+            "Price (₹)": "₹{:,.2f}",
+            "Target (₹)": "₹{:,.2f}",
+            "Stop Loss (₹)": "₹{:,.2f}",
+            "Expected Return %": "{:+.1f}%"
+        }),
+        use_container_width=True,
+        hide_index=True
+    )

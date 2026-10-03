@@ -62,6 +62,7 @@ try:
     from core.multi_timeframe import analyze_multi_timeframe_alignment
     from core.tranche_execution import calculate_tranche_execution_plan
     from core.earnings_catalysts import predict_earnings_sentiment_and_risk
+    from core.ui_components import render_clean_html, fmt_inr, generate_broker_order_clipboard
     
     engine = get_global_engine()
     
@@ -526,114 +527,36 @@ with col6:
     except Exception as e:
         st.caption("Advisory Report ready on page load")
 
-st.markdown("---")
+# ── Pre-compute key multi-engine intelligence objects ─────────────────────────
+champion_data = get_cached_champion_strategy(selected_symbol, years=3)
+ml_ens = get_cached_ml_ensemble(selected_symbol, df)
 
-# ── Signal & Trade History Audit Trail (Item 3.2) ─────────────────────────────
-with st.expander("📋 Signal & Trade History (Audit Trail)", expanded=False):
-    audit_sess = get_session(engine)
-    try:
-        audit_rows = audit_sess.execute(text("""
-            SELECT signal_date, signal, entry_price, target_1, target_2, stop_loss,
-                   status, realized_gain_pct, days_to_outcome, trailing_stop,
-                   max_price_reached, risk_level
-            FROM signal_audit_log
-            WHERE symbol = :s
-            ORDER BY signal_date DESC
-            LIMIT 12
-        """), {"s": selected_symbol}).fetchall()
-    except Exception:
-        audit_rows = []
-    finally:
-        audit_sess.close()
+session_fno = get_session(engine)
+fno_profile = analyze_fno_derivatives(selected_symbol, current_price, session_fno, rsi_14=ind.get("rsi_14", 50.0))
+session_fno.close()
 
-    if audit_rows:
-        status_icons = {
-            "PENDING": "⏳", "T1_HIT": "🎯", "T2_HIT": "🎯🎯", "T3_HIT": "🎯🎯🎯",
-            "SL_HIT": "🛑", "TRAILING_SL_HIT": "🔒", "EXPIRED": "⌛"
-        }
-        status_colors = {
-            "PENDING": "#5c7080", "T1_HIT": "#00c875", "T2_HIT": "#00e5a0",
-            "T3_HIT": "#00ffc8", "SL_HIT": "#e04b4b", "TRAILING_SL_HIT": "#80c4ff", "EXPIRED": "#aaa"
-        }
-        sig_icons = {"BUY": "🟢", "SELL": "🔴", "WATCH": "🟡"}
+session_earn = get_session(engine)
+earn_sentiment = predict_earnings_sentiment_and_risk(selected_symbol, df, session=session_earn, within_days=14)
+session_earn.close()
 
-        audit_df = pd.DataFrame(audit_rows, columns=[
-            "Date", "Signal", "Entry", "T1", "T2", "SL",
-            "Status", "Gain %", "Days", "Trail SL", "Max Price", "Risk"
-        ])
+# ── 4 Master Navigation Tabs ──────────────────────────────────────────────────
+tab_tech, tab_plan, tab_ai, tab_fno = st.tabs([
+    "📈 Price Action & Technical Chart",
+    "🎯 Quant Signals & Execution Plan",
+    "🧠 AI Ensemble & ML Forecasts",
+    "⚡ F&O Derivatives & Institutional Flow"
+])
 
-        # Summary stats at top
-        resolved = audit_df[audit_df["Status"] != "PENDING"]
-        if not resolved.empty:
-            wins = resolved[resolved["Gain %"] > 0]
-            losses = resolved[resolved["Gain %"] <= 0]
-            wr = len(wins) / len(resolved) if len(resolved) > 0 else 0
-            avg_gain = resolved["Gain %"].mean()
-            avg_gain_str = f"{avg_gain:+.2f}%" if pd.notna(avg_gain) else "—"
-            mcol1, mcol2, mcol3, mcol4 = st.columns(4)
-            mcol1.metric("Resolved Trades", len(resolved))
-            mcol2.metric("Win Rate", f"{wr:.0%}")
-            mcol3.metric("Avg Gain", avg_gain_str,
-                         delta_color="normal" if (pd.notna(avg_gain) and avg_gain >= 0) else "inverse")
-            mcol4.metric("Pending", len(audit_df[audit_df["Status"] == "PENDING"]))
-            st.markdown("")
-
-        # Trade history rows
-        for _, arow in audit_df.iterrows():
-            status = str(arow["Status"]) if pd.notna(arow["Status"]) else "PENDING"
-            gain = arow["Gain %"]
-            sc = status_colors.get(status, "#888")
-            si = status_icons.get(status, "?")
-            gain_str = f"{gain:+.2f}%" if pd.notna(gain) else "—"
-            days_val = arow["Days"]
-            days_str = f"{int(days_val)}d" if (pd.notna(days_val) and not np.isnan(days_val)) else "—"
-            entry_val = arow["Entry"]
-            entry_str = f"₹{entry_val:,.2f}" if (pd.notna(entry_val) and not np.isnan(entry_val)) else "—"
-            t1_val = arow["T1"]
-            t1_str = f"₹{t1_val:,.2f}" if (pd.notna(t1_val) and not np.isnan(t1_val)) else "—"
-            sl_val = arow["SL"]
-            sl_str = f"₹{sl_val:,.2f}" if (pd.notna(sl_val) and not np.isnan(sl_val)) else "—"
-
-            ratchet = ""
-            if status in ("T2_HIT", "T3_HIT"):
-                ratchet = " 🔒 T2 locked"
-            elif status == "T1_HIT":
-                ratchet = " 🔒 BE locked"
-            st.markdown(
-                f'<div style="background:#1a2233;border-left:3px solid {sc};padding:6px 12px;'
-                f'border-radius:4px;margin-bottom:5px;font-size:0.88em;">'
-                f'<b>{arow["Date"]}</b> &nbsp; {sig_icons.get(arow["Signal"],"?")} {arow["Signal"]} '
-                f'@ {entry_str} → T1 {t1_str} | SL {sl_str} &nbsp;&nbsp;'
-                f'<span style="color:{sc};font-weight:700;">{si} {status}</span>'
-                f' &nbsp; <b>{gain_str}</b> in {days_str}{ratchet}'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-    else:
-        st.info(f"No audit history found for {selected_symbol}. Signals must complete their evaluation window first.")
-
-# ── Trend Pattern ──────────────────────────────────────────────────────────────
-trend_pattern = ind.get("trend_pattern", "—")
-trend_direction = ind.get("trend_direction", "SIDEWAYS")
-trend_strength = ind.get("trend_strength", 50)
-
-trend_col = "🟢" if trend_direction == "UP" else ("🔴" if trend_direction == "DOWN" else "🟡")
-st.markdown(
-    f"**Trend Pattern (Last 20 days):** `{trend_pattern}` &nbsp;&nbsp;"
-    f"{trend_col} **{trend_direction}** (Strength: {trend_strength:.0f}%)",
-    unsafe_allow_html=True
-)
-
-# ── Candlestick Chart ──────────────────────────────────────────────────────────
-chart_mode = st.radio(
-    "📊 Chart View Selection",
-    [
-        "🕯️ Visible Range Volume Profile (VPVR) + Execution Targets Overlay",
-        "📈 Standard Multi-Pane Indicator View (Price, EMAs, RSI, Volume)"
-    ],
-    horizontal=True,
-    help="Toggle between institutional Volume Profile (VPVR) with Point of Control (POC) vs standard indicator multi-pane view."
-)
+with tab_tech:
+    chart_mode = st.radio(
+        "📊 Chart View Selection",
+        [
+            "🕯️ Visible Range Volume Profile (VPVR) + Execution Targets Overlay",
+            "📈 Standard Multi-Pane Indicator View (Price, EMAs, RSI, Volume)"
+        ],
+        horizontal=True,
+        help="Toggle between institutional Volume Profile (VPVR) with Point of Control (POC) vs standard indicator multi-pane view."
+    )
 
 if "VPVR" in chart_mode:
     from core.volume_profile import create_vpvr_candlestick_chart
@@ -716,8 +639,23 @@ else:
 
     st.plotly_chart(fig, use_container_width=True)
 
-# ── Signal & Targets ──────────────────────────────────────────────────────────
-st.subheader("🚦 Signal Details & Price Targets")
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 2: QUANT SIGNALS & EXECUTION PLAN
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_plan:
+    # ── Signal & Targets ──────────────────────────────────────────────────────
+    st.subheader("🚦 Signal Details & Price Targets")
+
+    # One-Click Broker Order Sheet
+    order_item = [{"symbol": selected_symbol, "shares": 100, "price": current_price, "action": sig.get("signal", "BUY")}]
+    csv_b, json_b = generate_broker_order_clipboard(order_item)
+    st.download_button(
+        "📋 Export Broker Order Sheet",
+        data=csv_b,
+        file_name=f"{selected_symbol}_order_basket.csv",
+        mime="text/csv",
+        help="Download Zerodha / Groww compatible CSV basket order"
+    )
 
 if inc_days > 1 and inc_date:
     ret_color = "#00c875" if inc_ret >= 0 else "#ff4b4b"
@@ -1048,156 +986,163 @@ st.dataframe(
     hide_index=True,
 )
 
-# ── Multi-Engine Confluence & Signal Correlation ──────────────────────────────
-st.subheader("🌐 Multi-Engine Confluence & Correlation Analysis")
-from core.ml_models import compute_signal_correlation_and_confluence, run_monte_carlo_simulation
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 3: AI ENSEMBLE & ML FORECASTS
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_ai:
+    # ── Multi-Engine Confluence & Correlation Analysis ─────────────────────────
+    st.subheader("🌐 Multi-Engine Confluence & Correlation Analysis")
+    from core.ml_models import compute_signal_correlation_and_confluence, run_monte_carlo_simulation
 
-confluence = compute_signal_correlation_and_confluence(df, ind, {"trend_slope": ind.get("trend_strength", 0)/100, "ml_signal": sig.get("ml_signal", "WATCH")})
-conf_score = confluence.get("confluence_score", 50.0)
-conf_grade = confluence.get("confluence_grade", "MODERATE")
+    confluence = compute_signal_correlation_and_confluence(df, ind, {"trend_slope": ind.get("trend_strength", 0)/100, "ml_signal": sig.get("ml_signal", "WATCH")})
+    conf_score = confluence.get("confluence_score", 50.0)
+    conf_grade = confluence.get("confluence_grade", "MODERATE")
 
-mc_col1, mc_col2 = st.columns([1, 2])
-with mc_col1:
-    st.metric("Confluence Index", f"{conf_score:.0f}%", conf_grade)
-    st.progress(int(conf_score))
-    st.caption(f"**{confluence.get('bullish_engines', 0)} of 5** analytical engines bullish")
+    mc_col1, mc_col2 = st.columns([1, 2])
+    with mc_col1:
+        st.metric("Confluence Index", f"{conf_score:.0f}%", conf_grade)
+        st.progress(int(conf_score))
+        st.caption(f"**{confluence.get('bullish_engines', 0)} of 5** analytical engines bullish")
 
-with mc_col2:
-    st.markdown("**Engine Consensus Breakdown:**")
-    eng_cols = st.columns(5)
-    eng_icons = {"BULLISH": "🟢 Bullish", "BEARISH": "🔴 Bearish", "NEUTRAL": "🟡 Neutral"}
-    for idx, (eng_name, eng_stat) in enumerate(confluence.get("engine_details", {}).items()):
-        eng_cols[idx].markdown(f"**{eng_name}**\n\n{eng_icons.get(eng_stat, '🟡')}")
+    with mc_col2:
+        st.markdown("**Engine Consensus Breakdown:**")
+        eng_cols = st.columns(5)
+        eng_icons = {"BULLISH": "🟢 Bullish", "BEARISH": "🔴 Bearish", "NEUTRAL": "🟡 Neutral"}
+        for idx, (eng_name, eng_stat) in enumerate(confluence.get("engine_details", {}).items()):
+            eng_cols[idx].markdown(f"**{eng_name}**\n\n{eng_icons.get(eng_stat, '🟡')}")
 
-st.markdown("---")
+    st.markdown("---")
 
-# ── Monte Carlo Price Simulation ──────────────────────────────────────────────
-mc_data = run_monte_carlo_simulation(df, days_forward=30, num_simulations=3000)
-if mc_data:
-    st.subheader("🎲 Monte Carlo Simulation & Risk Profile (3,000 Paths)")
-    mc1, mc2, mc3, mc4 = st.columns(4)
-    mc1.metric("Prob of Profit (30D)", f"{mc_data.get('probability_of_profit_pct', 50):.1f}%",
-               f"Exp Ret: {mc_data.get('expected_return_30d_pct', 0):+.2f}%")
-    mc2.metric("Expected Price (30D)", format_price(mc_data.get("expected_price_30d")),
-               f"Current: {format_price(mc_data.get('current_price'))}")
-    mc3.metric("95% Value-at-Risk (VaR)", f"{mc_data.get('var_95_pct', 0):.2f}%",
-               help="Maximum expected loss over 30 days at 95% confidence level", delta_color="inverse")
-    mc4.metric("Conditional VaR (CVaR)", f"{mc_data.get('cvar_95_pct', 0):.2f}%",
-               help="Expected shortfall in worst 5% of tail risk market scenarios", delta_color="inverse")
-    st.caption(f"80% Confidence Band: **{format_price(mc_data.get('ci_80_lower'))} – {format_price(mc_data.get('ci_80_upper'))}** | 95% Tail Range: **{format_price(mc_data.get('ci_95_lower'))} – {format_price(mc_data.get('ci_95_upper'))}**")
+    # ── Monte Carlo Price Simulation ──────────────────────────────────────────
+    mc_data = run_monte_carlo_simulation(df, days_forward=30, num_simulations=3000)
+    if mc_data:
+        st.subheader("🎲 Monte Carlo Simulation & Risk Profile (3,000 Paths)")
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("Prob of Profit (30D)", f"{mc_data.get('probability_of_profit_pct', 50):.1f}%",
+                   f"Exp Ret: {mc_data.get('expected_return_30d_pct', 0):+.2f}%")
+        mc2.metric("Expected Price (30D)", format_price(mc_data.get("expected_price_30d")),
+                   f"Current: {format_price(mc_data.get('current_price'))}")
+        mc3.metric("95% Value-at-Risk (VaR)", f"{mc_data.get('var_95_pct', 0):.2f}%",
+                   help="Maximum expected loss over 30 days at 95% confidence level", delta_color="inverse")
+        mc4.metric("Conditional VaR (CVaR)", f"{mc_data.get('cvar_95_pct', 0):.2f}%",
+                   help="Expected shortfall in worst 5% of tail risk market scenarios", delta_color="inverse")
+        st.caption(f"80% Confidence Band: **{format_price(mc_data.get('ci_80_lower'))} – {format_price(mc_data.get('ci_80_upper'))}** | 95% Tail Range: **{format_price(mc_data.get('ci_95_lower'))} – {format_price(mc_data.get('ci_95_upper'))}**")
 
-st.markdown("---")
+    st.markdown("---")
 
-# ── Predictive Model Intelligence & Forecasting Models ─────────────────────────
-st.subheader("🤖 Predictive Intelligence & Forecasting Engine")
+    # ── Predictive Model Intelligence & Forecasting Models ─────────────────────
+    st.subheader("🤖 Predictive Intelligence & Forecasting Engine")
 
-model_view = st.radio(
-    "Prediction Model Intelligence View",
-    [
-        "⚖️ Head-to-Head Comparison (Ensemble vs Champion)",
-        "🧠 5-Model ML Ensemble Breakdown",
-        "🏆 Backtested Champion Forward Trajectory",
-        "📊 Multi-Horizon Price Forecasts",
-    ],
-    horizontal=True,
-    help="Compare the 5-Model ML Ensemble against the empirically proven Backtested Champion Strategy."
-)
+    model_view = st.radio(
+        "Prediction Model Intelligence View",
+        [
+            "⚖️ Head-to-Head Comparison (Ensemble vs Champion)",
+            "🧠 5-Model ML Ensemble Breakdown",
+            "🏆 Backtested Champion Forward Trajectory",
+            "📊 Multi-Horizon Price Forecasts",
+        ],
+        horizontal=True,
+        help="Compare the 5-Model ML Ensemble against the empirically proven Backtested Champion Strategy."
+    )
 
-ml_ens = get_cached_ml_ensemble(selected_symbol, df)
-champ_data_obj = champion_data.get("champion") if (champion_data and "champion" in champion_data) else None
-emp_proj = compute_empirical_strategy_projections(current_price, champ_data_obj) if champ_data_obj else None
+    ml_ens = get_cached_ml_ensemble(selected_symbol, df)
+    champ_data_obj = champion_data.get("champion") if (champion_data and "champion" in champion_data) else None
+    emp_proj = compute_empirical_strategy_projections(current_price, champ_data_obj) if champ_data_obj else None
 
-if "Head-to-Head" in model_view:
-    h2h_col1, h2h_col2 = st.columns(2)
+    if "Head-to-Head" in model_view:
+        h2h_col1, h2h_col2 = st.columns(2)
 
-    with h2h_col1:
-        st.markdown(f"""
-        <div style="background: #142330; border-left: 5px solid #00a8ff; padding: 14px; border-radius: 6px; height: 100%;">
-            <span style="font-size: 1.1em; font-weight: bold; color: #00a8ff;">🧠 5-Model ML Ensemble Consensus</span><br>
-            • <b>Consensus Verdict:</b> {ml_ens.get('consensus_label', '🟡 NEUTRAL') if ml_ens else '—'}<br>
-            • <b>Bullish Probability:</b> <b>{ml_ens.get('ensemble_confidence_pct', 50):.1f}%</b><br>
-            • <b>Algorithms:</b> GBM (30%), RF (25%), Poly Ridge (15%), Holt-Winters (15%), Monte Carlo (15%)<br>
-            • <b>Strengths:</b> Multi-algorithm weighted voting filters single-model bias and noise.
-        </div>
-        """, unsafe_allow_html=True)
-
-    with h2h_col2:
-        if champ_data_obj:
+        with h2h_col1:
             st.markdown(f"""
-            <div style="background: #1a2e22; border-left: 5px solid #00c875; padding: 14px; border-radius: 6px; height: 100%;">
-                <span style="font-size: 1.1em; font-weight: bold; color: #00c875;">🏆 Backtested Champion Strategy</span><br>
-                • <b>Winning Strategy:</b> {champ_data_obj['strategy_name']}<br>
-                • <b>Empirical Win Rate:</b> <b>{champ_data_obj['win_rate_pct']:.1f}%</b> ({champ_data_obj['total_trades']} trades)<br>
-                • <b>Profit Factor:</b> <b>{champ_data_obj['profit_factor']:.2f}</b> | <b>Alpha:</b> {champ_data_obj['alpha_pct']:+.1f}%<br>
-                • <b>Strengths:</b> Proven statistical edge backtested over 3 years of actual OHLCV history.
+            <div style="background: #142330; border-left: 5px solid #00a8ff; padding: 14px; border-radius: 6px; height: 100%;">
+                <span style="font-size: 1.1em; font-weight: bold; color: #00a8ff;">🧠 5-Model ML Ensemble Consensus</span><br>
+                • <b>Consensus Verdict:</b> {ml_ens.get('consensus_label', '🟡 NEUTRAL') if ml_ens else '—'}<br>
+                • <b>Bullish Probability:</b> <b>{ml_ens.get('ensemble_confidence_pct', 50):.1f}%</b><br>
+                • <b>Algorithms:</b> GBM (30%), RF (25%), Poly Ridge (15%), Holt-Winters (15%), Monte Carlo (15%)<br>
+                • <b>Strengths:</b> Multi-algorithm weighted voting filters single-model bias and noise.
             </div>
             """, unsafe_allow_html=True)
-        else:
-            st.info("Run backtest to evaluate winning champion strategy.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+        with h2h_col2:
+            if champ_data_obj:
+                st.markdown(f"""
+                <div style="background: #1a2e22; border-left: 5px solid #00c875; padding: 14px; border-radius: 6px; height: 100%;">
+                    <span style="font-size: 1.1em; font-weight: bold; color: #00c875;">🏆 Backtested Champion Strategy</span><br>
+                    • <b>Winning Strategy:</b> {champ_data_obj['strategy_name']}<br>
+                    • <b>Empirical Win Rate:</b> <b>{champ_data_obj['win_rate_pct']:.1f}%</b> ({champ_data_obj['total_trades']} trades)<br>
+                    • <b>Profit Factor:</b> <b>{champ_data_obj['profit_factor']:.2f}</b> | <b>Alpha:</b> {champ_data_obj['alpha_pct']:+.1f}%<br>
+                    • <b>Strengths:</b> Proven statistical edge backtested over 3 years of actual OHLCV history.
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.info("Run backtest to evaluate winning champion strategy.")
 
-if "Ensemble" in model_view or "Head-to-Head" in model_view:
-    if ml_ens:
-        st.markdown(f"**🔬 5-Model Predictive Breakdown:**")
-        st.dataframe(
-            pd.DataFrame(ml_ens["models"]).rename(columns={
-                "model": "ML Algorithm",
-                "prob_bullish": "Bullish Prob %",
-                "verdict": "Model Signal",
-                "weight": "Ensemble Weight",
-            }),
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.markdown("<br>", unsafe_allow_html=True)
 
-if "Champion" in model_view or "Head-to-Head" in model_view:
-    if emp_proj:
-        st.markdown(f"**🔮 Champion Empirical Forward Trajectory ({emp_proj['strategy_name']}):**")
-        ep1, ep2, ep3, ep4, ep5 = st.columns(5)
-        ep_data = [
-            ("14 Days", emp_proj["proj_14d_price"], emp_proj["proj_14d_pct"]),
-            ("1 Month", emp_proj["proj_1m_price"], emp_proj["proj_1m_pct"]),
-            ("3 Months", emp_proj["proj_3m_price"], emp_proj["proj_3m_pct"]),
-            ("6 Months", emp_proj["proj_6m_price"], emp_proj["proj_6m_pct"]),
-            ("1 Year", emp_proj["proj_1y_price"], emp_proj["proj_1y_pct"]),
-        ]
-        for col, (horiz, pr, p_pct) in zip([ep1, ep2, ep3, ep4, ep5], ep_data):
-            col.metric(horiz, format_price(pr), f"{p_pct:+.2f}%", delta_color="normal" if p_pct > 0 else "inverse")
-
-if "Multi-Horizon" in model_view or "Head-to-Head" in model_view:
-    if forecast:
-        st.markdown("**📊 Statistical Multi-Horizon Forecasts (Hybrid Momentum + Holt-Winters):**")
-
-    forecast_data = [
-        ("7 Days", forecast.get("forecast_7d_price"), forecast.get("forecast_7d_change_pct"),
-         forecast.get("forecast_7d_lower"), forecast.get("forecast_7d_upper")),
-        ("14 Days", forecast.get("forecast_14d_price"), forecast.get("forecast_14d_change_pct"),
-         forecast.get("forecast_14d_lower"), forecast.get("forecast_14d_upper")),
-        ("1 Month", forecast.get("forecast_1m_price"), forecast.get("forecast_1m_change_pct"),
-         forecast.get("forecast_1m_lower"), forecast.get("forecast_1m_upper")),
-        ("3 Months", forecast.get("forecast_3m_price"), forecast.get("forecast_3m_change_pct"),
-         forecast.get("forecast_3m_lower"), forecast.get("forecast_3m_upper")),
-        ("6 Months", forecast.get("forecast_6m_price"), forecast.get("forecast_6m_change_pct"),
-         forecast.get("forecast_6m_lower"), forecast.get("forecast_6m_upper")),
-        ("1 Year", forecast.get("forecast_1y_price"), forecast.get("forecast_1y_change_pct"),
-         forecast.get("forecast_1y_lower"), forecast.get("forecast_1y_upper")),
-    ]
-
-    fc_cols = st.columns(6)
-    for col, (horizon, price, chg, lower, upper) in zip(fc_cols, forecast_data):
-        if price:
-            delta_color = "normal" if chg and chg > 0 else "inverse"
-            col.metric(
-                horizon,
-                format_price(price),
-                f"{chg:+.1f}%" if chg else None,
-                delta_color=delta_color,
+    if "Ensemble" in model_view or "Head-to-Head" in model_view:
+        if ml_ens:
+            st.markdown(f"**🔬 5-Model Predictive Breakdown:**")
+            st.dataframe(
+                pd.DataFrame(ml_ens["models"]).rename(columns={
+                    "model": "ML Algorithm",
+                    "prob_bullish": "Bullish Prob %",
+                    "verdict": "Model Signal",
+                    "weight": "Ensemble Weight",
+                }),
+                use_container_width=True,
+                hide_index=True,
             )
-            col.caption(f"Range: {format_price(lower)} – {format_price(upper)}")
 
-# ── Risk Metrics ───────────────────────────────────────────────────────────────
-st.subheader("⚠️ Risk Metrics & Solvency Health")
+    if "Champion" in model_view or "Head-to-Head" in model_view:
+        if emp_proj:
+            st.markdown(f"**🔮 Champion Empirical Forward Trajectory ({emp_proj['strategy_name']}):**")
+            ep1, ep2, ep3, ep4, ep5 = st.columns(5)
+            ep_data = [
+                ("14 Days", emp_proj["proj_14d_price"], emp_proj["proj_14d_pct"]),
+                ("1 Month", emp_proj["proj_1m_price"], emp_proj["proj_1m_pct"]),
+                ("3 Months", emp_proj["proj_3m_price"], emp_proj["proj_3m_pct"]),
+                ("6 Months", emp_proj["proj_6m_price"], emp_proj["proj_6m_pct"]),
+                ("1 Year", emp_proj["proj_1y_price"], emp_proj["proj_1y_pct"]),
+            ]
+            for col, (horiz, pr, p_pct) in zip([ep1, ep2, ep3, ep4, ep5], ep_data):
+                col.metric(horiz, format_price(pr), f"{p_pct:+.2f}%", delta_color="normal" if p_pct > 0 else "inverse")
+
+    if "Multi-Horizon" in model_view or "Head-to-Head" in model_view:
+        if forecast:
+            st.markdown("**📊 Statistical Multi-Horizon Forecasts (Hybrid Momentum + Holt-Winters):**")
+
+        forecast_data = [
+            ("7 Days", forecast.get("forecast_7d_price"), forecast.get("forecast_7d_change_pct"),
+             forecast.get("forecast_7d_lower"), forecast.get("forecast_7d_upper")),
+            ("14 Days", forecast.get("forecast_14d_price"), forecast.get("forecast_14d_change_pct"),
+             forecast.get("forecast_14d_lower"), forecast.get("forecast_14d_upper")),
+            ("1 Month", forecast.get("forecast_1m_price"), forecast.get("forecast_1m_change_pct"),
+             forecast.get("forecast_1m_lower"), forecast.get("forecast_1m_upper")),
+            ("3 Months", forecast.get("forecast_3m_price"), forecast.get("forecast_3m_change_pct"),
+             forecast.get("forecast_3m_lower"), forecast.get("forecast_3m_upper")),
+            ("6 Months", forecast.get("forecast_6m_price"), forecast.get("forecast_6m_change_pct"),
+             forecast.get("forecast_6m_lower"), forecast.get("forecast_6m_upper")),
+            ("1 Year", forecast.get("forecast_1y_price"), forecast.get("forecast_1y_change_pct"),
+             forecast.get("forecast_1y_lower"), forecast.get("forecast_1y_upper")),
+        ]
+        fc_cols = st.columns(6)
+        for col, (horizon, price, chg, lower, upper) in zip(fc_cols, forecast_data):
+            if price:
+                delta_color = "normal" if chg and chg > 0 else "inverse"
+                col.metric(
+                    horizon,
+                    format_price(price),
+                    f"{chg:+.1f}%" if chg else None,
+                    delta_color=delta_color,
+                )
+                col.caption(f"Range: {format_price(lower)} – {format_price(upper)}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4: F&O DERIVATIVES & INSTITUTIONAL FLOW
+# ══════════════════════════════════════════════════════════════════════════════
+with tab_fno:
+    # ── Risk Metrics ──────────────────────────────────────────────────────────
+    st.subheader("⚠️ Risk Metrics & Solvency Health")
 rc1, rc2, rc3, rc4 = st.columns(4)
 rc1.metric("Beta", f"{score.get('beta', 0):.2f}" if score.get('beta') else "—",
            help="Beta vs NIFTY 50. <1 = less volatile, >1 = more volatile")

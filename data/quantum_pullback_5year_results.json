@@ -1,0 +1,72 @@
+[
+  {
+    "variant": "1. Breakout Chasing (Previous Benchmark)",
+    "final_val": 1459314.09,
+    "cagr": 23.89,
+    "max_dd": 21.66,
+    "calmar": 1.1,
+    "trades": 278,
+    "win_rate": 39.6,
+    "sl_hit_rate": 60.4,
+    "profit_factor": 1.56,
+    "payoff_ratio": 1.86,
+    "avg_win_pct": 8.13,
+    "avg_loss_pct": -4.37
+  },
+  {
+    "variant": "2. Persistent Trend Pullback (Dip Buying)",
+    "final_val": 1942935.51,
+    "cagr": 31.19,
+    "max_dd": 25.3,
+    "calmar": 1.23,
+    "trades": 259,
+    "win_rate": 42.5,
+    "sl_hit_rate": 57.5,
+    "profit_factor": 1.7,
+    "payoff_ratio": 1.76,
+    "avg_win_pct": 8.4,
+    "avg_loss_pct": -4.76
+  },
+  {
+    "variant": "3. Pullback + Log Dollar-Volume Filter",
+    "final_val": 1167038.46,
+    "cagr": 18.47,
+    "max_dd": 21.89,
+    "calmar": 0.84,
+    "trades": 240,
+    "win_rate": 37.9,
+    "sl_hit_rate": 62.1,
+    "profit_factor": 1.53,
+    "payoff_ratio": 1.96,
+    "avg_win_pct": 8.09,
+    "avg_loss_pct": -4.13
+  },
+  {
+    "variant": "4. Pullback + 1.2R Breakeven Ratchet",
+    "final_val": 1289627.5,
+    "cagr": 20.86,
+    "max_dd": 23.05,
+    "calmar": 0.91,
+    "trades": 250,
+    "win_rate": 37.6,
+    "sl_hit_rate": 62.4,
+    "profit_factor": 1.57,
+    "payoff_ratio": 1.98,
+    "avg_win_pct": 8.19,
+    "avg_loss_pct": -4.14
+  },
+  {
+    "variant": "5. Grand Unified Pullback + JEV Downsizing",
+    "final_val": 988707.51,
+    "cagr": 14.61,
+    "max_dd": 21.43,
+    "calmar": 0.68,
+    "trades": 250,
+    "win_rate": 37.2,
+    "sl_hit_rate": 62.8,
+    "profit_factor": 1.51,
+    "payoff_ratio": 2.04,
+    "avg_win_pct": 8.3,
+    "avg_loss_pct": -4.08
+  }
+]

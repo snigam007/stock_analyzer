@@ -1,0 +1,77 @@
+{
+  "audit_window": "2016-09-30 to 2026-09-29 (2,470 trading sessions / 10.0 Years / 120 Months)",
+  "market_benchmark": {
+    "index": "NIFTY 50 (^NSEI)",
+    "start_close": 8611.15,
+    "end_close": 22716.20,
+    "market_cagr_pct": 10.18,
+    "market_sip_xirr_pct": 8.33
+  },
+  "quantum_swing_champion_10yr": {
+    "strategy": "Systematic Swing Champion: SW_005479 + SW_000640 + Half-Kelly + 15D Rotation + Fast T1 Lock (+1.2x ATR)",
+    "initial_capital_rs": 500000.0,
+    "final_portfolio_equity_rs": 6242752.75,
+    "portfolio_multiplier": 12.49,
+    "annualized_cagr_pct": 28.71,
+    "alpha_vs_market_cagr_pct": 18.53,
+    "total_realized_pnl_rs": 5742752.75,
+    "max_drawdown_pct": 39.00,
+    "calmar_ratio": 0.74,
+    "profit_factor": 1.10,
+    "payoff_ratio": 2.54,
+    "win_rate_pct": 30.2,
+    "total_trades": 573,
+    "winning_trades": 173,
+    "losing_trades": 400
+  },
+  "quantum_sip_champion_10yr": {
+    "strategy": "The Frontier Holy Grail (Andreas Clenow Momentum + Dynamic 90% Dip @ 3.0% + 10% Parabolic Skim @ 120% + LiquidBees)",
+    "schedule": "Monthly (120 Monthly Tranches over 10.0 Years with 10% Annual Step-Up)",
+    "total_invested_rs": 3824981.88,
+    "final_strategy_value_rs": 26230341.88,
+    "net_strategy_profit_rs": 22405360.00,
+    "strategy_xirr_pct": 40.68,
+    "benchmark_xirr_pct": 8.33,
+    "net_alpha_xirr_pct": 32.35,
+    "portfolio_multiplier": 6.86,
+    "profit_factor": 7.81,
+    "payoff_ratio": 11.52,
+    "win_rate_pct": 40.4,
+    "max_drawdown_pct": 28.79,
+    "total_trades": 292,
+    "configuration": {
+      "slots": 5,
+      "sizing_protocol": "Conviction Half-Kelly Tranche Sizing [30%, 25%, 20%, 15%, 10%]",
+      "dip_buying": "90% cash deployed on 3.0% pullback",
+      "parabolic_skimming": "10% trimmed at +120% gain, proceeds recycled into dips",
+      "position_cap": "50.0% Max for multi-bagger runners",
+      "cash_sweep": "LiquidBees 6.5% Yield Sweep (Zero Cash Drag)",
+      "macro_hedge": "0.0% Pure Alpha Compounding",
+      "trailing_stop": "Adaptive Structural Stepladder",
+      "annual_step_up": "10% per year"
+    }
+  },
+  "historical_lookback_xirr_comparison": {
+    "3_year_36_months": {
+      "total_invested_rs": 794400.0,
+      "final_value_rs": 1600945.49,
+      "strategy_xirr_pct": 53.64,
+      "benchmark_xirr_pct": -2.76,
+      "net_alpha_xirr_pct": 56.40
+    },
+    "5_year_60_months": {
+      "total_invested_rs": 1465224.0,
+      "final_value_rs": 5771922.0,
+      "strategy_xirr_pct": 62.07,
+      "benchmark_xirr_pct": 2.91,
+      "net_alpha_xirr_pct": 59.16
+    },
+    "10_year_120_months": {
+      "total_invested_rs": 3824981.88,
+      "final_value_rs": 26230341.88,
+      "strategy_xirr_pct": 40.68,
+      "benchmark_xirr_pct": 8.33,
+      "net_alpha_xirr_pct": 32.35
+    }
+  }
+}

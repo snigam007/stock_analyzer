@@ -39,6 +39,11 @@ from core.watchlist_manager import (
     get_watchlist_items, add_item_to_watchlist, update_watchlist_item, remove_item_from_watchlist,
     get_52_week_high_low_radar, evaluate_and_generate_alerts, get_recent_alerts
 )
+from core.ui_components import (
+    render_clean_html,
+    generate_broker_order_clipboard,
+    render_empty_defensive_state
+)
 
 try:
     st.set_page_config(page_title="⭐ Watchlists & 52W Radar", page_icon="⭐", layout="wide")
@@ -319,6 +324,20 @@ with tab1:
             hide_index=True
         )
 
+        # ── Institutional Broker Order Exporter ──────────────────────────────
+        with st.expander("📋 One-Click Broker Order Sheet (Zerodha / Groww)", expanded=False):
+            st.caption("Generate formatted execution orders for all tracked assets in this watchlist.")
+            b_orders = []
+            for it in items:
+                act = "BUY" if it.get("signal") == "BUY" else "WATCH"
+                b_orders.append({
+                    "symbol": it["symbol"],
+                    "shares": 1,
+                    "current_price": it.get("current_price", 0),
+                    "action": act
+                })
+            generate_broker_order_clipboard(b_orders, label="📋 Copy Watchlist to Broker Clipboard")
+
         # Quick Delete Action
         col_del_item, col_del_wl = st.columns([3, 1])
         with col_del_item:
@@ -335,7 +354,7 @@ with tab1:
                         st.success("Watchlist deleted!")
                         st.rerun()
     else:
-        st.info(f"Watchlist '{selected_wl_name}' is currently empty. Add stocks above to begin tracking!")
+        render_empty_defensive_state(title=f"Watchlist '{selected_wl_name}' is Empty", message="No stocks or instruments are currently tracked in this watchlist.", action_text="Use the 'Add Stock(s)' panel above to add tickers or bulk import.")
 
 
 # ─── TAB 2: 52-WEEK HIGH / LOW RADAR ──────────────────────────────────────────
@@ -375,7 +394,7 @@ with tab2:
                 hide_index=True
             )
         else:
-            st.info("No stocks currently within 3.5% of 52W High.")
+            render_empty_defensive_state(title="No 52W Breakouts Detected", message="No active stocks are currently within 3.5% of their 52-week high.", action_text="Check back after the next market session.")
 
     with radar_subtab2:
         low_stocks = radar["breakdown_52w_low"] + radar["near_52w_low"]
@@ -397,7 +416,7 @@ with tab2:
                 hide_index=True
             )
         else:
-            st.info("No stocks currently within 3.5% of 52W Low.")
+            render_empty_defensive_state(title="No 52W Breakdown Distress", message="No active stocks are currently within 3.5% of their 52-week low.", action_text="Universe is trading above historic support levels.")
 
     with radar_subtab3:
         all_rad = radar["all_stocks_radar"]
@@ -447,6 +466,6 @@ with tab3:
             hide_index=True
         )
     else:
-        st.info("No active alerts logged yet. Create watchlists with target prices or wait for 52W breakouts!")
+        render_empty_defensive_state(title="No Active Alerts Logged", message="No price targets, 52W breakouts, or stop loss breaches have fired yet.", action_text="Click 'Re-evaluate All Alert Triggers Now' or configure watchlist targets.")
 
 session.close()

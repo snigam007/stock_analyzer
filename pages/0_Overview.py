@@ -41,6 +41,11 @@ from core.market_breadth import calculate_market_breadth
 from core.bellwether_lead_lag import evaluate_bellwether_lead_lag
 from core.sector_analysis import calculate_sector_relative_strength
 from core.premarket_briefing import get_cached_premarket_briefing
+from core.ui_components import (
+    render_clean_html, fmt_inr, render_macro_gauge,
+    render_sparkline, render_empty_defensive_state,
+    generate_broker_order_clipboard
+)
 
 engine = get_global_engine()
 session = get_session(engine)
@@ -62,24 +67,35 @@ try:
         st.code("python initialize.py", language="bash")
         st.stop()
 
-    # ── Executive Pulse Bar ───────────────────────────────────────────────────
-    st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #111827 0%, #0f172a 100%); border: 1px solid #1e293b; border-left: 4px solid #00c875; border-radius: 10px; padding: 14px 20px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
-        <div>
-            <span style="font-size: 1.15em; font-weight: 700; color: #f8fafc;">📅 Market Session: {last_date}</span>
-            <span style="margin-left: 10px; background: rgba(0, 200, 117, 0.15); color: #00c875; padding: 3px 10px; border-radius: 20px; font-size: 0.85em; font-weight: 600;">{db_status['status_badge']}</span><br>
-            <span style="font-size: 0.88em; color: #94a3b8;">Coverage: <b>{stock_count}</b> Equities · <b>{db_status['index_count']}</b> Indexes · <b>{db_status['commodity_count']}</b> Commodities ({price_count:,} Historical Bars)</span>
+    # ── Executive Pulse Bar & Macro Sentiment Gauge ─────────────────────────────
+    macro_pulse_col1, macro_pulse_col2 = st.columns([3.0, 1.2])
+    with macro_pulse_col1:
+        render_clean_html(f"""
+        <div style="background: #171b26; border: 3px solid #313540; border-left: 6px solid #00ff66; box-shadow: 4px 4px 0px #030712; padding: 16px 20px; height: 100%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-family: 'Space Grotesk', sans-serif; font-size: 1.15rem; font-weight: 800; color: #f8fafc; letter-spacing: 0.05em;">
+                    📅 MARKET SESSION: {last_date}
+                </span>
+                <span style="background: rgba(0, 255, 102, 0.15); color: #00ff66; border: 1px solid #00ff66; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; font-weight: 700; padding: 2px 8px;">
+                    {db_status['status_badge']}
+                </span>
+            </div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #849581; margin-bottom: 12px;">
+                Universe: <strong style="color: #00eefc;">{stock_count}</strong> Equities · <strong style="color: #00eefc;">{db_status['index_count']}</strong> Indices · <strong style="color: #00eefc;">{db_status['commodity_count']}</strong> Commodities ({price_count:,} Bars)
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <span style="background: #0f131d; border: 1px solid #313540; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #dfe2f1; padding: 4px 10px;">
+                    🏛️ Regime: <strong style="color: #ffd700;">{macro_info['regime']}</strong>
+                </span>
+                <span style="background: #0f131d; border: 1px solid #313540; font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; color: #dfe2f1; padding: 4px 10px;">
+                    ⚡ Sync Cron: <strong style="color: #00ff66;">08:00 AM IST</strong>
+                </span>
+            </div>
         </div>
-        <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-            <span style="background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3); padding: 5px 12px; border-radius: 8px; font-size: 0.85em; font-weight: 600;">
-                🏛️ {macro_info['regime']} ({macro_info['macro_score']}/100)
-            </span>
-            <span style="background: #1e293b; color: #cbd5e1; padding: 5px 12px; border-radius: 8px; font-size: 0.85em; font-weight: 600;">
-                ⚡ Daily Cron: 08:00 AM IST
-            </span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """)
+
+    with macro_pulse_col2:
+        st.plotly_chart(render_macro_gauge(macro_info['macro_score'], macro_info['regime'], height=155), use_container_width=True)
 
     # ── Pre-Market Top-3 Sniper Setups Briefing ───────────────────────────────
     try:
@@ -124,7 +140,7 @@ try:
                 for alert in surv[:3]:
                     st.info(f"**{alert['symbol']}**: {alert['badge']} — {alert['message']}")
 
-    # ── Key Indices Snapshot ──────────────────────────────────────────────────
+    # ── Key Indices Snapshot with Mini Sparklines ─────────────────────────────
     st.markdown("#### 🌐 Benchmark Indices")
     idx_cols = st.columns(4)
     indexes = [
@@ -136,14 +152,21 @@ try:
 
     for col, (sym, name, desc) in zip(idx_cols, indexes):
         with col:
-            res = session.execute(text("""
+            res_rows = session.execute(text("""
                 SELECT close, daily_return FROM index_prices
-                WHERE symbol = :s ORDER BY date DESC LIMIT 1
-            """), {"s": sym}).fetchone()
-            if res and res[0] is not None:
-                close, ret = res
-                delta = f"{ret:+.2f}%" if ret is not None else None
-                st.metric(label=f"{name}", value=f"₹{close:,.1f}", delta=delta, help=desc)
+                WHERE symbol = :s ORDER BY date DESC LIMIT 15
+            """), {"s": sym}).fetchall()
+
+            if res_rows and res_rows[0][0] is not None:
+                close = float(res_rows[0][0])
+                ret = float(res_rows[0][1]) if res_rows[0][1] is not None else 0.0
+                delta = f"{ret:+.2f}%"
+                st.metric(label=f"{name}", value=fmt_inr(close, precision=1), delta=delta, help=desc)
+                
+                # Render Sparkline
+                hist_closes = [float(r[0]) for r in reversed(res_rows) if r[0] is not None]
+                spark_color = "#00ff66" if ret >= 0 else "#ff2a5f"
+                st.plotly_chart(render_sparkline(hist_closes, color=spark_color, height=45), use_container_width=True)
             else:
                 st.metric(label=name, value="—", delta=None)
 
@@ -345,30 +368,39 @@ try:
         """)).fetchall()
 
         if top_buys:
+            order_list = []
             buy_cols = st.columns(3)
             for i, row in enumerate(top_buys):
                 sym, name, sector, price, t1, sl, risk, reason, score, trend = row
+                order_list.append({"symbol": sym, "qty": 1, "price": price, "sl": sl})
                 with buy_cols[i % 3]:
                     upside = ((t1 - price) / price * 100) if price and t1 else 0
-                    st.markdown(f"""
-                    <div style="background: #131d2a; border: 1px solid #1e2d3d; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+                    render_clean_html(f"""
+                    <div style="background: #171b26; border: 2px solid #313540; border-left: 4px solid #00ff66; box-shadow: 3px 3px 0px #030712; padding: 14px; margin-bottom: 12px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-weight: 700; color: #f8fafc; font-size: 1.05em;">{sym}</span>
-                            <span style="background: rgba(0, 200, 117, 0.2); color: #00c875; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 0.8em;">Score: {score:.0f}</span>
+                            <span style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #f8fafc; font-size: 1.05em;">{sym}</span>
+                            <span style="background: rgba(0, 255, 102, 0.15); color: #00ff66; border: 1px solid #00ff66; font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 2px 8px; font-size: 0.75rem;">Score: {score:.0f}</span>
                         </div>
-                        <div style="color: #94a3b8; font-size: 0.82em; margin-bottom: 8px;">{name[:28]} · {sector}</div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 4px;">
-                            <span style="color: #cbd5e1;">Price: <b>{format_price(price)}</b></span>
-                            <span style="color: #00c875; font-weight: 600;">Target: {format_price(t1)} (+{upside:.1f}%)</span>
+                        <div style="color: #849581; font-size: 0.8rem; margin-bottom: 8px;">{name[:28]} · {sector}</div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+                            <span style="color: #dfe2f1;">Price: <b>{format_price(price)}</b></span>
+                            <span style="color: #00ff66; font-weight: 700;">Target: {format_price(t1)} (+{upside:.1f}%)</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.82em; color: #64748b;">
-                            <span>Stop-Loss: {format_price(sl)}</span>
-                            <span>{trend or 'Trending'}</span>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #849581;">
+                            <span>Stop-Loss: <strong style="color: #ff2a5f;">{format_price(sl)}</strong></span>
+                            <span style="color: #00eefc;">{trend or 'Trending'}</span>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """)
+
+            with st.expander("📋 One-Click Copyable Broker Orders (Zerodha / Groww / Angel One)", expanded=False):
+                st.code(generate_broker_order_clipboard(order_list), language="text")
         else:
-            st.info("No active BUY signals today.")
+            render_empty_defensive_state(
+                title="Zero High-Conviction Longs Authorized",
+                reason=f"Current Market Macro Regime is {macro_info['regime']} (Score: {macro_info['macro_score']}/100).",
+                action_note="Defensive gates actively prevent capital deployment into false breakouts. Capital is preserved in LiquidBees (6.5% APY)."
+            )
 
     with sig_tab2:
         top_sells = session.execute(text("""
@@ -391,23 +423,23 @@ try:
                 sym, name, sector, price, t1, sl, risk, reason, score, trend = row
                 with sell_cols[i % 3]:
                     downside = ((t1 - price) / price * 100) if price and t1 else 0
-                    st.markdown(f"""
-                    <div style="background: #201518; border: 1px solid #3d2024; border-radius: 8px; padding: 14px; margin-bottom: 12px;">
+                    render_clean_html(f"""
+                    <div style="background: #171b26; border: 2px solid #313540; border-left: 4px solid #ff2a5f; box-shadow: 3px 3px 0px #030712; padding: 14px; margin-bottom: 12px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-weight: 700; color: #f8fafc; font-size: 1.05em;">{sym}</span>
-                            <span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; font-weight: 700; padding: 2px 8px; border-radius: 12px; font-size: 0.8em;">Score: {score:.0f}</span>
+                            <span style="font-family: 'Space Grotesk', sans-serif; font-weight: 700; color: #f8fafc; font-size: 1.05em;">{sym}</span>
+                            <span style="background: rgba(255, 42, 95, 0.15); color: #ff2a5f; border: 1px solid #ff2a5f; font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 2px 8px; font-size: 0.75rem;">Score: {score:.0f}</span>
                         </div>
-                        <div style="color: #94a3b8; font-size: 0.82em; margin-bottom: 8px;">{name[:28]} · {sector}</div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.9em; margin-bottom: 4px;">
-                            <span style="color: #cbd5e1;">Price: <b>{format_price(price)}</b></span>
-                            <span style="color: #ef4444; font-weight: 600;">Down Target: {format_price(t1)} ({downside:.1f}%)</span>
+                        <div style="color: #849581; font-size: 0.8rem; margin-bottom: 8px;">{name[:28]} · {sector}</div>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.85rem; margin-bottom: 4px;">
+                            <span style="color: #dfe2f1;">Price: <b>{format_price(price)}</b></span>
+                            <span style="color: #ff2a5f; font-weight: 700;">Down Target: {format_price(t1)} ({downside:.1f}%)</span>
                         </div>
-                        <div style="display: flex; justify-content: space-between; font-size: 0.82em; color: #64748b;">
-                            <span>Exit SL: {format_price(sl)}</span>
-                            <span>{trend or 'Weakening'}</span>
+                        <div style="display: flex; justify-content: space-between; font-size: 0.78rem; color: #849581;">
+                            <span>Exit SL: <strong style="color: #ffd700;">{format_price(sl)}</strong></span>
+                            <span style="color: #849581;">{trend or 'Weakening'}</span>
                         </div>
                     </div>
-                    """, unsafe_allow_html=True)
+                    """)
         else:
             st.info("No active SELL alerts today.")
 

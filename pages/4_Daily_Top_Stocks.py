@@ -28,229 +28,235 @@ if str(BASE_DIR) not in sys.path:
 
 try:
     st.set_page_config(page_title="Daily Top Stocks", page_icon="🏆", layout="wide")
-    
-    import importlib
-    import core.macro_regime
-    import core.accuracy_tracker
-    import core.sector_clusters
-    import core.multi_timeframe
-    import core.tranche_execution
-    import core.earnings_catalysts
-    import core.missed_signals
-    import core.signals
-    import core.smart_order_router
-    import core.target_velocity
-    importlib.reload(core.macro_regime)
-    importlib.reload(core.accuracy_tracker)
-    importlib.reload(core.sector_clusters)
-    importlib.reload(core.multi_timeframe)
-    importlib.reload(core.tranche_execution)
-    importlib.reload(core.earnings_catalysts)
-    importlib.reload(core.missed_signals)
-    importlib.reload(core.signals)
-    importlib.reload(core.smart_order_router)
-    importlib.reload(core.target_velocity)
-    
-    from db.database import get_global_engine, get_session
-    from sqlalchemy import text
-    from core.target_velocity import predict_time_to_target, get_velocity_badge
-    from core.sector_clusters import get_sector_cluster, get_cluster_metadata, get_tier_parameters
-    from core.multi_timeframe import get_all_stocks_mtf_map
-    from core.tranche_execution import calculate_tranche_execution_plan
-    from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
-    from core.signals import verify_momentum_vs_ml_projection
-    from core.smart_order_router import generate_smart_order_execution_schedule
-    
-    engine = get_global_engine()
-    
-    
-    def format_price(p): return f"₹{p:,.2f}" if p else "—"
-    
-    
-    def format_badge_pct(pct, is_stoploss: bool = False) -> str:
-        if pct is None:
-            return ""
-        if is_stoploss:
-            color = "#ff4b4b" if pct < 0 else "#00c875"
-            bg = "rgba(255, 75, 75, 0.18)" if pct < 0 else "rgba(0, 200, 117, 0.18)"
-        else:
-            color = "#00c875" if pct >= 0 else "#ff4b4b"
-            bg = "rgba(0, 200, 117, 0.18)" if pct >= 0 else "rgba(255, 75, 75, 0.18)"
-        return f'<span style="color: {color}; font-weight: 600; background: {bg}; padding: 2px 6px; border-radius: 4px; font-size: 0.88em;">{pct:+.1f}%</span>'
-    
-    
-    @st.cache_data(ttl=30)
-    def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
-                       sector: str = "All", limit: int = 15, champion_alpha_only: bool = False):
-        session = get_session(engine)
-        query = """
-            SELECT sig.symbol, s.name, s.sector, s.market_cap_tier,
-                   cs.composite_score, cs.universe_percentile,
-                   sig.signal, sig.signal_strength, sig.current_price,
-                   sig.buy_price, sig.target_price_1, sig.target_price_2, sig.target_price_3,
-                   sig.stop_loss, sig.risk_reward_ratio, sig.risk_level,
-                   sig.key_reason, sig.confidence, sig.investment_type,
-                   sig.target_1_upside_pct, sig.target_2_upside_pct, sig.target_3_upside_pct,
-                   sig.stop_loss_downside_pct,
-                   ind.trend_pattern, ind.trend_direction, ind.trend_strength,
-                   ind.rsi_14, ind.adx, ind.volume_ratio,
-                   cs.beta, cs.volatility_annual, cs.sharpe_ratio,
-                   (
-                       SELECT COUNT(DISTINCT s2.date)
-                       FROM signals s2
-                       WHERE s2.symbol = sig.symbol
-                         AND s2.signal = sig.signal
-                         AND s2.date >= date(sig.date, '-14 days')
-                   ) as signal_age_days,
-                   (
-                       SELECT round((sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0, 1)
-                       FROM daily_prices dp_past
-                       WHERE dp_past.symbol = sig.symbol
-                         AND dp_past.date = (
-                             SELECT MIN(date) FROM daily_prices
-                             WHERE symbol = sig.symbol AND date >= date(sig.date, '-180 days')
-                         )
-                   ) as momentum_6m_pct,
-                   (
-                       SELECT forecast_1m_change_pct FROM forecasts fc
-                       WHERE fc.symbol = sig.symbol ORDER BY fc.generated_date DESC LIMIT 1
-                   ) as ml_1m_pct,
-                   sig.reasons as full_reasons
-            FROM signals sig
-            JOIN stocks s ON sig.symbol = s.symbol
-            JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
-            LEFT JOIN technical_indicators ind ON sig.symbol = ind.symbol AND ind.date = sig.date
-            WHERE sig.date = (SELECT MAX(date) FROM signals)
-        """
-        params = {}
-        conditions = []
-    
-        if signal_type != "ALL":
-            conditions.append("sig.signal = :sig")
-            params["sig"] = signal_type
-    
-        if risk_filter != "ALL":
-            conditions.append("sig.risk_level = :risk")
-            params["risk"] = risk_filter
-    
-        if sector != "All":
-            conditions.append("s.sector = :sector")
-            params["sector"] = sector
-    
-        if champion_alpha_only and signal_type != "SELL":
-            conditions.append("""(
-                SELECT (sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0
-                FROM daily_prices dp_past
-                WHERE dp_past.symbol = sig.symbol
-                  AND dp_past.date = (
-                      SELECT MIN(date) FROM daily_prices
-                      WHERE symbol = sig.symbol AND date >= date(sig.date, '-180 days')
-                  )
-            ) >= 30.0""")
-
-        if conditions:
-            query += " AND " + " AND ".join(conditions)
-    
-        fetch_limit = limit if not champion_alpha_only else max(limit, 50)
-        query += " ORDER BY cs.composite_score " + ("DESC" if signal_type != "SELL" else "ASC")
-        query += f" LIMIT {fetch_limit}"
-    
-        result = session.execute(text(query), params).fetchall()
-        session.close()
-
-        if champion_alpha_only and result and signal_type != "SELL":
-            # Calculate sector median momentum to apply Lever 7 +50% sector boost
-            sec_mom_map = {}
-            for r in result:
-                sec_val = r[2] or "General"
-                mom_val = float(r[34]) if len(r) > 34 and r[34] is not None else 0.0
-                sec_mom_map.setdefault(sec_val, []).append(mom_val)
-
-            sec_medians = {s: float(np.median(vals)) for s, vals in sec_mom_map.items()}
-            sorted_secs = sorted(sec_medians.keys(), key=lambda s: sec_medians[s], reverse=True)
-            top_secs = set(sorted_secs[:3])
-
-            boosted_results = []
-            for r in result:
-                r_list = list(r)
-                sec_val = r_list[2] or "General"
-                orig_score = float(r_list[4] or 50.0)
-                if sec_val in top_secs:
-                    boosted_score = min(100.0, round(orig_score * 1.50, 1))
-                    r_list[4] = boosted_score
-                boosted_results.append(tuple(r_list))
-
-            boosted_results.sort(key=lambda x: x[4], reverse=True)
-            return boosted_results[:limit]
-
-        return result
-    
-    
-    @st.cache_data(ttl=30)
-    def get_cached_inception_map():
-        session = get_session(engine)
-        try:
-            from core.accuracy_tracker import get_active_signal_inception_map
-            return get_active_signal_inception_map(session, "STOCK")
-        except Exception as e:
-            logger.warning(f"Error fetching inception map: {e}")
-            return {}
-        finally:
-            session.close()
-    
-    
-    @st.cache_data(ttl=30)
-    def get_sectors():
-        session = get_session(engine)
-        result = session.execute(text("SELECT DISTINCT sector FROM stocks ORDER BY sector")).scalars().all()
-        session.close()
-        return ["All"] + list(result)
-    
-    
-    @st.cache_data(ttl=30)
-    def get_cached_mtf_map():
-        session = get_session(engine)
-        try:
-            from core.multi_timeframe import get_all_stocks_mtf_map
-            return get_all_stocks_mtf_map(session)
-        except Exception as e:
-            return {}
-        finally:
-            session.close()
-    
-    
-    @st.cache_data(ttl=30)
-    def get_cached_earnings_sentiment_map():
-        session = get_session(engine)
-        try:
-            from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
-            return get_all_upcoming_earnings_sentiment_map(session, within_days=14)
-        except Exception as e:
-            return {}
-        finally:
-            session.close()
-    
-    
-    # ─── Sidebar ──────────────────────────────────────────────────────────────────
-    champion_alpha_filter = False
-    st.sidebar.title("🏆 Daily Top Stocks")
-    sector_filter = st.sidebar.selectbox("Sector", get_sectors())
-    top_n = st.sidebar.slider("Show Top N Stocks", 5, 30, 15)
-    
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 Institutional Filters")
-    champion_alpha_filter = st.sidebar.toggle(
-        "👑 63.5% Apex Alpha Filter",
-        value=False,
-        help="Filters for stocks meeting proven 63.5% Apex Alpha backtest criteria: 4 Concentrated Leaders @ 25% equity, 6-Month Momentum >= +30%, 95% Tactical Dip Deployment, 8% Skim @ +120%, and 50% Runner Cap."
-    )
-    mtf_filter = st.sidebar.selectbox(
-        "Multi-Timeframe Alignment (Quantum Swing)",
-        ["All Alignments", "⚛️ Quad Confluence (1H+1D+1W+1M) Only", "⭐⭐⭐ Triple Confluence or Better", "⭐⭐ Core Confluence or Better", "Exclude Counter-Trend"],
-        help="Filter stocks by cross-timeframe alignment across 1-Hour Sniper, Core Daily, Weekly Structural, and Macro trends."
-    )
 except Exception:
-    champion_alpha_filter = False
+    pass
+
+from core.ui_components import (
+render_clean_html, fmt_inr,
+render_empty_defensive_state,
+generate_broker_order_clipboard
+)
+
+import importlib
+import core.macro_regime
+import core.accuracy_tracker
+import core.sector_clusters
+import core.multi_timeframe
+import core.tranche_execution
+import core.earnings_catalysts
+import core.missed_signals
+import core.signals
+import core.smart_order_router
+import core.target_velocity
+importlib.reload(core.macro_regime)
+importlib.reload(core.accuracy_tracker)
+importlib.reload(core.sector_clusters)
+importlib.reload(core.multi_timeframe)
+importlib.reload(core.tranche_execution)
+importlib.reload(core.earnings_catalysts)
+importlib.reload(core.missed_signals)
+importlib.reload(core.signals)
+importlib.reload(core.smart_order_router)
+importlib.reload(core.target_velocity)
+
+from db.database import get_global_engine, get_session
+from sqlalchemy import text
+from core.target_velocity import predict_time_to_target, get_velocity_badge
+from core.sector_clusters import get_sector_cluster, get_cluster_metadata, get_tier_parameters
+from core.multi_timeframe import get_all_stocks_mtf_map
+from core.tranche_execution import calculate_tranche_execution_plan
+from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
+from core.signals import verify_momentum_vs_ml_projection
+from core.smart_order_router import generate_smart_order_execution_schedule
+
+engine = get_global_engine()
+
+
+def format_price(p): return f"₹{p:,.2f}" if p else "—"
+
+
+def format_badge_pct(pct, is_stoploss: bool = False) -> str:
+    if pct is None:
+        return ""
+    if is_stoploss:
+        color = "#ff4b4b" if pct < 0 else "#00c875"
+        bg = "rgba(255, 75, 75, 0.18)" if pct < 0 else "rgba(0, 200, 117, 0.18)"
+    else:
+        color = "#00c875" if pct >= 0 else "#ff4b4b"
+        bg = "rgba(0, 200, 117, 0.18)" if pct >= 0 else "rgba(255, 75, 75, 0.18)"
+    return f'<span style="color: {color}; font-weight: 600; background: {bg}; padding: 2px 6px; border-radius: 4px; font-size: 0.88em;">{pct:+.1f}%</span>'
+
+
+@st.cache_data(ttl=30)
+def get_top_stocks(signal_type: str = "BUY", risk_filter: str = "ALL",
+                   sector: str = "All", limit: int = 15, champion_alpha_only: bool = False):
+    session = get_session(engine)
+    query = """
+        SELECT sig.symbol, s.name, s.sector, s.market_cap_tier,
+               cs.composite_score, cs.universe_percentile,
+               sig.signal, sig.signal_strength, sig.current_price,
+               sig.buy_price, sig.target_price_1, sig.target_price_2, sig.target_price_3,
+               sig.stop_loss, sig.risk_reward_ratio, sig.risk_level,
+               sig.key_reason, sig.confidence, sig.investment_type,
+               sig.target_1_upside_pct, sig.target_2_upside_pct, sig.target_3_upside_pct,
+               sig.stop_loss_downside_pct,
+               ind.trend_pattern, ind.trend_direction, ind.trend_strength,
+               ind.rsi_14, ind.adx, ind.volume_ratio,
+               cs.beta, cs.volatility_annual, cs.sharpe_ratio,
+               (
+                   SELECT COUNT(DISTINCT s2.date)
+                   FROM signals s2
+                   WHERE s2.symbol = sig.symbol
+                     AND s2.signal = sig.signal
+                     AND s2.date >= date(sig.date, '-14 days')
+               ) as signal_age_days,
+               (
+                   SELECT round((sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0, 1)
+                   FROM daily_prices dp_past
+                   WHERE dp_past.symbol = sig.symbol
+                     AND dp_past.date = (
+                         SELECT MIN(date) FROM daily_prices
+                         WHERE symbol = sig.symbol AND date >= date(sig.date, '-180 days')
+                     )
+               ) as momentum_6m_pct,
+               (
+                   SELECT forecast_1m_change_pct FROM forecasts fc
+                   WHERE fc.symbol = sig.symbol ORDER BY fc.generated_date DESC LIMIT 1
+               ) as ml_1m_pct,
+               sig.reasons as full_reasons
+        FROM signals sig
+        JOIN stocks s ON sig.symbol = s.symbol
+        JOIN composite_scores cs ON sig.symbol = cs.symbol AND cs.date = sig.date
+        LEFT JOIN technical_indicators ind ON sig.symbol = ind.symbol AND ind.date = sig.date
+        WHERE sig.date = (SELECT MAX(date) FROM signals)
+    """
+    params = {}
+    conditions = []
+
+    if signal_type != "ALL":
+        conditions.append("sig.signal = :sig")
+        params["sig"] = signal_type
+
+    if risk_filter != "ALL":
+        conditions.append("sig.risk_level = :risk")
+        params["risk"] = risk_filter
+
+    if sector != "All":
+        conditions.append("s.sector = :sector")
+        params["sector"] = sector
+
+    if champion_alpha_only and signal_type != "SELL":
+        conditions.append("""(
+            SELECT (sig.current_price - dp_past.close) / NULLIF(dp_past.close, 0.0) * 100.0
+            FROM daily_prices dp_past
+            WHERE dp_past.symbol = sig.symbol
+              AND dp_past.date = (
+                  SELECT MIN(date) FROM daily_prices
+                  WHERE symbol = sig.symbol AND date >= date(sig.date, '-180 days')
+              )
+        ) >= 30.0""")
+
+    if conditions:
+        query += " AND " + " AND ".join(conditions)
+
+    fetch_limit = limit if not champion_alpha_only else max(limit, 50)
+    query += " ORDER BY cs.composite_score " + ("DESC" if signal_type != "SELL" else "ASC")
+    query += f" LIMIT {fetch_limit}"
+
+    result = session.execute(text(query), params).fetchall()
+    session.close()
+
+    if champion_alpha_only and result and signal_type != "SELL":
+        # Calculate sector median momentum to apply Lever 7 +50% sector boost
+        sec_mom_map = {}
+        for r in result:
+            sec_val = r[2] or "General"
+            mom_val = float(r[34]) if len(r) > 34 and r[34] is not None else 0.0
+            sec_mom_map.setdefault(sec_val, []).append(mom_val)
+
+        sec_medians = {s: float(np.median(vals)) for s, vals in sec_mom_map.items()}
+        sorted_secs = sorted(sec_medians.keys(), key=lambda s: sec_medians[s], reverse=True)
+        top_secs = set(sorted_secs[:3])
+
+        boosted_results = []
+        for r in result:
+            r_list = list(r)
+            sec_val = r_list[2] or "General"
+            orig_score = float(r_list[4] or 50.0)
+            if sec_val in top_secs:
+                boosted_score = min(100.0, round(orig_score * 1.50, 1))
+                r_list[4] = boosted_score
+            boosted_results.append(tuple(r_list))
+
+        boosted_results.sort(key=lambda x: x[4], reverse=True)
+        return boosted_results[:limit]
+
+    return result
+
+
+@st.cache_data(ttl=30)
+def get_cached_inception_map():
+    session = get_session(engine)
+    try:
+        from core.accuracy_tracker import get_active_signal_inception_map
+        return get_active_signal_inception_map(session, "STOCK")
+    except Exception as e:
+        logger.warning(f"Error fetching inception map: {e}")
+        return {}
+    finally:
+        session.close()
+
+
+@st.cache_data(ttl=30)
+def get_sectors():
+    session = get_session(engine)
+    result = session.execute(text("SELECT DISTINCT sector FROM stocks ORDER BY sector")).scalars().all()
+    session.close()
+    return ["All"] + list(result)
+
+
+@st.cache_data(ttl=30)
+def get_cached_mtf_map():
+    session = get_session(engine)
+    try:
+        from core.multi_timeframe import get_all_stocks_mtf_map
+        return get_all_stocks_mtf_map(session)
+    except Exception as e:
+        return {}
+    finally:
+        session.close()
+
+
+@st.cache_data(ttl=30)
+def get_cached_earnings_sentiment_map():
+    session = get_session(engine)
+    try:
+        from core.earnings_catalysts import get_all_upcoming_earnings_sentiment_map
+        return get_all_upcoming_earnings_sentiment_map(session, within_days=14)
+    except Exception as e:
+        return {}
+    finally:
+        session.close()
+
+
+# ─── Sidebar ──────────────────────────────────────────────────────────────────
+champion_alpha_filter = False
+st.sidebar.title("🏆 Daily Top Stocks")
+sector_filter = st.sidebar.selectbox("Sector", get_sectors())
+top_n = st.sidebar.slider("Show Top N Stocks", 5, 30, 15)
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("🎯 Institutional Filters")
+champion_alpha_filter = st.sidebar.toggle(
+    "👑 63.5% Apex Alpha Filter",
+    value=False,
+    help="Filters for stocks meeting proven 63.5% Apex Alpha backtest criteria: 4 Concentrated Leaders @ 25% equity, 6-Month Momentum >= +30%, 95% Tactical Dip Deployment, 8% Skim @ +120%, and 50% Runner Cap."
+)
+mtf_filter = st.sidebar.selectbox(
+    "Multi-Timeframe Alignment (Quantum Swing)",
+    ["All Alignments", "⚛️ Quad Confluence (1H+1D+1W+1M) Only", "⭐⭐⭐ Triple Confluence or Better", "⭐⭐ Core Confluence or Better", "Exclude Counter-Trend"],
+    help="Filter stocks by cross-timeframe alignment across 1-Hour Sniper, Core Daily, Weekly Structural, and Macro trends."
+)
 
 earnings_filter = st.sidebar.selectbox(
     "Earnings Risk Shield",
@@ -450,8 +456,27 @@ def render_stock_table(rows, show_signal: bool = True):
         filtered_rows.append(r)
 
     if not filtered_rows:
-        st.warning(f"No stocks match the institutional filter criteria (MTF: '{mtf_filter}' | Earnings: '{earnings_filter}').")
+        render_empty_defensive_state(
+            regime=macro_info.get("regime", "Risk-Off / Neutral") if "macro_info" in globals() else "Neutral",
+            suggested_allocation={"LiquidBees / Cash": "80%", "Gold (GOLDBEES)": "20%"},
+            message=f"No stocks match institutional filter criteria (MTF: '{mtf_filter}' | Earnings: '{earnings_filter}'). Preserving dry powder in liquid instruments."
+        )
         return
+
+    # One-click broker order exporter for actionable picks
+    if show_signal:
+        buy_orders = []
+        for r in filtered_rows[:10]:
+            sym = r[0]
+            pr = float(r[8] or 0)
+            sig_action = r[6]
+            if sig_action == "BUY" and pr > 0:
+                qty = max(1, int(25000 / pr))
+                buy_orders.append({"symbol": sym, "qty": qty, "price": pr, "action": "BUY"})
+        
+        if buy_orders:
+            with st.expander(f"📋 One-Click Zerodha / Groww Whole-Share Order Exporter ({len(buy_orders)} Picks)", expanded=False):
+                generate_broker_order_clipboard(buy_orders, key_prefix=f"broker_export_{filtered_rows[0][0]}")
 
     for i, row in enumerate(filtered_rows):
         (symbol, name, sector, tier, composite_score, univ_pct,
@@ -797,10 +822,66 @@ if deck_category == "🎯 Core Stock Signals":
     # Tab 2: SELL Alerts
 if deck_category == "🎯 Core Stock Signals":
     with tab_sell:
-        st.subheader("🔴 SELL / Exit Alerts")
-        st.caption("Stocks with bearish signals — consider booking profits or avoiding")
-        rows = get_top_stocks("SELL", "ALL", sector_filter, top_n)
-        render_stock_table(rows, show_signal=True)
+        sell_subview = st.radio(
+            "Select SELL / Exit Category:",
+            [
+                "📉 Active SHORT Trades (F&O / Bearish Breakdowns)",
+                "🛑 Long Exits & Stop Triggers (Prior BUY Recommendations)"
+            ],
+            horizontal=True
+        )
+
+        if "Active SHORT Trades" in sell_subview:
+            st.subheader("📉 Active SHORT Setups (Bearish Momentum / F&O & Intraday)")
+            st.caption("Fresh directional short-selling candidates with downside targets (T1/T2) and protective stop losses above current market price.")
+            
+            st.info("💡 **Trader Note (NSE Cash vs F&O):** Under Indian market rules, delivery short selling is not permitted in the cash equity segment. Use these signals for **F&O Short Futures / Buying Put Options**, or **Intraday Shorting** (square-off before 3:15 PM). For long equity holdings, treat these as immediate avoidance / profit-taking warnings.")
+            
+            rows = get_top_stocks("SELL", "ALL", sector_filter, top_n)
+            render_stock_table(rows, show_signal=True)
+
+        else:
+            st.subheader("🛑 Long Exits & Stop Triggers (Prior BUY Signals)")
+            st.caption("Stocks previously recommended as BUY by the engine that have now triggered a Stop-Loss Exit, Trailing Profit Lock, or Bearish Reversal.")
+            
+            session = get_session(engine)
+            exit_rows = session.execute(text("""
+                SELECT l.symbol, s.name, s.sector, s.market_cap_tier,
+                       l.entry_price, l.stop_loss, l.trailing_stop,
+                       l.status, l.realized_gain_pct, l.signal_date, l.exit_date,
+                       l.days_to_outcome, dp.close as current_price
+                FROM signal_audit_log l
+                JOIN stocks s ON l.symbol = s.symbol
+                LEFT JOIN daily_prices dp ON l.symbol = dp.symbol AND dp.date = (SELECT MAX(date) FROM daily_prices WHERE symbol = l.symbol)
+                WHERE l.signal = 'BUY'
+                  AND l.status IN ('SL_HIT', 'TRAILING_SL_HIT', 'EXITED')
+                ORDER BY l.exit_date DESC
+                LIMIT :lim
+            """), {"lim": top_n * 2}).fetchall()
+            session.close()
+
+            if exit_rows:
+                exit_display_rows = []
+                for er in exit_rows:
+                    sym, s_name, sec, tier, buy_p, sl_p, trail_p, status, pnl_pct, sig_d, exit_d, days_hold, curr_p = er
+                    status_badge = "🔴 STOP LOSS HIT" if status == "SL_HIT" else ("🟡 TRAILING SL (PROFIT LOCKED)" if status == "TRAILING_SL_HIT" else "⚪ EXITED")
+                    pnl_color = "🟢" if (pnl_pct and pnl_pct > 0) else "🔴"
+                    exit_display_rows.append({
+                        "Symbol": sym,
+                        "Company": s_name[:22] if s_name else sym,
+                        "Sector": sec or "General",
+                        "Tier": tier.upper() if tier else "MID",
+                        "Prior Buy Date": sig_d,
+                        "Exit Date": exit_d or "Recent",
+                        "Buy Price": f"₹{buy_p:,.2f}",
+                        "Exit Trigger": status_badge,
+                        "Realized Return": f"{pnl_color} {pnl_pct:+.2f}%" if pnl_pct is not None else "—",
+                        "Days Held": f"{days_hold}d" if days_hold else "—",
+                        "Latest Price": f"₹{curr_p:,.2f}" if curr_p else "—"
+                    })
+                st.dataframe(pd.DataFrame(exit_display_rows), use_container_width=True)
+            else:
+                st.info("No prior BUY positions have hit stop loss or exit triggers in the recent window.")
 
 
     # Tab 3: Index Signals

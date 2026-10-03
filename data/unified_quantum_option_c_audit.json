@@ -1,0 +1,46 @@
+{
+  "audit_timestamp": "2026-10-03T15:52:14.584165",
+  "evaluation_window": "2021-09-27 to 2026-09-25 (5.0 Years)",
+  "market_benchmark": {
+    "nifty_cagr_pct": 5.16,
+    "nifty_xirr_pct": 2.26
+  },
+  "swing_comparison": {
+    "baseline": {
+      "final_equity": 820627.76,
+      "cagr_pct": 10.1,
+      "max_drawdown_pct": 37.52,
+      "profit_factor": 1.35,
+      "win_rate_pct": 49.3
+    },
+    "quantum": {
+      "final_equity": 2256662.66,
+      "cagr_pct": 35.18,
+      "max_drawdown_pct": 18.92,
+      "profit_factor": 1.98,
+      "win_rate_pct": 46.7,
+      "calmar_ratio": 1.86
+    }
+  },
+  "sip_comparison": {
+    "baseline": {
+      "total_invested": 1847573.2,
+      "final_corpus": 2913021.07,
+      "strategy_xirr_pct": 14.8
+    },
+    "quantum": {
+      "total_invested": 1465224.0,
+      "final_corpus": 4680929.27,
+      "strategy_xirr_pct": 53.54,
+      "profit_factor": 8.49,
+      "max_drawdown_pct": 22.77
+    }
+  },
+  "combined_impact": {
+    "total_capital_deployed": 1965224.0,
+    "baseline_total_wealth": 3733648.83,
+    "quantum_total_wealth": 6937591.93,
+    "net_alpha_wealth_rs": 3203943.0999999996,
+    "wealth_expansion_pct": 85.8
+  }
+}

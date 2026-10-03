@@ -40,6 +40,7 @@ from core.bulk_deals import (
     sync_bulk_and_block_deals_delta
 )
 from core.economic_calendar import get_upcoming_economic_events, seed_macro_calendar
+from core.ui_components import render_clean_html, fmt_inr
 
 try:
     st.set_page_config(page_title="🏦 Institutional Deals & Calendar", page_icon="🏦", layout="wide")
@@ -147,6 +148,37 @@ with tab_deals:
     kpi4.metric("📦 Filtered Transactions", f"{len(summary['deals_stream'])} deals")
 
     st.markdown("---")
+
+    # Visual Whale Flow Chart
+    acc_list = summary.get("top_accumulations", [])[:5]
+    dist_list = summary.get("top_distributions", [])[:5]
+    chart_rows = []
+    for r in acc_list:
+        chart_rows.append({"Symbol": r["symbol"], "Net Flow (₹ Cr)": float(r["net_flow_cr"]), "Type": "Accumulation"})
+    for r in dist_list:
+        chart_rows.append({"Symbol": r["symbol"], "Net Flow (₹ Cr)": -float(r["net_flow_cr"]), "Type": "Distribution"})
+
+    if chart_rows:
+        df_flow = pd.DataFrame(chart_rows)
+        fig_flow = px.bar(
+            df_flow,
+            x="Net Flow (₹ Cr)",
+            y="Symbol",
+            color="Type",
+            orientation="h",
+            color_discrete_map={"Accumulation": "#00ff66", "Distribution": "#ff2a5f"},
+            title="🐋 Institutional Whale Accumulation vs Distribution (₹ Cr)"
+        )
+        fig_flow.update_layout(
+            paper_bgcolor="#10141e",
+            plot_bgcolor="#171b26",
+            font=dict(color="#e0e8f0"),
+            height=260,
+            margin=dict(l=10, r=10, t=35, b=10)
+        )
+        fig_flow.update_xaxes(gridcolor="#1e293b")
+        fig_flow.update_yaxes(gridcolor="#1e293b")
+        st.plotly_chart(fig_flow, use_container_width=True)
 
     col_acc, col_dist = st.columns(2)
 

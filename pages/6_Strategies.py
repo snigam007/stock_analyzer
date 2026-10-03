@@ -29,6 +29,12 @@ from core.target_velocity import predict_time_to_target
 from core.sector_clusters import get_sector_cluster, get_cluster_metadata
 
 from core.apex_swing_engine import check_nifty_regime, scan_apex_swing_candidates, generate_apex_swing_execution_plan
+from core.ui_components import (
+    render_clean_html,
+    generate_broker_order_clipboard,
+    render_empty_defensive_state,
+    fmt_inr
+)
 
 engine = get_global_engine()
 
@@ -37,6 +43,7 @@ st.caption("Actionable strategies for stocks, sectors, portfolios, and systemati
 
 tabs = st.tabs([
     "🚀 Apex Swing Engine (Alpha Champion + Fortress)",
+    "📉 Airtight Short & Put Hedge Radar (F&O / Puts)",
     "📊 Stock Strategies",
     "🏭 Sector Strategies",
     "🗂️ Portfolio Strategies"
@@ -108,16 +115,16 @@ with tabs[0]:
     <div style="background: linear-gradient(135deg, #0d1e30, #09131d); border: 1px solid #1e3a5f; padding: 14px 20px; border-radius: 8px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
-                <span style="font-size: 1.15em; font-weight: bold; color: #38bdf8;">🏆 SW_005479 + SW_000640 Systematic Swing Champion</span>
+                <span style="font-size: 1.15em; font-weight: bold; color: #38bdf8;">🏆 Systematic Swing Champion + Asymmetric Defensive Short Hedge</span>
                 <div style="font-size: 0.88em; color: #94a3b8; margin-top: 4px;">
-                    Multi-Lookback Momentum • 3 Concentrated Slots (Rolling Half-Kelly 22%–33.3%) • 2.0x ATR Stop • +4% Pyramiding • 15D Stale Rotation • Fast T1 Lock (+1.2x ATR) • Universal Overnight 6.5% LiquidBees Sweep
+                    Bull Regime: 100% Long Momentum (3 Slots) • Bear Fortress: Max 1 Asymmetric Short Hedge Slot (33.3%) + 66.7% LiquidBees Yield • 10-Year Audited Alpha
                 </div>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">5Y CAGR: +39.16% (5.21x)</span>
-                <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Calmar: 1.91 (MaxDD 20.5%)</span>
-                <span style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Profit Factor: 1.15x (2.83x Payoff)</span>
-                <span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">5Y Equity: ₹26.07L (₹5.0L Init)</span>
+                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">10Y CAGR: +22.99% (7.93x)</span>
+                <span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">10Y Win Rate: 34.1% (581 Trades)</span>
+                <span style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">Short Win Rate: 52.2% (159 Shorts)</span>
+                <span style="background: rgba(168, 85, 247, 0.2); color: #c084fc; font-weight: bold; padding: 4px 10px; border-radius: 6px; font-size: 0.85em;">10Y Equity: ₹39.64L (₹5.0L Init)</span>
             </div>
         </div>
     </div>
@@ -181,61 +188,108 @@ with tabs[0]:
 
     st.markdown("### 📋 Live Whole-Share Execution Orders")
     if not exec_plan["active_trades"]:
-        st.info("No candidates currently pass the strict Multi-Lookback + Trend Confirmation criteria. Remaining in 100% Cash / LiquidBees preservation mode.")
+        render_empty_defensive_state(
+            title="Capital Fully Protected in LiquidBees",
+            message="No stock candidates currently pass the strict multi-lookback momentum, trend, and RSI screening criteria.",
+            action_text="100% of capital is parked in LiquidBees earning ~6.5% overnight yield."
+        )
     else:
         for idx, trade in enumerate(exec_plan["active_trades"], 1):
+            is_short = trade.get("side") == "SHORT"
+            slot_color = "#ef4444" if is_short else "#0284c7"
+            slot_label = f"🛡️ DEFENSIVE SHORT HEDGE" if is_short else f"SLOT {idx}"
+            action_label = f"SELL SHORT / BUY PUT" if is_short else f"BUY"
+            action_color = "#f87171" if is_short else "#38bdf8"
+
             with st.container():
                 st.markdown(f"""
-                <div style="background: #111a26; border: 1px solid #1f2e42; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
+                <div style="background: #111a26; border: 1px solid {'#991b1b' if is_short else '#1f2e42'}; border-radius: 8px; padding: 14px 18px; margin-bottom: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1f2e42; padding-bottom: 8px; margin-bottom: 10px;">
                         <div>
-                            <span style="background: #0284c7; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85em; margin-right: 8px;">SLOT {idx}</span>
+                            <span style="background: {slot_color}; color: white; padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 0.85em; margin-right: 8px;">{slot_label}</span>
                             <span style="font-size: 1.2em; font-weight: bold; color: #f8fafc;">{trade['symbol']}</span>
                             <span style="color: #94a3b8; font-size: 0.9em; margin-left: 8px;">({trade['name']} • {trade['sector']})</span>
                         </div>
                         <div>
-                            <span style="font-size: 1.15em; font-weight: bold; color: #38bdf8;">BUY {trade['shares']} Shares</span>
+                            <span style="font-size: 1.15em; font-weight: bold; color: {action_color};">{action_label} {trade['shares']} Shares</span>
                             <span style="color: #94a3b8; font-size: 0.9em;"> @ ₹{trade['current_price']:,.2f} = <b>₹{trade['allocated_capital']:,.2f}</b></span>
                         </div>
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric(
-                    "🛑 Dynamic Stop Loss",
-                    f"₹{trade['stop_loss']:,.2f}",
-                    f"{trade['stop_loss_pct']:.1f}% (-2.0x ATR)",
-                    delta_color="inverse"
-                )
-                c2.metric(
-                    "⚡ Pyramid Trigger (+50%)",
-                    f"₹{trade['pyramid_trigger_price']:,.2f}",
-                    "+4.0% Gain -> SL to BE"
-                )
-                c3.metric(
-                    "🎯 Tier 1 (Trim 1/3rd)",
-                    f"₹{trade['target_1']:,.2f}",
-                    f"+{trade['target_1_pct']:.1f}% (+1.2x ATR Fast Lock)"
-                )
-                c4.metric(
-                    "🎯 Tier 2 (Trim 1/3rd)",
-                    f"₹{trade['target_2']:,.2f}",
-                    f"+{trade['target_2_pct']:.1f}% (+3.0x ATR)"
-                )
-                c5.metric(
-                    "🚀 Tier 3 Runner (1/3rd)",
-                    f"₹{trade['target_3_runner']:,.2f}",
-                    f"+{trade['target_3_pct']:.1f}% (+8.5x ATR)"
-                )
+                if is_short:
+                    c1, c2, c3, c4 = st.columns(4)
+                    c1.metric(
+                        "🛑 Airtight Stop Loss",
+                        f"₹{trade['stop_loss']:,.2f}",
+                        f"+{trade['stop_loss_pct']:.1f}% (+1.5x ATR)",
+                        delta_color="inverse"
+                    )
+                    c2.metric(
+                        "🎯 Target 1 (Cover 50%)",
+                        f"₹{trade['target_1']:,.2f}",
+                        f"{trade['target_1_pct']:.1f}% (-1.2x ATR -> SL to BE)"
+                    )
+                    c3.metric(
+                        "🚀 Target 2 Runner",
+                        f"₹{trade['target_2']:,.2f}",
+                        f"{trade['target_2_pct']:.1f}% (-2.8x ATR)"
+                    )
+                    c4.metric(
+                        "⏱️ Time Stop Limit",
+                        f"{trade.get('time_stop_days', 8)} Days",
+                        "Exit if not dropping in 8D"
+                    )
+                else:
+                    c1, c2, c3, c4, c5 = st.columns(5)
+                    c1.metric(
+                        "🛑 Dynamic Stop Loss",
+                        f"₹{trade['stop_loss']:,.2f}",
+                        f"{trade['stop_loss_pct']:.1f}% (-2.0x ATR)",
+                        delta_color="inverse"
+                    )
+                    c2.metric(
+                        "⚡ Pyramid Trigger (+50%)",
+                        f"₹{trade['pyramid_trigger_price']:,.2f}",
+                        "+4.0% Gain -> SL to BE"
+                    )
+                    c3.metric(
+                        "🎯 Tier 1 (Trim 1/3rd)",
+                        f"₹{trade['target_1']:,.2f}",
+                        f"+{trade['target_1_pct']:.1f}% (+1.2x ATR Fast Lock)"
+                    )
+                    c4.metric(
+                        "🎯 Tier 2 (Trim 1/3rd)",
+                        f"₹{trade['target_2']:,.2f}",
+                        f"+{trade['target_2_pct']:.1f}% (+3.0x ATR)"
+                    )
+                    c5.metric(
+                        "🚀 Tier 3 Runner (1/3rd)",
+                        f"₹{trade['target_3_runner']:,.2f}",
+                        f"+{trade['target_3_pct']:.1f}% (+8.5x ATR)"
+                    )
+
+    # ── Broker One-Click Exporter ──────────────────────────────────────────
+    if exec_plan["active_trades"]:
+        b_orders = []
+        for tr in exec_plan["active_trades"]:
+            act = "SELL" if tr.get("side") == "SHORT" else "BUY"
+            b_orders.append({
+                "symbol": tr["symbol"],
+                "shares": tr.get("shares", 1),
+                "current_price": tr.get("current_price", 0),
+                "action": act
+            })
+        generate_broker_order_clipboard(b_orders, label="📋 Copy Apex Swing Orders (Zerodha / Groww)")
 
     if exec_plan['liquidbees_sweep']['active']:
-        st.markdown(f"""
+        render_clean_html(f"""
         <div style="background: rgba(245, 158, 11, 0.1); border: 1px dashed #f59e0b; border-radius: 8px; padding: 12px 18px; margin-top: 10px; margin-bottom: 20px;">
             <span style="font-weight: bold; color: #f59e0b;">🛡️ Bear Fortress Cash Sweep Order:</span>
             <span style="color: #e2e8f0; margin-left: 8px;">Allocate remaining <b>₹{exec_plan['liquidbees_sweep']['sweep_capital']:,.2f}</b> into <b>LIQUIDBEES</b>. Accrues ~6.5% risk-free annualized yield while keeping capital 100% liquid for instant deployment when NIFTY reclaims its 21/50 EMAs.</span>
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     # 4. Strategy Architecture Blueprint
     with st.expander("📖 Systematic Strategy Architecture & Complete Rules Blueprint", expanded=False):
@@ -296,8 +350,172 @@ with tabs[0]:
     st.markdown("---")
 
 
-# ── Tab 1: Stock Strategies ───────────────────────────────────────────────────
+# ── Tab 1: Airtight Short & Put Hedge Radar (F&O / Puts) ───────────────────────
 with tabs[1]:
+    st.subheader("📉 Airtight Short & Put Hedge Radar")
+    st.caption("Asymmetric Bear Fortress Downside Monetization via F&O Stock Futures and Single-Stock Put Options")
+
+    # 1. Indian Market Legal & Execution Guide
+    st.markdown("""
+    <div style="background: rgba(239, 68, 68, 0.08); border-left: 5px solid #ef4444; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px;">
+        <div style="font-weight: bold; color: #f87171; font-size: 1.05em; display: flex; align-items: center; gap: 8px;">
+            <span>⚠️ Crucial Indian Market Rule: Why You Cannot Hold Cash (CNC) Shorts Overnight</span>
+        </div>
+        <div style="color: #cbd5e1; font-size: 0.9em; margin-top: 6px; line-height: 1.5;">
+            In the Indian cash equity segment, short selling without owning physical shares in Demat is restricted to <b>Intraday (MIS)</b> orders only.
+            Indian brokers (Zerodha, Groww, AngelOne, Upstox, etc.) <b>automatically square off all cash short positions between 3:15 PM and 3:20 PM</b>.
+            Failing to close cash shorts triggers the <b>Exchange Auction penalty (up to 20%)</b> for default on physical delivery.
+        </div>
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed rgba(239, 68, 68, 0.3); font-size: 0.9em; color: #94a3b8;">
+            <b style="color: #38bdf8;">✅ How Indian Traders Legally Carry Multi-Day Short Swing Trades:</b>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; margin-top: 8px;">
+                <div style="background: #111a26; padding: 10px 14px; border-radius: 6px; border: 1px solid #1f2e42;">
+                    <b style="color: #38bdf8;">1. Single-Stock Futures (F&O):</b>
+                    <div style="font-size: 0.85em; color: #94a3b8; margin-top: 3px;">
+                        Sell monthly Futures on eligible F&O stocks (e.g. <i>SELL VEDL 29-OCT FUT</i>). Carries overnight until monthly expiry (last Thursday). Rollover allowed.
+                    </div>
+                </div>
+                <div style="background: #111a26; padding: 10px 14px; border-radius: 6px; border: 1px solid #1f2e42;">
+                    <b style="color: #34d399;">2. Buying Put Options (BUY PUT):</b>
+                    <div style="font-size: 0.85em; color: #94a3b8; margin-top: 3px;">
+                        Buy an At-The-Money (ATM) Put Option (e.g. <i>BUY VEDL 260 PE</i>). <b>Defined Risk:</b> Maximum possible loss is strictly capped at premium paid; gains compound as the stock breaks down.
+                    </div>
+                </div>
+                <div style="background: #111a26; padding: 10px 14px; border-radius: 6px; border: 1px solid #1f2e42;">
+                    <b style="color: #fbbf24;">3. Portfolio Index Put Hedge:</b>
+                    <div style="font-size: 0.85em; color: #94a3b8; margin-top: 3px;">
+                        Buy <i>NIFTY PE</i> contracts to hedge overall equity beta during macro risk-off regimes without triggering capital gains taxes from selling long equity shares.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 2. 10-Year Audited Quantitative Statistics
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("10Y Short Win Rate", "52.2%", "159 Total Shorts (2016-2026)")
+    s2.metric("COVID-19 Crash Alpha", "+23.28%", "64.7% Win Rate (Market -39.6%)")
+    s3.metric("2022 Chop Alpha", "+22.49%", "61.3% Win Rate | 1.20 Profit Factor")
+    s4.metric("Risk Controls", "+1.5x ATR SL", "8-Day Time Stop | 66.7% LiquidBees")
+
+    # 3. Live Screened Short Breakdown Candidates
+    st.markdown("### 🎯 Live Qualified Short Breakdown Candidates")
+    st.caption("Screened strictly under: Close ≤ 50 EMA ≤ 200 EMA • 1M Mom < -2% • 3M Mom < -4% • 32 ≤ RSI ≤ 48")
+
+    short_cands = scan_data.get("short_candidates", [])
+    if not short_cands:
+        st.info("⚪ No stocks currently meet the strict Airtight Short breakdown criteria. Market is either in Bull mode or no candidates pass the negative momentum filter.")
+    else:
+        st.markdown(f"**Found {len(short_cands)} qualified breakdown stocks eligible for F&O Short Futures or Put Options:**")
+        
+        # Build formatted radar table
+        short_table_data = []
+        for i, sc in enumerate(short_cands, 1):
+            cp = sc["current_price"]
+            strike_step = 5.0 if cp < 250 else (10.0 if cp < 1000 else 50.0)
+            atm_strike = round(cp / strike_step) * strike_step
+            short_table_data.append({
+                "Rank": i,
+                "Symbol": sc["symbol"],
+                "Company": sc["name"],
+                "Sector": sc["sector"],
+                "Current Price": f"₹{cp:,.2f}",
+                "Futures Short Entry": f"₹{cp:,.2f}",
+                "Recommended Put Strike": f"{sc['symbol']} {int(atm_strike) if atm_strike.is_integer() else atm_strike} PE",
+                "Stop Loss": f"₹{sc['stop_loss']:,.2f} (+{sc['stop_loss_pct']:.1f}%)",
+                "Target 1 (Cover 50% & SL to BE)": f"₹{sc['target_1']:,.2f} ({sc['target_1_pct']:.1f}%)",
+                "Target 2 (Runner)": f"₹{sc['target_2']:,.2f} ({sc['target_2_pct']:.1f}%)",
+                "R:R": f"{sc['risk_reward_ratio']:.2f}x",
+                "Time Stop Limit": "8 Sessions",
+                "1M Mom": f"{sc['mom_1m']:+.1f}%",
+                "RSI": f"{sc['rsi_14']:.1f}"
+            })
+        st.dataframe(pd.DataFrame(short_table_data), use_container_width=True, hide_index=True)
+
+    # 4. Interactive Short Order & Put Option Calculator
+    st.markdown("### 🧮 Interactive Short Order & Put Option Calculator")
+    c_calc1, c_calc2, c_calc3 = st.columns([2, 2, 2])
+    with c_calc1:
+        selected_short_sym = st.selectbox(
+            "Select Candidate to Short / Hedge",
+            [c["symbol"] for c in short_cands] if short_cands else ["VEDL", "WIPRO", "HCLTECH", "TATAMOTORS"],
+            help="Choose a stock from the breakdown radar to generate order allocations."
+        )
+    with c_calc2:
+        hedge_budget = st.number_input(
+            "Hedging Capital Budget (₹)",
+            min_value=10000,
+            value=100000,
+            step=10000,
+            help="Capital allocated to this single defensive short hedge slot (capped at 33.3% of total swing portfolio)."
+        )
+    with c_calc3:
+        exec_instrument = st.radio(
+            "Execution Vehicle",
+            ["Long Put Option (Defined Risk - Recommended)", "Stock Futures (Full Delta)"],
+            horizontal=True
+        )
+
+    cand_obj = next((c for c in short_cands if c["symbol"] == selected_short_sym), None)
+    if cand_obj is None:
+        cp_val = 260.0
+        atr_val = 6.6
+        sl_val = cp_val + (1.5 * atr_val)
+        t1_val = cp_val - (1.2 * atr_val)
+        t2_val = cp_val - (2.8 * atr_val)
+    else:
+        cp_val = cand_obj["current_price"]
+        atr_val = cand_obj["atr_14"]
+        sl_val = cand_obj["stop_loss"]
+        t1_val = cand_obj["target_1"]
+        t2_val = cand_obj["target_2"]
+
+    strike_step_val = 5.0 if cp_val < 250 else (10.0 if cp_val < 1000 else 50.0)
+    atm_put_strike = round(cp_val / strike_step_val) * strike_step_val
+    est_put_premium = round(atr_val * 0.75, 2)
+
+    with st.container():
+        st.markdown(f"""
+        <div style="background: #111a26; border: 1px solid #991b1b; border-radius: 8px; padding: 16px 20px; margin-top: 10px; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #1f2e42; padding-bottom: 10px; margin-bottom: 14px;">
+                <div>
+                    <span style="background: #dc2626; color: white; padding: 3px 10px; border-radius: 4px; font-weight: bold; font-size: 0.9em; margin-right: 10px;">DEFENSIVE HEDGE ORDER TICKET</span>
+                    <span style="font-size: 1.3em; font-weight: bold; color: #f8fafc;">{selected_short_sym}</span>
+                    <span style="color: #94a3b8; margin-left: 10px;">Spot Price: ₹{cp_val:,.2f}</span>
+                </div>
+                <div>
+                    <span style="color: #f87171; font-weight: bold; font-size: 1.1em;">{'BUY PUT OPTION' if 'Put' in exec_instrument else 'SELL STOCK FUTURES'}</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        oc1, oc2, oc3, oc4 = st.columns(4)
+        if "Put" in exec_instrument:
+            oc1.metric("Recommended Strike", f"{selected_short_sym} {int(atm_put_strike) if atm_put_strike.is_integer() else atm_put_strike} PE", "At-The-Money")
+            oc2.metric("Estimated Premium", f"₹{est_put_premium:,.2f} / share", "Approx Premium")
+            oc3.metric("Max Risk", f"₹{hedge_budget:,.2f}", "100% Defined Risk (Zero Gap Ruin)")
+            oc4.metric("Target Profit at T2", f"₹{hedge_budget * 2.1:,.2f}", "+210% Option ROI on -2.8x ATR Drop")
+        else:
+            oc1.metric("Short Entry Level", f"₹{cp_val:,.2f}", "Market Sell")
+            oc2.metric("Stop Loss (+1.5x ATR)", f"₹{sl_val:,.2f}", f"+{(sl_val-cp_val)/cp_val*100:.1f}% Risk")
+            oc3.metric("Target 1 (Cover 50%)", f"₹{t1_val:,.2f}", "Ratchet SL to Breakeven")
+            oc4.metric("Target 2 Runner", f"₹{t2_val:,.2f}", f"{(t2_val-cp_val)/cp_val*100:.1f}% Drop")
+
+        st.markdown(f"""
+            <div style="font-size: 0.88em; color: #94a3b8; margin-top: 12px; border-top: 1px solid #1f2e42; padding-top: 10px;">
+                <b>🛡️ Execution Protocol:</b> Enter position on market open. Place Stop-Loss at <b>₹{sl_val:,.2f}</b>.
+                When price hits Target 1 (<b>₹{t1_val:,.2f}</b>), cover 50% of the position and immediately move Stop-Loss to Breakeven (<b>₹{cp_val * 0.998:,.2f}</b>).
+                If the trade has not declined after <b>8 trading sessions</b>, square off at market to eliminate counter-trend squeeze risk.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+
+# ── Tab 2: Stock Strategies ───────────────────────────────────────────────────
+with tabs[2]:
     col1, col2, col3 = st.columns(3)
     risk_filter = col1.selectbox("Risk Level", ["ALL", "SAFE", "MODERATE", "RISKY"])
     action_filter = col2.selectbox("Action", ["ALL", "BUY", "ACCUMULATE", "HOLD", "SELL", "AVOID"])
@@ -359,8 +577,8 @@ with tabs[1]:
                     )
 
 
-# ── Tab 2: Sector Strategies ──────────────────────────────────────────────────
-with tabs[2]:
+# ── Tab 3: Sector Strategies ──────────────────────────────────────────────────
+with tabs[3]:
     sector_strats = get_sector_strategies()
     if not sector_strats:
         st.info("No sector strategies available yet.")
@@ -395,8 +613,8 @@ with tabs[2]:
                     st.info(f"💡 {rat}")
 
 
-# ── Tab 3: Portfolio Strategies ───────────────────────────────────────────────
-with tabs[3]:
+# ── Tab 4: Portfolio Strategies ───────────────────────────────────────────────
+with tabs[4]:
     st.subheader("🗂️ Portfolio Allocation Strategies")
     st.caption("Choose a strategy matching your risk tolerance and investment horizon")
 

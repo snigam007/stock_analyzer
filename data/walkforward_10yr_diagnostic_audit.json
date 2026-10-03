@@ -1,0 +1,104 @@
+{
+  "audit_window": "2016-09-30 to 2026-09-29 (10.0 Years / 2,470 Sessions)",
+  "total_trades": 573,
+  "total_sl_trades": 450,
+  "post_exit_drift": {
+    "total_stops_with_drift": 447,
+    "saved_capital_count": 86,
+    "saved_capital_pct": 19.1,
+    "false_shakeouts_count": 69,
+    "false_shakeouts_pct": 15.3,
+    "top_choked_runners": [
+      {
+        "symbol": "ADANIGREEN",
+        "exit_date": "2020-10-26",
+        "exit_pnl_pct": -0.6248271462468086,
+        "drift_20d_pct": 67.61
+      },
+      {
+        "symbol": "NDTV",
+        "exit_date": "2022-02-24",
+        "exit_pnl_pct": -1.431714188805748,
+        "drift_20d_pct": 64.58
+      },
+      {
+        "symbol": "JSWENERGY",
+        "exit_date": "2021-08-24",
+        "exit_pnl_pct": -13.526074429227064,
+        "drift_20d_pct": 58.85
+      },
+      {
+        "symbol": "ADANIENT",
+        "exit_date": "2021-01-27",
+        "exit_pnl_pct": -1.2406599559136766,
+        "drift_20d_pct": 58.23
+      },
+      {
+        "symbol": "SJVN",
+        "exit_date": "2024-01-10",
+        "exit_pnl_pct": -0.8834454500810959,
+        "drift_20d_pct": 55.94
+      }
+    ]
+  },
+  "stale_rotation_attribution": {
+    "total_stale_exits": 83,
+    "successful_liberations_pct": 66.3,
+    "premature_cuts_pct": 10.8
+  },
+  "slot_lock_opportunity_cost": {
+    "missed_alpha_events_count": 1942,
+    "avg_missed_candidate_20d_gain_pct": 3.51,
+    "multi_bagger_misses_count": 159,
+    "top_missed_breakouts": [
+      {
+        "date": "2017-08-17",
+        "symbol": "KIOCL",
+        "fwd_20d_gain_pct": 160.04,
+        "blocked_by": [
+          "UNOMINDA",
+          "PCBL",
+          "EMBDL"
+        ]
+      },
+      {
+        "date": "2017-10-03",
+        "symbol": "KIOCL",
+        "fwd_20d_gain_pct": 102.56,
+        "blocked_by": [
+          "KEI"
+        ]
+      },
+      {
+        "date": "2017-09-29",
+        "symbol": "KIOCL",
+        "fwd_20d_gain_pct": 94.83,
+        "blocked_by": [
+          "KEI"
+        ]
+      },
+      {
+        "date": "2022-05-12",
+        "symbol": "MRPL",
+        "fwd_20d_gain_pct": 80.48,
+        "blocked_by": [
+          "ADANIPOWER"
+        ]
+      },
+      {
+        "date": "2017-09-28",
+        "symbol": "KIOCL",
+        "fwd_20d_gain_pct": 77.39,
+        "blocked_by": [
+          "KEI"
+        ]
+      }
+    ]
+  },
+  "drawdown_anatomy": {
+    "peak_max_drawdown_pct": 39.0,
+    "peak_drawdown_date": "2020-03-30",
+    "sessions_in_deep_drawdown_gt25pct": 420,
+    "max_consecutive_losses": 16
+  }
+}

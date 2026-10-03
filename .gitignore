@@ -39,3 +39,6 @@ data/*.db-journal
 
 # Scratch and experimental analysis scripts
 scratch/
+
+# Temporary screenshots and browser captures
+*.png

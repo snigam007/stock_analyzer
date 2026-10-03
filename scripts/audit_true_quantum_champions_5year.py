@@ -139,7 +139,7 @@ def load_fast_5year_market_and_stocks(db_path: Path):
     return mkt_map, trading_dates, stock_dfs
 
 
-def run_quantum_champion_swing(trading_dates, stock_dfs, mkt_map, initial_capital=500000.0, start_date=None, end_date=None):
+def run_quantum_champion_swing(trading_dates, stock_dfs, mkt_map, initial_capital=500000.0, start_date=None, end_date=None, enable_stale_rotation: bool = False):
     filtered_dates = [d for d in trading_dates if (start_date is None or d >= start_date) and (end_date is None or d <= end_date)]
     if not filtered_dates:
         return {}
@@ -191,21 +191,22 @@ def run_quantum_champion_swing(trading_dates, stock_dfs, mkt_map, initial_capita
                 del open_positions[sym]
                 continue
 
-            # 15-Day Stale Momentum Rotation (Liberates slot from sideways churn)
-            holding_days = (curr_d - pos['entry_date']).days
-            if holding_days >= 15 and not pos['pyramided'] and pos['tier_idx'] == 0:
-                if h < pos['entry_price'] + (1.0 * atr):
-                    exit_price = c
-                    pnl = (exit_price - pos['avg_price']) * pos['shares']
-                    pnl_pct = (exit_price - pos['avg_price']) / pos['avg_price'] * 100.0
-                    cash += pos['shares'] * exit_price
-                    closed_trades.append({
-                        'symbol': sym, 'pnl': pnl, 'pnl_pct': pnl_pct,
-                        'hold_days': holding_days,
-                        'outcome': 'STALE_ROTATION'
-                    })
-                    del open_positions[sym]
-                    continue
+            # 15-Day Stale Momentum Rotation (Optional: True Dynamic Trend Runner keeps trades open)
+            if enable_stale_rotation:
+                holding_days = (curr_d - pos['entry_date']).days
+                if holding_days >= 15 and not pos['pyramided'] and pos['tier_idx'] == 0:
+                    if h < pos['entry_price'] + (1.0 * atr):
+                        exit_price = c
+                        pnl = (exit_price - pos['avg_price']) * pos['shares']
+                        pnl_pct = (exit_price - pos['avg_price']) / pos['avg_price'] * 100.0
+                        cash += pos['shares'] * exit_price
+                        closed_trades.append({
+                            'symbol': sym, 'pnl': pnl, 'pnl_pct': pnl_pct,
+                            'hold_days': holding_days,
+                            'outcome': 'STALE_ROTATION'
+                        })
+                        del open_positions[sym]
+                        continue
 
             # Winner Pyramiding (+4.0% gain -> Add +50% size, ratchets SL to Breakeven)
             if pyramiding_active and not pos['pyramided'] and h >= pos['entry_price'] * 1.04:
@@ -387,12 +388,13 @@ def execute_master_5year_audit():
     session = Session()
 
     # 1. RUN QUANTUM SIP CHAMPION (60 Months / 5.0 Years) with Frontier Holy Grail Synergy
-    logger.info("Executing Quantum Champion SIP Engine (Frontier Holy Grail Synergy)...")
+    logger.info("Executing Quantum Champion SIP Engine (Apex Quad Alpha 4-Stock Synergy)...")
     sip_params = {
         **BASE_CHAMP,
+        "target_stock_count": 4,
         "sizing_mode": "CONVICTION",
         "enable_conviction_weighting": True,
-        "conviction_weights": [0.30, 0.25, 0.20, 0.15, 0.10],
+        "conviction_weights": [0.35, 0.30, 0.20, 0.15],
         "dip_threshold_pct": 3.0,
         "dip_deploy_pct": 90.0,
         "skim_milestone_pct": 120.0,
@@ -411,11 +413,12 @@ def execute_master_5year_audit():
     start_d = date(2021, 9, 27)
     end_d = date(2026, 9, 25)
 
-    logger.info("Simulating Quantum Swing Champion (Half-Kelly + 15D Stale Rotation)...")
+    logger.info("Simulating Quantum Swing Champion (Half-Kelly + Unclipped Trend Runner)...")
     swing_res = run_quantum_champion_swing(
         trading_dates, stock_dfs, mkt_map,
         initial_capital=500000.0,
-        start_date=start_d, end_date=end_d
+        start_date=start_d, end_date=end_d,
+        enable_stale_rotation=False
     )
 
     # NIFTY 50 Benchmark Returns
@@ -461,7 +464,7 @@ def execute_master_5year_audit():
             "market_cagr_pct": round(n_cagr, 2)
         },
         "quantum_swing_champion": {
-            "strategy": "Systematic Swing Champion Fusion: SW_005479 (Alpha) + SW_000640 (Fortress) + Half-Kelly + 15D Stale Rotation",
+            "strategy": "Systematic Swing Champion: SW_005479 (Alpha) + SW_000640 (Fortress) + Half-Kelly + Unclipped Trend Runner (No 15D Cut)",
             "initial_capital_rs": 500000.0,
             "final_portfolio_equity_rs": swing_res['final_val'],
             "portfolio_multiplier": swing_res['multiple'],
@@ -476,14 +479,14 @@ def execute_master_5year_audit():
             "configuration": {
                 "max_slots": 3,
                 "sizing_protocol": "Rolling Half-Kelly Sizing (0.5x f*) bounded [22.0%, 33.3%]",
-                "stale_momentum_rotation": "15-Day Stagnation Exit (<1.0x ATR gain) to liberate slot",
+                "trend_runner_protocol": "Unclipped Trend Runner: Positions given breathing room to reach Tier 3 (+8.5x ATR Chandelier Moonbag)",
                 "pyramiding": "+50% size at +4% gain with SL ratchet to BE",
                 "harvest_tiers": "T1: +1.5x ATR (1/3rd), T2: +3.0x ATR (1/3rd), T3: +8.5x ATR Chandelier",
                 "bear_market_fortress": "Allowed slots restricted to 1 in downtrends, cash swept to LiquidBees (6.5% yield)"
             }
         },
         "quantum_sip_champion": {
-            "strategy": "Andreas Clenow Momentum + Dynamic Dip Averaging (The Frontier Holy Grail Closed-Loop)",
+            "strategy": "The Frontier Holy Grail (Apex Quad Alpha: 4-Stock Concentration Basket + 90% Dip @ 3.0% + 10% Skim @ 120% + LiquidBees)",
             "schedule": "Monthly (60 Monthly Tranches over 5.0 Years with 10% Annual Step-Up)",
             "total_invested_rs": sip_res['total_invested'],
             "final_strategy_value_rs": sip_res['final_strategy_value'],
@@ -499,8 +502,8 @@ def execute_master_5year_audit():
             "winning_trades": sip_res['winning_trades'],
             "losing_trades": sip_res['losing_trades'],
             "configuration": {
-                "slots": 5,
-                "sizing_protocol": "Conviction Half-Kelly Tranche Sizing [30%, 25%, 20%, 15%, 10%]",
+                "slots": 4,
+                "sizing_protocol": "Apex Quad Alpha Conviction Sizing [35%, 30%, 20%, 15%]",
                 "dip_buying": "90% cash deployed on 3.0% pullback",
                 "parabolic_skimming": "10% trimmed at +120% gain, proceeds recycled into dips",
                 "position_cap": "50.0% Max for multi-bagger runners",

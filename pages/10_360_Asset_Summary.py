@@ -40,6 +40,7 @@ from core.factor_risk_model import compute_factor_risk_attribution
 from core.stress_testing import simulate_stock_crisis_stress_test
 from core.smart_order_router import generate_smart_order_execution_schedule
 from core.report_generator import generate_stock_teardown_html
+from core.ui_components import render_clean_html, fmt_inr, generate_broker_order_clipboard
 
 engine = get_global_engine()
 
@@ -147,189 +148,218 @@ with top_col2:
     )
 
 # Executive Verdict Banner
-sig_color = "#00c875" if signal_label == "BUY" else ("#ff4b4b" if signal_label == "SELL" else "#f0a500")
-st.markdown(f"""
-<div style="background: #111a24; border-left: 5px solid {sig_color}; padding: 14px 18px; border-radius: 8px; margin-bottom: 15px;">
+sig_color = "#00ff66" if signal_label == "BUY" else ("#ff2a5f" if signal_label == "SELL" else "#f59e0b")
+
+verdict_banner = f"""
+<div style="background: #171b26; border-left: 5px solid {sig_color}; padding: 14px 18px; border-radius: 8px; margin-bottom: 15px; border-top: 1px solid #313540; border-right: 1px solid #313540; border-bottom: 1px solid #313540;">
     <div style="display: flex; justify-content: space-between; align-items: center;">
         <div>
-            <span style="font-size: 1.4em; font-weight: bold; color: #ffffff;">{selected_symbol} — {stock_name}</span> &nbsp;&nbsp;
-            <span style="background: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">{stock_sector}</span>
+            <span style="font-size: 1.4em; font-weight: bold; color: #ffffff; font-family:'Space Grotesk',sans-serif;">{selected_symbol} — {stock_name}</span> &nbsp;&nbsp;
+            <span style="background: #1e293b; color: #00eefc; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">{stock_sector}</span>
             <span style="background: #1e293b; color: #a5b4fc; padding: 3px 8px; border-radius: 4px; font-size: 0.85em;">{stock_tier.upper()}</span>
         </div>
         <div style="text-align: right;">
-            <span style="font-size: 1.3em; font-weight: bold; color: #ffffff;">₹{current_price:,.2f}</span>
-            <span style="color: {'#00c875' if df['daily_return'].iloc[-1] > 0 else '#ff4b4b'}; font-weight: bold;"> ({df['daily_return'].iloc[-1]:+.2f}%)</span>
+            <span style="font-size: 1.3em; font-weight: bold; color: #ffffff; font-family:'JetBrains Mono',monospace;">₹{current_price:,.2f}</span>
+            <span style="color: {'#00ff66' if df['daily_return'].iloc[-1] > 0 else '#ff2a5f'}; font-weight: bold; font-family:'JetBrains Mono',monospace;"> ({df['daily_return'].iloc[-1]:+.2f}%)</span>
         </div>
     </div>
     <div style="margin-top: 8px; font-size: 0.9em; color: #cbd5e1;">
         <b>Executive Quant Verdict:</b> <span style="color: {sig_color}; font-weight: bold;">{signal_label}</span> (Score: <b>{composite_score:.0f}/100</b>) • 
         <b>Risk Archetype:</b> <b>{risk_level}</b> • 
-        <b>Macro Alignment:</b> {macro_data['regime']} (Macro Score: {macro_data['macro_score']}/100)
+        <b>Macro Alignment:</b> {macro_data['regime']} (Score: {macro_data['macro_score']}/100)
     </div>
 </div>
-""", unsafe_allow_html=True)
+"""
+render_clean_html(verdict_banner)
 
-# ── 4-Pillar Quantitative Scorecard ──────────────────────────────────────────
-st.markdown("### 🏛️ 4-Pillar Multi-Factor Quantitative Scorecard")
-c_p1, c_p2, c_p3, c_p4 = st.columns(4)
+# ── Navigation Tabs ───────────────────────────────────────────────────────────
+tab1, tab2, tab3 = st.tabs([
+    "🏛️ Executive Cockpit & Scorecard",
+    "🎲 Probabilistic Forecasts & Bracket Setup",
+    "⚖️ Factor Attribution & Smart Routing"
+])
 
-with c_p1:
-    st.markdown("""
-    <div style="background: #151d28; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
-        <span style="color: #38bdf8; font-weight: bold;">1. Technical & Momentum</span>
-        <hr style="margin: 6px 0; border-color: #334155;">
-        <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
-            • <b>RSI (14):</b> 54.2 (Neutral-Bullish)<br>
-            • <b>Trend Pattern:</b> BULLISH HIGHER HIGHS<br>
-            • <b>200 EMA Filter:</b> ABOVE (Bull Market)<br>
-            • <b>Elder Triple-Screen:</b> WAVE PULLBACK
+with tab1:
+    # ── 4-Pillar Quantitative Scorecard ──────────────────────────────────────
+    st.markdown("<h4 style='font-family:Space Grotesk,sans-serif;'>🏛️ 4-Pillar Multi-Factor Quantitative Scorecard</h4>", unsafe_allow_html=True)
+    c_p1, c_p2, c_p3, c_p4 = st.columns(4)
+
+    with c_p1:
+        pillar1_html = """
+        <div style="background: #171b26; border: 1px solid #313540; border-radius: 8px; padding: 14px;">
+            <span style="color: #00eefc; font-weight: bold; font-family:'Space Grotesk',sans-serif;">1. Technical & Momentum</span>
+            <hr style="margin: 6px 0; border-color: #232838;">
+            <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
+                • <b>RSI (14):</b> 54.2 (Neutral-Bullish)<br>
+                • <b>Trend Pattern:</b> BULLISH HIGHER HIGHS<br>
+                • <b>200 EMA Filter:</b> ABOVE (Bull Market)<br>
+                • <b>Elder Triple-Screen:</b> WAVE PULLBACK
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """
+        render_clean_html(pillar1_html)
 
-with c_p2:
-    st.markdown(f"""
-    <div style="background: #151d28; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
-        <span style="color: #00c875; font-weight: bold;">2. Fundamental & Solvency</span>
-        <hr style="margin: 6px 0; border-color: #334155;">
-        <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
-            • <b>Piotroski F-Score:</b> {fh_quick['piotroski_f_score']}/9 ({fh_quick['piotroski_verdict'].split(' ')[0]})<br>
-            • <b>Altman Z-Score:</b> {fh_quick['altman_z_score']:.2f} ({fh_quick['altman_verdict'].split(' ')[0]})<br>
-            • <b>DuPont ROE:</b> {fh_quick['dupont_roe_pct']:.1f}%<br>
-            • <b>Solvency:</b> {fh_quick['altman_verdict']}
+    with c_p2:
+        pillar2_html = f"""
+        <div style="background: #171b26; border: 1px solid #313540; border-radius: 8px; padding: 14px;">
+            <span style="color: #00ff66; font-weight: bold; font-family:'Space Grotesk',sans-serif;">2. Fundamental & Solvency</span>
+            <hr style="margin: 6px 0; border-color: #232838;">
+            <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
+                • <b>Piotroski F-Score:</b> {fh_quick['piotroski_f_score']}/9 ({fh_quick['piotroski_verdict'].split(' ')[0]})<br>
+                • <b>Altman Z-Score:</b> {fh_quick['altman_z_score']:.2f} ({fh_quick['altman_verdict'].split(' ')[0]})<br>
+                • <b>DuPont ROE:</b> {fh_quick['dupont_roe_pct']:.1f}%<br>
+                • <b>Solvency:</b> {fh_quick['altman_verdict']}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """
+        render_clean_html(pillar2_html)
 
-with c_p3:
-    st.markdown(f"""
-    <div style="background: #151d28; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
-        <span style="color: #f0a500; font-weight: bold;">3. Smart Money & Orderflow</span>
-        <hr style="margin: 6px 0; border-color: #334155;">
-        <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
-            • <b>Money Flow Score:</b> {sm_quick['money_flow_score']}/100<br>
-            • <b>Est. Delivery %:</b> {sm_quick['delivery_pct_est']}% {'⚡ Spurt' if sm_quick['delivery_spurt'] else ''}<br>
-            • <b>10d Vol Ratio:</b> {sm_quick['vol_ratio_10d']}x<br>
-            • <b>Panic Absorption:</b> {'YES (Active)' if sm_quick['absorption_detected'] else 'NO'}
+    with c_p3:
+        pillar3_html = f"""
+        <div style="background: #171b26; border: 1px solid #313540; border-radius: 8px; padding: 14px;">
+            <span style="color: #f59e0b; font-weight: bold; font-family:'Space Grotesk',sans-serif;">3. Smart Money & Orderflow</span>
+            <hr style="margin: 6px 0; border-color: #232838;">
+            <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
+                • <b>Money Flow Score:</b> {sm_quick['money_flow_score']}/100<br>
+                • <b>Est. Delivery %:</b> {sm_quick['delivery_pct_est']}% {'⚡ Spurt' if sm_quick['delivery_spurt'] else ''}<br>
+                • <b>10d Vol Ratio:</b> {sm_quick['vol_ratio_10d']}x<br>
+                • <b>Panic Absorption:</b> {'YES (Active)' if sm_quick['absorption_detected'] else 'NO'}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """
+        render_clean_html(pillar3_html)
 
-with c_p4:
-    opt_analytics = fetch_option_chain_analytics(selected_symbol, current_price)
-    st.markdown(f"""
-    <div style="background: #151d28; border: 1px solid #1e293b; border-radius: 8px; padding: 14px;">
-        <span style="color: #c084fc; font-weight: bold;">4. F&O Derivatives & GEX</span>
-        <hr style="margin: 6px 0; border-color: #334155;">
-        <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
-            • <b>Max Pain Strike:</b> ₹{opt_analytics['max_pain_strike']:,.0f}<br>
-            • <b>Put-Call Ratio (OI):</b> {opt_analytics['pcr_oi']:.2f} ({opt_analytics['pcr_badge']})<br>
-            • <b>Major Support:</b> ₹{opt_analytics['major_support_strike']:,.0f}<br>
-            • <b>Major Resistance:</b> ₹{opt_analytics['major_resistance_strike']:,.0f}
+    with c_p4:
+        opt_analytics = fetch_option_chain_analytics(selected_symbol, current_price)
+        pillar4_html = f"""
+        <div style="background: #171b26; border: 1px solid #313540; border-radius: 8px; padding: 14px;">
+            <span style="color: #c084fc; font-weight: bold; font-family:'Space Grotesk',sans-serif;">4. F&O Derivatives & GEX</span>
+            <hr style="margin: 6px 0; border-color: #232838;">
+            <div style="font-size: 0.88em; color: #cbd5e1; line-height: 1.8;">
+                • <b>Max Pain Strike:</b> ₹{opt_analytics['max_pain_strike']:,.0f}<br>
+                • <b>Put-Call Ratio (OI):</b> {opt_analytics['pcr_oi']:.2f} ({opt_analytics['pcr_badge']})<br>
+                • <b>Major Support:</b> ₹{opt_analytics['major_support_strike']:,.0f}<br>
+                • <b>Major Resistance:</b> ₹{opt_analytics['major_resistance_strike']:,.0f}
+            </div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """
+        render_clean_html(pillar4_html)
 
-st.markdown("---")
+    # Crisis Stress-Testing Table
+    st.markdown("<hr style='border-color:#232838;margin:20px 0;'>", unsafe_allow_html=True)
+    st.markdown("<h4 style='font-family:Space Grotesk,sans-serif;'>🛡️ Historical Crisis Stress-Testing & Drawdown Vulnerability</h4>", unsafe_allow_html=True)
+    if "scenarios" in cr_quick:
+        df_stress = pd.DataFrame(cr_quick["scenarios"])
+        st.dataframe(df_stress, use_container_width=True, hide_index=True)
 
-# ── Probabilistic Forecasting & 3-Stage Bracket Order Setup ──────────────────
-st.markdown("### 🎲 Probabilistic Price Forecasting & Execution Blueprint")
+with tab2:
+    st.markdown("<h4 style='font-family:Space Grotesk,sans-serif;'>🎲 Probabilistic Price Forecasting & Execution Blueprint</h4>", unsafe_allow_html=True)
 
-sim_col1, sim_col2 = st.columns([1.8, 1.2])
+    sim_col1, sim_col2 = st.columns([1.8, 1.2])
 
-with sim_col1:
-    st.markdown("##### 📈 10,000-Path Monte Carlo Jump-Diffusion Probability Cones")
-    mc_forecast = simulate_monte_carlo_jump_diffusion(current_price, 0.018, 0.14, t1, t2, t3, sl, n_paths=10000, horizon_days=45)
-    
-    fig_mc_cone = go.Figure()
-    fig_mc_cone.add_trace(go.Scatter(x=mc_forecast["days"] + mc_forecast["days"][::-1], y=mc_forecast["p95"] + mc_forecast["p5"][::-1], fill='toself', fillcolor='rgba(56, 189, 248, 0.1)', line=dict(color='rgba(255,255,255,0)'), name='90% Probability Band (P5 - P95)'))
-    fig_mc_cone.add_trace(go.Scatter(x=mc_forecast["days"] + mc_forecast["days"][::-1], y=mc_forecast["p75"] + mc_forecast["p25"][::-1], fill='toself', fillcolor='rgba(56, 189, 248, 0.22)', line=dict(color='rgba(255,255,255,0)'), name='50% Probability Band (P25 - P75)'))
-    fig_mc_cone.add_trace(go.Scatter(x=mc_forecast["days"], y=mc_forecast["p50"], mode='lines', line=dict(color='#00c875', width=2.5), name='Median Forecast (P50)'))
-    fig_mc_cone.add_hline(y=t1, line_dash="dash", line_color="#00c875", annotation_text="Target 1")
-    fig_mc_cone.add_hline(y=sl, line_dash="dash", line_color="#ff4b4b", annotation_text="Stop Loss")
-    fig_mc_cone.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
-    st.plotly_chart(fig_mc_cone, use_container_width=True)
+    with sim_col1:
+        st.markdown("<h5 style='color:#00eefc;'>📈 10,000-Path Monte Carlo Jump-Diffusion Probability Cones</h5>", unsafe_allow_html=True)
+        mc_forecast = simulate_monte_carlo_jump_diffusion(current_price, 0.018, 0.14, t1, t2, t3, sl, n_paths=10000, horizon_days=45)
+        
+        fig_mc_cone = go.Figure()
+        fig_mc_cone.add_trace(go.Scatter(x=mc_forecast["days"] + mc_forecast["days"][::-1], y=mc_forecast["p95"] + mc_forecast["p5"][::-1], fill='toself', fillcolor='rgba(56, 189, 248, 0.1)', line=dict(color='rgba(255,255,255,0)'), name='90% Probability Band (P5 - P95)'))
+        fig_mc_cone.add_trace(go.Scatter(x=mc_forecast["days"] + mc_forecast["days"][::-1], y=mc_forecast["p75"] + mc_forecast["p25"][::-1], fill='toself', fillcolor='rgba(56, 189, 248, 0.22)', line=dict(color='rgba(255,255,255,0)'), name='50% Probability Band (P25 - P75)'))
+        fig_mc_cone.add_trace(go.Scatter(x=mc_forecast["days"], y=mc_forecast["p50"], mode='lines', line=dict(color='#00ff66', width=2.5), name='Median Forecast (P50)'))
+        fig_mc_cone.add_hline(y=t1, line_dash="dash", line_color="#00ff66", annotation_text="Target 1")
+        fig_mc_cone.add_hline(y=sl, line_dash="dash", line_color="#ff2a5f", annotation_text="Stop Loss")
+        fig_mc_cone.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0", family="Space Grotesk, sans-serif"))
+        st.plotly_chart(fig_mc_cone, use_container_width=True)
 
-with sim_col2:
-    st.markdown("##### 🎯 3-Stage Bracket Execution Setup")
-    st.markdown(f"""
-    <div style="background: #101c28; border: 1px solid #1e3a5f; border-radius: 8px; padding: 14px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span><b>Effective Entry:</b></span>
-            <span style="color: #ffffff; font-weight: bold;">₹{current_price:,.2f}</span>
+    with sim_col2:
+        st.markdown("<h5 style='color:#00ff66;'>🎯 3-Stage Bracket Execution Setup</h5>", unsafe_allow_html=True)
+        bracket_html = f"""
+        <div style="background: #171b26; border: 1px solid #313540; border-radius: 8px; padding: 14px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <span><b>Effective Entry:</b></span>
+                <span style="color: #ffffff; font-weight: bold; font-family:'JetBrains Mono',monospace;">₹{current_price:,.2f}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <span><b>🎯 Target 1 (+4%):</b></span>
+                <span style="color: #00ff66; font-weight: bold; font-family:'JetBrains Mono',monospace;">₹{t1:,.2f} (Prob: {mc_forecast['prob_target_1']}%)</span>
+            </div>
+            <div style="font-size: 0.8em; color: #849581; margin-bottom: 8px; padding-left: 8px;">
+                ↳ <i>Scale 50% & Lock SL to Breakeven (₹{current_price:,.2f})</i>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <span><b>🎯🎯 Target 2 (+8%):</b></span>
+                <span style="color: #00ff66; font-weight: bold; font-family:'JetBrains Mono',monospace;">₹{t2:,.2f} (Prob: {mc_forecast['prob_target_2']}%)</span>
+            </div>
+            <div style="font-size: 0.8em; color: #849581; margin-bottom: 8px; padding-left: 8px;">
+                ↳ <i>Scale 30% & Move SL to Target 1 (₹{t1:,.2f})</i>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                <span><b>🎯🎯🎯 Target 3 (+15%):</b></span>
+                <span style="color: #00ff66; font-weight: bold; font-family:'JetBrains Mono',monospace;">₹{t3:,.2f} (Prob: {mc_forecast['prob_target_3']}%)</span>
+            </div>
+            <div style="font-size: 0.8em; color: #849581; margin-bottom: 8px; padding-left: 8px;">
+                ↳ <i>Trail 20% Runner with Dynamic ATR</i>
+            </div>
+            <hr style="margin: 6px 0; border-color: #232838;">
+            <div style="display: flex; justify-content: space-between;">
+                <span><b>🛑 Stop-Loss:</b></span>
+                <span style="color: #ff2a5f; font-weight: bold; font-family:'JetBrains Mono',monospace;">₹{sl:,.2f} (Breach Prob: {mc_forecast['prob_stop_loss']}%)</span>
+            </div>
         </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span><b>🎯 Target 1 (+4%):</b></span>
-            <span style="color: #00c875; font-weight: bold;">₹{t1:,.2f} (Prob: {mc_forecast['prob_target_1']}%)</span>
-        </div>
-        <div style="font-size: 0.8em; color: #94a3b8; margin-bottom: 8px; padding-left: 8px;">
-            ↳ <i>Scale 50% & Lock SL to Breakeven (₹{current_price:,.2f})</i>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span><b>🎯🎯 Target 2 (+8%):</b></span>
-            <span style="color: #00c875; font-weight: bold;">₹{t2:,.2f} (Prob: {mc_forecast['prob_target_2']}%)</span>
-        </div>
-        <div style="font-size: 0.8em; color: #94a3b8; margin-bottom: 8px; padding-left: 8px;">
-            ↳ <i>Scale 30% & Move SL to Target 1 (₹{t1:,.2f})</i>
-        </div>
-        <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-            <span><b>🎯🎯🎯 Target 3 (+15%):</b></span>
-            <span style="color: #00c875; font-weight: bold;">₹{t3:,.2f} (Prob: {mc_forecast['prob_target_3']}%)</span>
-        </div>
-        <div style="font-size: 0.8em; color: #94a3b8; margin-bottom: 8px; padding-left: 8px;">
-            ↳ <i>Trail 20% Runner with Dynamic ATR</i>
-        </div>
-        <hr style="margin: 6px 0; border-color: #334155;">
-        <div style="display: flex; justify-content: space-between;">
-            <span><b>🛑 Stop-Loss:</b></span>
-            <span style="color: #ff4b4b; font-weight: bold;">₹{sl:,.2f} (Breach Prob: {mc_forecast['prob_stop_loss']}%)</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        """
+        render_clean_html(bracket_html)
 
-st.markdown("---")
+        # One-Click Broker Order Sheet
+        order_basket = [{"symbol": selected_symbol, "shares": 100, "price": current_price, "action": signal_label}]
+        csv_data, json_data = generate_broker_order_clipboard(order_basket)
+        st.download_button(
+            "📋 Export Broker Order Sheet",
+            data=csv_data,
+            file_name=f"{selected_symbol}_order_basket.csv",
+            mime="text/csv",
+            help="Download Zerodha / Groww compatible CSV basket order"
+        )
 
-# ── Factor Risk Attribution & Institutional Smart Order Slicing ─────────────
-st.markdown("### 🏛️ Factor Risk Attribution & Institutional Order Routing")
+with tab3:
+    st.markdown("<h4 style='font-family:Space Grotesk,sans-serif;'>🏛️ Factor Risk Attribution & Institutional Order Routing</h4>", unsafe_allow_html=True)
 
-fac_col1, fac_col2 = st.columns(2)
+    fac_col1, fac_col2 = st.columns(2)
 
-with fac_col1:
-    st.markdown("##### 🕸️ Barra & Fama-French 5-Factor Radar")
-    s_ret = df["daily_return"].dropna().values
-    m_ret = np.random.normal(0.0004, 0.010, len(s_ret))
-    factor_res = compute_factor_risk_attribution(selected_symbol, s_ret, m_ret, stock_tier, stock_sector)
-    
-    radar_cats = list(factor_res["factor_radar"].keys())
-    radar_vals = list(factor_res["factor_radar"].values())
-    radar_cats.append(radar_cats[0])
-    radar_vals.append(radar_vals[0])
+    with fac_col1:
+        st.markdown("<h5 style='color:#00eefc;'>🕸️ Barra & Fama-French 5-Factor Radar</h5>", unsafe_allow_html=True)
+        s_ret = df["daily_return"].dropna().values
+        m_ret = np.random.normal(0.0004, 0.010, len(s_ret))
+        factor_res = compute_factor_risk_attribution(selected_symbol, s_ret, m_ret, stock_tier, stock_sector)
+        
+        radar_cats = list(factor_res["factor_radar"].keys())
+        radar_vals = list(factor_res["factor_radar"].values())
+        radar_cats.append(radar_cats[0])
+        radar_vals.append(radar_vals[0])
 
-    fig_fac_radar = go.Figure()
-    fig_fac_radar.add_trace(go.Scatterpolar(r=radar_vals, theta=radar_cats, fill='toself', fillcolor='rgba(56, 189, 248, 0.2)', line=dict(color='#38bdf8', width=2), name=selected_symbol))
-    fig_fac_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[-1.0, 2.0])), showlegend=False, height=280, margin=dict(l=30, r=30, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0"))
-    st.plotly_chart(fig_fac_radar, use_container_width=True)
-    st.caption(f"**Factor Style Verdict:** `{factor_res['factor_style_verdict']}` | Unexplained Alpha (α): **{factor_res['annualized_alpha_pct']:+.2f}%/yr**")
+        fig_fac_radar = go.Figure()
+        fig_fac_radar.add_trace(go.Scatterpolar(r=radar_vals, theta=radar_cats, fill='toself', fillcolor='rgba(56, 189, 248, 0.2)', line=dict(color='#00eefc', width=2), name=selected_symbol))
+        fig_fac_radar.update_layout(polar=dict(radialaxis=dict(visible=True, range=[-1.0, 2.0])), showlegend=False, height=280, margin=dict(l=30, r=30, t=20, b=20), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#e0e0e0", family="Space Grotesk, sans-serif"))
+        st.plotly_chart(fig_fac_radar, use_container_width=True)
+        st.caption(f"**Factor Style Verdict:** `{factor_res['factor_style_verdict']}` | Unexplained Alpha (α): **{factor_res['annualized_alpha_pct']:+.2f}%/yr**")
 
-with fac_col2:
-    st.markdown("##### ⚖️ Institutional VWAP Intraday Slicing Schedule (₹5,00,000 Order)")
-    sor_sched = generate_smart_order_execution_schedule(selected_symbol, current_price, 500000.0, "VWAP")
-    
-    st.caption(f"Estimated Market Impact Savings: **{sor_sched['bps_saved']} bps (~₹{sor_sched['estimated_rupee_savings']:,.2f})** across {sor_sched['total_shares']} shares")
-    df_sor = pd.DataFrame(sor_sched["tranches"])
-    st.dataframe(
-        df_sor[["time_window", "phase_name", "allocated_pct", "shares_to_fill", "estimated_value_inr", "order_type"]].rename(columns={
-            "time_window": "Trading Window",
-            "phase_name": "Execution Phase",
-            "allocated_pct": "Volume %",
-            "shares_to_fill": "Shares",
-            "estimated_value_inr": "Est. Value (₹)",
-            "order_type": "Routing Algo"
-        }).style.format({
-            "Volume %": "{:.1f}%",
-            "Shares": "{:,}",
-            "Est. Value (₹)": "₹{:,.2f}"
-        }),
-        use_container_width=True,
-        hide_index=True
-    )
+    with fac_col2:
+        st.markdown("<h5 style='color:#00ff66;'>⚖️ Institutional VWAP Intraday Slicing Schedule (₹5,00,000 Order)</h5>", unsafe_allow_html=True)
+        sor_sched = generate_smart_order_execution_schedule(selected_symbol, current_price, 500000.0, "VWAP")
+        
+        st.caption(f"Estimated Market Impact Savings: **{sor_sched['bps_saved']} bps (~₹{sor_sched['estimated_rupee_savings']:,.2f})** across {sor_sched['total_shares']} shares")
+        df_sor = pd.DataFrame(sor_sched["tranches"])
+        st.dataframe(
+            df_sor[["time_window", "phase_name", "allocated_pct", "shares_to_fill", "estimated_value_inr", "order_type"]].rename(columns={
+                "time_window": "Trading Window",
+                "phase_name": "Execution Phase",
+                "allocated_pct": "Volume %",
+                "shares_to_fill": "Shares",
+                "estimated_value_inr": "Est. Value (₹)",
+                "order_type": "Routing Algo"
+            }).style.format({
+                "Volume %": "{:.1f}%",
+                "Shares": "{:,}",
+                "Est. Value (₹)": "₹{:,.2f}"
+            }),
+            use_container_width=True,
+            hide_index=True
+        )

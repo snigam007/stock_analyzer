@@ -5,7 +5,7 @@ strategy("Quantum Microstructure Multi-Timeframe Strategy [Antigravity]", shortt
 // 1. INPUTS & CONFIGURATION
 // ==============================================================================
 grp_trade = "1. Trade Execution & Filtering Mode"
-trade_mode          = input.string("Both (Long + Short)", "Trade Direction Mode", options=["Both (Long + Short)", "Long Only (Equities Swing)", "Short Only (Bearish Distribution)"], group=grp_trade, tooltip="Enables Bidirectional Trading: Long on institutional accumulation pullbacks, Short on institutional distribution breakdowns (e.g. selling stocks you don't own).")
+trade_mode          = input.string("Long Only (Equities Swing)", "Trade Direction Mode", options=["Both (Long + Short)", "Long Only (Equities Swing)", "Short Only (Bearish Distribution)"], group=grp_trade, tooltip="Enables Bidirectional Trading: Long on institutional accumulation pullbacks, Short on institutional distribution breakdowns (e.g. selling stocks you don't own).")
 strategy_profile    = input.string("High-Conviction Swing (Clean / Multi-Week)", "Strategy Profile", options=["High-Conviction Swing (Clean / Multi-Week)", "Active Microstructure (Fast T1 Lock)"], group=grp_trade, tooltip="High-Conviction Swing uses a 21-EMA trailing stop to ride multi-week trends with zero breakeven churn. Active Microstructure uses tight T1 breakeven clamping.")
 intraday_swing_mode = input.bool(true, "Anchor Trailing Stop to Daily 21-EMA on Intraday", group=grp_trade, tooltip="When enabled on 15m/1H/4H charts, trails stop behind the Daily 21-EMA instead of the 1-hour 21-EMA. Prevents premature stop-outs from normal intraday wicks and rides multi-week macro trends!")
 min_cooldown        = input.int(8, "Minimum Bars Between Trades (Cool-down)", minval=1, maxval=30, group=grp_trade, tooltip="Prevents rapid re-entries on choppy days; automatically scales with timeframe to preserve swing spacing.")
@@ -257,10 +257,9 @@ if short_signal
 if strategy.position_size[1] != 0 and strategy.position_size == 0
     last_exit_bar := bar_index
 
-// Active Order Management for Longs
+// Active Order Management for Longs (Next-Bar Ratchet: eliminates same-bar stop-out bug)
 if strategy.position_size > 0
-    if high >= strat_t1 and not strat_t1_hit
-        strat_t1_hit := true
+    if strat_t1_hit
         if is_high_conviction
             float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
             float trail_anchor = math.max(strat_entry * 0.998, trail_ref * 0.99)
@@ -268,19 +267,17 @@ if strategy.position_size > 0
         else
             strat_sl := math.max(strat_sl, strat_entry * 1.002)
 
-    if is_high_conviction and strat_t1_hit
-        float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
-        float trail_anchor = math.max(strat_entry * 0.998, trail_ref * 0.99)
-        strat_sl := math.max(strat_sl, trail_anchor)
+    // Check if T1 was touched on this bar (ratchet applies starting NEXT bar)
+    if high >= strat_t1 and not strat_t1_hit
+        strat_t1_hit := true
 
     strategy.exit("L_T1", "Long", qty_percent=25, limit=strat_t1, stop=strat_sl)
     strategy.exit("L_T2", "Long", qty_percent=33, limit=strat_t2, stop=strat_sl)
     strategy.exit("L_T3", "Long", limit=strat_t3, stop=strat_sl)
 
-// Active Order Management for Shorts
+// Active Order Management for Shorts (Next-Bar Ratchet)
 if strategy.position_size < 0
-    if low <= strat_t1 and not strat_t1_hit
-        strat_t1_hit := true
+    if strat_t1_hit
         if is_high_conviction
             float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
             float trail_anchor = math.min(strat_entry * 1.002, trail_ref * 1.01)
@@ -288,10 +285,9 @@ if strategy.position_size < 0
         else
             strat_sl := math.min(strat_sl, strat_entry * 0.998)
 
-    if is_high_conviction and strat_t1_hit
-        float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
-        float trail_anchor = math.min(strat_entry * 1.002, trail_ref * 1.01)
-        strat_sl := math.min(strat_sl, trail_anchor)
+    // Check if T1 was touched on this bar (ratchet applies starting NEXT bar)
+    if low <= strat_t1 and not strat_t1_hit
+        strat_t1_hit := true
 
     strategy.exit("S_T1", "Short", qty_percent=25, limit=strat_t1, stop=strat_sl)
     strategy.exit("S_T2", "Short", qty_percent=33, limit=strat_t2, stop=strat_sl)

@@ -5,13 +5,14 @@ strategy("Quantum Microstructure Multi-Timeframe Strategy [Antigravity]", shortt
 // 1. INPUTS & CONFIGURATION
 // ==============================================================================
 grp_trade = "1. Trade Execution & Filtering Mode"
-trade_mode       = input.string("Both (Long + Short)", "Trade Direction Mode", options=["Both (Long + Short)", "Long Only (Equities Swing)", "Short Only (Bearish Distribution)"], group=grp_trade, tooltip="Enables Bidirectional Trading: Long on institutional accumulation pullbacks, Short on institutional distribution breakdowns (e.g. selling stocks you don't own).")
-strategy_profile = input.string("High-Conviction Swing (Clean / Multi-Week)", "Strategy Profile", options=["High-Conviction Swing (Clean / Multi-Week)", "Active Microstructure (Fast T1 Lock)"], group=grp_trade, tooltip="High-Conviction Swing uses a 21-EMA trailing stop to ride multi-week trends with zero breakeven churn. Active Microstructure uses tight T1 breakeven clamping.")
-min_cooldown     = input.int(8, "Minimum Bars Between Trades (Cool-down)", minval=1, maxval=30, group=grp_trade, tooltip="Prevents rapid re-entries on choppy days; requires at least N bars after an exit before opening a new trade.")
-t1_atr_mult      = input.float(1.00, "Target 1 ATR Multiplier (Trim 25% + Trail)", minval=0.5, step=0.1, group=grp_trade)
-t2_atr_mult      = input.float(2.80, "Target 2 ATR Multiplier (Trim 33%)", minval=1.5, step=0.1, group=grp_trade)
-t3_atr_mult      = input.float(8.00, "Target 3 ATR Multiplier (Runner Moonbag)", minval=4.0, step=0.5, group=grp_trade)
-sl_atr_mult      = input.float(1.50, "Initial Stop Loss ATR Multiplier", minval=0.5, step=0.1, group=grp_trade)
+trade_mode          = input.string("Both (Long + Short)", "Trade Direction Mode", options=["Both (Long + Short)", "Long Only (Equities Swing)", "Short Only (Bearish Distribution)"], group=grp_trade, tooltip="Enables Bidirectional Trading: Long on institutional accumulation pullbacks, Short on institutional distribution breakdowns (e.g. selling stocks you don't own).")
+strategy_profile    = input.string("High-Conviction Swing (Clean / Multi-Week)", "Strategy Profile", options=["High-Conviction Swing (Clean / Multi-Week)", "Active Microstructure (Fast T1 Lock)"], group=grp_trade, tooltip="High-Conviction Swing uses a 21-EMA trailing stop to ride multi-week trends with zero breakeven churn. Active Microstructure uses tight T1 breakeven clamping.")
+intraday_swing_mode = input.bool(true, "Anchor Trailing Stop to Daily 21-EMA on Intraday", group=grp_trade, tooltip="When enabled on 15m/1H/4H charts, trails stop behind the Daily 21-EMA instead of the 1-hour 21-EMA. Prevents premature stop-outs from normal intraday wicks and rides multi-week macro trends!")
+min_cooldown        = input.int(8, "Minimum Bars Between Trades (Cool-down)", minval=1, maxval=30, group=grp_trade, tooltip="Prevents rapid re-entries on choppy days; automatically scales with timeframe to preserve swing spacing.")
+t1_atr_mult         = input.float(1.00, "Target 1 ATR Multiplier (Trim 25% + Trail)", minval=0.5, step=0.1, group=grp_trade)
+t2_atr_mult         = input.float(2.80, "Target 2 ATR Multiplier (Trim 33%)", minval=1.5, step=0.1, group=grp_trade)
+t3_atr_mult         = input.float(8.00, "Target 3 ATR Multiplier (Runner Moonbag)", minval=4.0, step=0.5, group=grp_trade)
+sl_atr_mult         = input.float(1.50, "Initial Stop Loss ATR Multiplier", minval=0.5, step=0.1, group=grp_trade)
 
 grp_mtf = "2. Multi-Timeframe Confluence Hierarchy (4H / 1H / 15m)"
 enable_mtf       = input.bool(true, "Enable Multi-Timeframe Auto-Adaptation", group=grp_mtf, tooltip="When on 15m, 1H, or 4H charts, automatically locks Macro Trend to Daily (1D) and Structure to 1H/4H, executing sniper entries on chart candles.")
@@ -63,6 +64,7 @@ rsi2  = ta.rsi(close, 2)
 
 // Macro (Daily) EMAs for Intraday Charts
 d_close  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, close[1], barmerge.gaps_off, barmerge.lookahead_off) : close
+d_ema21  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, ta.ema(close, 21)[1], barmerge.gaps_off, barmerge.lookahead_off) : ema21
 d_ema50  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, ta.ema(close, 50)[1], barmerge.gaps_off, barmerge.lookahead_off) : ema50
 d_ema200 = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, ta.ema(close, 200)[1], barmerge.gaps_off, barmerge.lookahead_off) : ema200
 
@@ -205,7 +207,10 @@ bool long_setup  = is_nifty_bull and is_macro_trend_long and is_avwap_supported_
 bool short_setup = (is_nifty_bear or mom6m < 0.0) and is_macro_trend_short and is_avwap_supported_short and is_vp_supported_short and is_pullback_short and is_reversal_short and is_mom_short_ok and is_persistent and is_liquid
 
 var int last_exit_bar = -100
-int effective_cooldown = is_high_conviction ? math.max(10, min_cooldown) : min_cooldown
+
+// Timeframe-adaptive cooldown multiplier: preserves true swing trade spacing across resolutions
+int tf_cooldown_mult = timeframe.isdaily ? 1 : (timeframe.isminutes and timeframe.multiplier >= 240 ? 3 : (timeframe.isminutes and timeframe.multiplier >= 60 ? 5 : 12))
+int effective_cooldown = is_high_conviction ? math.max(10, min_cooldown * tf_cooldown_mult) : (min_cooldown * tf_cooldown_mult)
 bool is_cooldown_passed = (bar_index - last_exit_bar >= effective_cooldown)
 
 bool long_signal  = allow_longs and (strategy.position_size == 0) and is_cooldown_passed and long_setup and not long_setup[1]
@@ -257,13 +262,15 @@ if strategy.position_size > 0
     if high >= strat_t1 and not strat_t1_hit
         strat_t1_hit := true
         if is_high_conviction
-            float trail_anchor = math.max(strat_entry * 0.998, ema21 * 0.99)
+            float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
+            float trail_anchor = math.max(strat_entry * 0.998, trail_ref * 0.99)
             strat_sl := math.max(strat_sl, trail_anchor)
         else
             strat_sl := math.max(strat_sl, strat_entry * 1.002)
 
     if is_high_conviction and strat_t1_hit
-        float trail_anchor = math.max(strat_entry * 0.998, ema21 * 0.99)
+        float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
+        float trail_anchor = math.max(strat_entry * 0.998, trail_ref * 0.99)
         strat_sl := math.max(strat_sl, trail_anchor)
 
     strategy.exit("L_T1", "Long", qty_percent=25, limit=strat_t1, stop=strat_sl)
@@ -275,13 +282,15 @@ if strategy.position_size < 0
     if low <= strat_t1 and not strat_t1_hit
         strat_t1_hit := true
         if is_high_conviction
-            float trail_anchor = math.min(strat_entry * 1.002, ema21 * 1.01)
+            float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
+            float trail_anchor = math.min(strat_entry * 1.002, trail_ref * 1.01)
             strat_sl := math.min(strat_sl, trail_anchor)
         else
             strat_sl := math.min(strat_sl, strat_entry * 0.998)
 
     if is_high_conviction and strat_t1_hit
-        float trail_anchor = math.min(strat_entry * 1.002, ema21 * 1.01)
+        float trail_ref = (is_intraday_chart and intraday_swing_mode) ? d_ema21 : ema21
+        float trail_anchor = math.min(strat_entry * 1.002, trail_ref * 1.01)
         strat_sl := math.min(strat_sl, trail_anchor)
 
     strategy.exit("S_T1", "Short", qty_percent=25, limit=strat_t1, stop=strat_sl)
@@ -291,17 +300,17 @@ if strategy.position_size < 0
 // ==============================================================================
 // 10. PLOTS & OVERLAYS
 // ==============================================================================
-plot(ema50,  "EMA 50",  color=color.new(#2962FF, 25), linewidth=2)
-plot(ema200, "EMA 200", color=color.new(#FF6D00, 35), linewidth=2)
-plot(enable_avwap ? avwap60_low : na,  "60D Low AVWAP",  color=color.new(#FFB300, 10), linewidth=2)
-plot(enable_avwap ? avwap60_high : na, "60D High AVWAP", color=color.new(#FF1744, 20), linewidth=2)
+plot(ema50,  "EMA 50",  color=color.new(#2962FF, 25), linewidth=2, display=display.pane)
+plot(ema200, "EMA 200", color=color.new(#FF6D00, 35), linewidth=2, display=display.pane)
+plot(enable_avwap ? avwap60_low : na,  "60D Low AVWAP",  color=color.new(#FFB300, 10), linewidth=2, display=display.pane)
+plot(enable_avwap ? avwap60_high : na, "60D High AVWAP", color=color.new(#FF1744, 20), linewidth=2, display=display.pane)
 
-p_vah  = plot(show_vp_bands ? vah30 : na,  "VAH",  color=color.new(#00E676, 60), linewidth=1, style=plot.style_line)
-p_vwap = plot(show_vp_bands ? vwap30 : na, "VWAP", color=color.new(#BB86FC, 40), linewidth=1, style=plot.style_line)
-p_val  = plot(show_vp_bands ? val30 : na,  "VAL",  color=color.new(#FF5252, 60), linewidth=1, style=plot.style_line)
+p_vah  = plot(show_vp_bands ? vah30 : na,  "VAH",  color=color.new(#00E676, 60), linewidth=1, style=plot.style_line, display=display.pane)
+p_vwap = plot(show_vp_bands ? vwap30 : na, "VWAP", color=color.new(#BB86FC, 40), linewidth=1, style=plot.style_line, display=display.pane)
+p_val  = plot(show_vp_bands ? val30 : na,  "VAL",  color=color.new(#FF5252, 60), linewidth=1, style=plot.style_line, display=display.pane)
 fill(p_val, p_vah, color=color.new(#9C27B0, 95), title="Value Area Zone")
 
-plot(strategy.position_size != 0 ? strat_sl : na, "Strategy Stop Loss", color=#FF1744, linewidth=2, style=plot.style_linebr)
-plot(strategy.position_size != 0 ? strat_t1 : na, "Strategy Target 1",  color=#00E5FF, linewidth=1, style=plot.style_linebr)
-plot(strategy.position_size != 0 ? strat_t2 : na, "Strategy Target 2",  color=#00E676, linewidth=1, style=plot.style_linebr)
-plot(strategy.position_size != 0 ? strat_t3 : na, "Strategy Target 3",  color=#AA00FF, linewidth=2, style=plot.style_linebr)
+plot(strategy.position_size != 0 ? strat_sl : na, "Strategy Stop Loss", color=#FF1744, linewidth=2, style=plot.style_linebr, display=display.pane)
+plot(strategy.position_size != 0 ? strat_t1 : na, "Strategy Target 1",  color=#00E5FF, linewidth=1, style=plot.style_linebr, display=display.pane)
+plot(strategy.position_size != 0 ? strat_t2 : na, "Strategy Target 2",  color=#00E676, linewidth=1, style=plot.style_linebr, display=display.pane)
+plot(strategy.position_size != 0 ? strat_t3 : na, "Strategy Target 3",  color=#AA00FF, linewidth=2, style=plot.style_linebr, display=display.pane)

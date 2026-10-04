@@ -1,58 +1,65 @@
 //@version=5
-indicator("Quantum Microstructure Swing Champion [Antigravity]", shorttitle="Quantum Swing [AGY]", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
+indicator("Quantum Microstructure Multi-Timeframe Engine [Antigravity]", shorttitle="Quantum MTF [AGY]", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500)
 
 // ==============================================================================
 // 1. INPUTS & CONFIGURATION
 // ==============================================================================
 grp_trade = "1. Trade Execution & Filtering Mode"
+trade_mode       = input.string("Both (Long + Short)", "Trade Direction Mode", options=["Both (Long + Short)", "Long Only (Equities Swing)", "Short Only (Bearish Distribution)"], group=grp_trade, tooltip="Enables Bidirectional Trading: Long on institutional accumulation pullbacks, Short on institutional distribution breakdowns (e.g. selling stocks you don't own).")
 strategy_profile = input.string("High-Conviction Swing (Clean / Multi-Week)", "Strategy Profile", options=["High-Conviction Swing (Clean / Multi-Week)", "Active Microstructure (Fast T1 Lock)"], group=grp_trade, tooltip="High-Conviction Swing uses a 21-EMA trailing stop to ride multi-week trends with zero breakeven churn. Active Microstructure uses tight T1 breakeven clamping.")
-trade_mode       = input.string("Long Only (Equities Swing)", "Trade Direction Mode", options=["Long Only (Equities Swing)", "Both (Long + Defensive Short)", "Defensive Short Only"], group=grp_trade, tooltip="For Indian cash equity swing trading, Long Only is recommended since overnight shorting is restricted to F&O.")
 min_cooldown     = input.int(8, "Minimum Bars Between Trades (Cool-down)", minval=1, maxval=30, group=grp_trade, tooltip="Prevents rapid re-entries on choppy days; requires at least N bars after an exit before opening a new trade.")
 t1_atr_mult      = input.float(1.00, "Target 1 ATR Multiplier (Trim 25% + Trail)", minval=0.5, step=0.1, group=grp_trade)
 t2_atr_mult      = input.float(2.80, "Target 2 ATR Multiplier (Trim 33%)", minval=1.5, step=0.1, group=grp_trade)
 t3_atr_mult      = input.float(8.00, "Target 3 ATR Multiplier (Runner Moonbag)", minval=4.0, step=0.5, group=grp_trade)
 sl_atr_mult      = input.float(1.50, "Initial Stop Loss ATR Multiplier", minval=0.5, step=0.1, group=grp_trade)
 
-grp_display = "2. Visual Customization"
+grp_mtf = "2. Multi-Timeframe Confluence Hierarchy (4H / 1H / 15m)"
+enable_mtf       = input.bool(true, "Enable Multi-Timeframe Auto-Adaptation", group=grp_mtf, tooltip="When on 15m, 1H, or 4H charts, automatically locks Macro Trend to Daily (1D) and Structure to 1H/4H, executing sniper entries on chart candles.")
+macro_timeframe  = input.timeframe("D", "Macro Trend Timeframe", group=grp_mtf)
+struct_timeframe = input.timeframe("60", "Volume Profile Structure Timeframe", group=grp_mtf)
+
+grp_display = "3. Visual Customization"
 show_buy_badges  = input.bool(true, "Show BUY / SHORT Badges", group=grp_display)
 show_t1_badges   = input.bool(false, "Show Target 1 (T1) Badges", group=grp_display, tooltip="Turn OFF to eliminate blue T1 tags and keep the chart ultra-clean!")
 show_exit_badges = input.bool(true, "Show Exit Badges (SL / T3)", group=grp_display)
 show_trade_lines = input.bool(true, "Show Active SL / TP Target Lines", group=grp_display)
 show_dashboard   = input.bool(true, "Show On-Chart Institutional HUD Table", group=grp_display)
 
-grp_macro = "3. Macro Regime Confluence (NIFTY 50)"
-enable_macro     = input.bool(true, "Enable NIFTY 50 Macro Gate", group=grp_macro, tooltip="When enabled, requires NIFTY 50 to close above its 50-EMA & 21-EMA for Long signals.")
+grp_macro = "4. Macro Regime Confluence (NIFTY 50)"
+enable_macro     = input.bool(true, "Enable NIFTY 50 Macro Gate", group=grp_macro, tooltip="When enabled, requires NIFTY 50 to close above its 50-EMA & 21-EMA for Long signals, or below for Shorts.")
 nifty_ticker     = input.symbol("NSE:NIFTY", "NIFTY Benchmark Symbol", group=grp_macro)
 
-grp_micro = "4. Microstructure & Auction Profile"
-enable_avwap     = input.bool(true, "Enable 60D Low Anchored VWAP Floor", group=grp_micro, tooltip="Price must be above 99.2% of the institutional cost basis anchored from the 60-day structural low.")
+grp_micro = "5. Microstructure & Auction Profile"
+enable_avwap     = input.bool(true, "Enable 60D Anchored VWAP Floor & Ceiling", group=grp_micro, tooltip="Longs require price >= 60D Low AVWAP; Shorts require price <= 60D High AVWAP.")
 avwap_tol        = input.float(0.992, "AVWAP Tolerance Multiplier", minval=0.95, maxval=1.05, step=0.001, group=grp_micro)
-enable_vp        = input.bool(true, "Enable 30D Volume Profile Value Area Filter", group=grp_micro, tooltip="Requires pullback into 30D Volume Profile with close holding above Value Area Low (VAL).")
+enable_vp        = input.bool(true, "Enable Volume Profile Value Area Filter", group=grp_micro, tooltip="Requires pullback into Volume Profile Value Area (VAL for longs, VAH for shorts).")
 vp_lookback      = input.int(30, "Volume Profile Lookback (Bars)", minval=10, maxval=120, group=grp_micro)
-show_vp_bands    = input.bool(true, "Display 30D Volume Profile Value Area (VAH/VWAP/VAL)", group=grp_micro)
+show_vp_bands    = input.bool(true, "Display Volume Profile Value Area (VAH/VWAP/VAL)", group=grp_micro)
 
-grp_quant = "5. Quantitative Filters (DFA Hurst & Liquidity)"
+grp_quant = "6. Quantitative Filters (DFA Hurst & Liquidity)"
 enable_hurst     = input.bool(true, "Enable Chaos Hurst Persistence (H > 0.50)", group=grp_quant, tooltip="Rescaled Range (R/S) Hurst Exponent over 60 bars to confirm persistent trend vs mean-reverting chop.")
 enable_liq_gate  = input.bool(true, "Enable Log Dollar-Volume Liquidity Gate (z >= 0.15)", group=grp_quant, tooltip="Standardized log dollar-volume z-score ensures institutional volume participation.")
 
 // Allowed Directions
-bool allow_longs  = (trade_mode == "Long Only (Equities Swing)" or trade_mode == "Both (Long + Defensive Short)")
-bool allow_shorts = (trade_mode == "Defensive Short Only" or trade_mode == "Both (Long + Defensive Short)")
+bool allow_longs  = (trade_mode == "Both (Long + Short)" or trade_mode == "Long Only (Equities Swing)")
+bool allow_shorts = (trade_mode == "Both (Long + Short)" or trade_mode == "Short Only (Bearish Distribution)")
 bool is_high_conviction = (strategy_profile == "High-Conviction Swing (Clean / Multi-Week)")
+bool is_intraday_chart  = enable_mtf and timeframe.isintraday
 
 // ==============================================================================
 // 2. MACRO REGIME CONFLUENCE (NIFTY 50)
 // ==============================================================================
-nifty_close = request.security(nifty_ticker, "D", close)
-nifty_ema50 = request.security(nifty_ticker, "D", ta.ema(close, 50))
-nifty_ema21 = request.security(nifty_ticker, "D", ta.ema(close, 21))
+nifty_close = request.security(nifty_ticker, macro_timeframe, close[1], barmerge.gaps_off, barmerge.lookahead_off)
+nifty_ema50 = request.security(nifty_ticker, macro_timeframe, ta.ema(close, 50)[1], barmerge.gaps_off, barmerge.lookahead_off)
+nifty_ema21 = request.security(nifty_ticker, macro_timeframe, ta.ema(close, 21)[1], barmerge.gaps_off, barmerge.lookahead_off)
 
 bool is_nifty_bull = not enable_macro or (not na(nifty_close) and nifty_close >= nifty_ema50 and nifty_close >= nifty_ema21)
 bool is_nifty_bear = not enable_macro or (not na(nifty_close) and (nifty_close < nifty_ema50 or nifty_close < nifty_ema21))
 
 // ==============================================================================
-// 3. BASE TREND & MOMENTUM INDICATORS
+// 3. BASE TREND & MULTI-TIMEFRAME INDICATORS
 // ==============================================================================
+// Chart-level Moving Averages & ATR
 ema20 = ta.ema(close, 20)
 ema21 = ta.ema(close, 21)
 ema50 = ta.ema(close, 50)
@@ -61,24 +68,38 @@ atr14 = ta.atr(14)
 rsi14 = ta.rsi(close, 14)
 rsi2  = ta.rsi(close, 2)
 
-// Multi-Lookback Momentum
-mom1m  = (close - nz(close[20], close)) / nz(close[20], close) * 100.0
-mom3m  = (close - nz(close[60], close)) / nz(close[60], close) * 100.0
-mom6m  = (close - nz(close[126], close)) / nz(close[126], close) * 100.0
-mom12m = (close - nz(close[250], close)) / nz(close[250], close) * 100.0
+// Macro (Daily) EMAs for Intraday Charts
+d_close  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, close[1], barmerge.gaps_off, barmerge.lookahead_off) : close
+d_ema50  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, ta.ema(close, 50)[1], barmerge.gaps_off, barmerge.lookahead_off) : ema50
+d_ema200 = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, ta.ema(close, 200)[1], barmerge.gaps_off, barmerge.lookahead_off) : ema200
+
+// Multi-Lookback Momentum (on Daily bars to preserve true 1M/3M/6M/12M horizon)
+calc_mom(offset) =>
+    (close - nz(close[offset], close)) / nz(close[offset], close) * 100.0
+
+mom1m_raw  = calc_mom(20)
+mom3m_raw  = calc_mom(60)
+mom6m_raw  = calc_mom(126)
+mom12m_raw = calc_mom(250)
+
+mom1m  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, mom1m_raw[1], barmerge.gaps_off, barmerge.lookahead_off) : mom1m_raw
+mom3m  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, mom3m_raw[1], barmerge.gaps_off, barmerge.lookahead_off) : mom3m_raw
+mom6m  = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, mom6m_raw[1], barmerge.gaps_off, barmerge.lookahead_off) : mom6m_raw
+mom12m = is_intraday_chart ? request.security(syminfo.tickerid, macro_timeframe, mom12m_raw[1], barmerge.gaps_off, barmerge.lookahead_off) : mom12m_raw
 mom_score = (mom1m * 0.15) + (mom3m * 0.25) + (mom6m * 0.40) + (mom12m * 0.20)
 
-// Trend Gates
-bool is_macro_trend = (close >= ema50) and (ema50 >= ema200 * 0.98)
+// Macro Trend Alignment
+bool is_macro_trend_long  = (d_close >= d_ema50) and (d_ema50 >= d_ema200 * 0.98)
+bool is_macro_trend_short = (d_close <= d_ema50) and (d_ema50 <= d_ema200 * 1.02)
+
 float min_m6 = is_high_conviction ? 8.0 : 5.0
 float min_mscore = is_high_conviction ? 6.0 : 0.0
-bool is_mom_ok      = (mom6m >= min_m6) and (mom_score >= min_mscore)
+bool is_mom_long_ok  = (mom6m >= min_m6) and (mom_score >= min_mscore)
+bool is_mom_short_ok = (mom1m < 0.0) and (mom3m < -2.0)
 
 // ==============================================================================
-// 4. ANCHORED VWAP (FROM 60-BAR STRUCTURAL LOW)
+// 4. ANCHORED VWAP FLOORS & CEILINGS (60-BAR STRUCTURAL EXTREMES)
 // ==============================================================================
-lowest_bars = -ta.lowestbars(low, 60)
-
 calc_avwap_from_offset(offset) =>
     float sum_pv = 0.0
     float sum_v = 0.0
@@ -89,11 +110,17 @@ calc_avwap_from_offset(offset) =>
         sum_v += vol
     sum_v > 0 ? (sum_pv / sum_v) : close
 
-avwap60 = calc_avwap_from_offset(lowest_bars)
-bool is_avwap_supported = not enable_avwap or (close >= avwap60 * avwap_tol)
+lowest_bars  = -ta.lowestbars(low, 60)
+highest_bars = -ta.highestbars(high, 60)
+
+avwap60_low  = calc_avwap_from_offset(lowest_bars)   // Institutional Accumulation Floor for Longs
+avwap60_high = calc_avwap_from_offset(highest_bars)  // Institutional Distribution Ceiling for Shorts
+
+bool is_avwap_supported_long  = not enable_avwap or (close >= avwap60_low * avwap_tol)
+bool is_avwap_supported_short = not enable_avwap or (close <= avwap60_high * 1.008)
 
 // ==============================================================================
-// 5. 30-DAY VOLUME PROFILE & VALUE AREA (VAL, VAH, POC)
+// 5. VOLUME PROFILE & VALUE AREA (VAL, VAH, POC)
 // ==============================================================================
 calc_vp_bands(len) =>
     float sum_pv = 0.0
@@ -116,14 +143,20 @@ calc_vp_bands(len) =>
 
 [vwap30, val30, vah30] = calc_vp_bands(vp_lookback)
 
-// Auction Market Theory Retest Condition
+// Auction Market Theory Retest & Breakdown Conditions
 bool is_val_retest = (low <= vwap30 * 1.02) and (close >= val30 * 0.99)
-bool is_vp_supported = not enable_vp or is_val_retest
+bool is_vah_rejection = (high >= vwap30 * 0.98) and (close <= vah30 * 1.01)
 
-// Genuine Pullback Timing (Connors RSI-2 <= 38, Dip to 21-EMA, or RSI-14 <= 50)
-bool is_pullback = is_high_conviction ? ((rsi2 <= 32.0) or (low <= ema21 * 1.01 and close >= ema21 * 0.98) or (rsi14 <= 48.0)) : ((rsi2 <= 38.0) or (low <= ema21 * 1.015 and close >= ema21 * 0.98) or (rsi14 <= 50.0))
-// Reversal Confirmation (Bullish candle or Close back above 20-EMA)
-bool is_reversal = (close >= open) or (close >= ema20)
+bool is_vp_supported_long  = not enable_vp or is_val_retest
+bool is_vp_supported_short = not enable_vp or is_vah_rejection
+
+// Precision Pullback Timing on Chart Candles (15m / 1H / 4H / 1D)
+bool is_pullback_long  = is_high_conviction ? ((rsi2 <= 32.0) or (low <= ema21 * 1.01 and close >= ema21 * 0.98) or (rsi14 <= 48.0)) : ((rsi2 <= 38.0) or (low <= ema21 * 1.015 and close >= ema21 * 0.98) or (rsi14 <= 50.0))
+bool is_pullback_short = is_high_conviction ? ((rsi2 >= 68.0) or (high >= ema21 * 0.99 and close <= ema21 * 1.02) or (rsi14 >= 52.0)) : ((rsi2 >= 62.0) or (high >= ema21 * 0.985 and close <= ema21 * 1.02) or (rsi14 >= 50.0))
+
+// Candle Reversal Confirmation
+bool is_reversal_long  = (close >= open) or (close >= ema20)
+bool is_reversal_short = (close <= open) or (close <= ema20)
 
 // ==============================================================================
 // 6. QUANTITATIVE CHAOS & PERSISTENCE (HURST EXPONENT)
@@ -173,17 +206,23 @@ z_ldv = std_ln_dv > 0 ? ((ln_dv - mean_ln_dv) / std_ln_dv) : 0.0
 bool is_liquid = not enable_liq_gate or (z_ldv >= 0.15)
 
 // ==============================================================================
-// 8. MASTER SETUP EVALUATION (EXACT 1:1 WITH PYTHON ENGINE)
+// 8. MASTER SETUP EVALUATION (LONG ACCUMULATION & SHORT DISTRIBUTION)
 // ==============================================================================
-bool long_setup  = is_nifty_bull and is_macro_trend and is_avwap_supported and is_vp_supported and is_pullback and is_reversal and is_mom_ok and is_persistent and is_liquid
-bool short_setup = is_nifty_bear and (close <= ema50) and (ema50 <= ema200 * 1.02) and (mom1m < -2.0) and (mom3m < -4.0) and (rsi14 >= 32.0 and rsi14 <= 48.0)
+// Master Long Signal: Confluence of Macro Bull + AVWAP Floor + VAL Retest + Precision Pullback
+bool long_setup = is_nifty_bull and is_macro_trend_long and is_avwap_supported_long and is_vp_supported_long and is_pullback_long and is_reversal_long and is_mom_long_ok and is_persistent and is_liquid
 
-// Stop Loss anchored behind 30D Volume Profile VAL shelf
-float vp_sl = val30 - (0.5 * atr14)
-float long_sl_raw = math.max(close - (sl_atr_mult * atr14), math.min(close * 0.95, vp_sl))
+// Master Short Signal: Confluence of Macro Bear/Relative Weakness + AVWAP Ceiling + VAH Rejection + Precision Breakdown
+bool short_setup = (is_nifty_bear or mom6m < 0.0) and is_macro_trend_short and is_avwap_supported_short and is_vp_supported_short and is_pullback_short and is_reversal_short and is_mom_short_ok and is_persistent and is_liquid
+
+// Stop Loss Levels
+float vp_sl_long  = val30 - (0.5 * atr14)
+float long_sl_raw = math.max(close - (sl_atr_mult * atr14), math.min(close * 0.95, vp_sl_long))
+
+float vp_sl_short  = vah30 + (0.5 * atr14)
+float short_sl_raw = math.min(close + (sl_atr_mult * atr14), math.max(close * 1.05, vp_sl_short))
 
 // ==============================================================================
-// 9. ROBUST SINGLE-TRADE STATE MACHINE (ZERO CHURN)
+// 9. BIDIRECTIONAL SINGLE-TRADE STATE MACHINE (ZERO CHURN)
 // ==============================================================================
 var int   active_side   = 0       // 0: Flat, 1: Long, -1: Short
 var float active_entry  = na
@@ -216,10 +255,10 @@ if long_signal
 if short_signal
     active_side   := -1
     active_entry  := close
-    active_sl     := close + (sl_atr_mult * atr14)
-    active_t1     := close - (1.20 * atr14)
-    active_t2     := close - (2.80 * atr14)
-    active_t3     := close - (4.50 * atr14)
+    active_sl     := short_sl_raw
+    active_t1     := close - (t1_atr_mult * atr14)
+    active_t2     := close - (t2_atr_mult * atr14)
+    active_t3     := close - (t3_atr_mult * atr14)
     t1_hit        := false
     entry_bar_idx := bar_index
 
@@ -228,36 +267,32 @@ bool just_hit_t1 = false
 bool just_hit_sl = false
 bool just_hit_t3 = false
 
+// Active Long Management
 if active_side == 1 and bar_index > entry_bar_idx
-    // 1. Evaluate Stop Loss against existing Stop Loss FIRST
     if low <= active_sl
         just_hit_sl   := true
         active_side   := 0
         last_exit_bar := bar_index
     else
-        // 2. Check Target 1 touch
         if high >= active_t1 and not t1_hit
             t1_hit      := true
             just_hit_t1 := true
             if is_high_conviction
-                // Dynamic Trailing Stop behind 21-EMA (lets winners ride multi-month trends)
                 float trail_anchor = math.max(active_entry * 0.998, ema21 * 0.99)
                 active_sl := math.max(active_sl, trail_anchor)
             else
-                // Strict Breakeven clamp
                 active_sl := math.max(active_sl, active_entry * 1.002)
 
-        // Trailing stop ratchet once in profit
         if is_high_conviction and t1_hit
             float trail_anchor = math.max(active_entry * 0.998, ema21 * 0.99)
             active_sl := math.max(active_sl, trail_anchor)
 
-        // 3. Check Target 3 Moonbag Runner Hit
         if high >= active_t3
             just_hit_t3   := true
             active_side   := 0
             last_exit_bar := bar_index
 
+// Active Short Management
 if active_side == -1 and bar_index > entry_bar_idx
     if high >= active_sl
         just_hit_sl   := true
@@ -266,8 +301,16 @@ if active_side == -1 and bar_index > entry_bar_idx
     else
         if low <= active_t1 and not t1_hit
             t1_hit      := true
-            active_sl   := math.min(active_sl, active_entry * 0.998)
             just_hit_t1 := true
+            if is_high_conviction
+                float trail_anchor = math.min(active_entry * 1.002, ema21 * 1.01)
+                active_sl := math.min(active_sl, trail_anchor)
+            else
+                active_sl := math.min(active_sl, active_entry * 0.998)
+
+        if is_high_conviction and t1_hit
+            float trail_anchor = math.min(active_entry * 1.002, ema21 * 1.01)
+            active_sl := math.min(active_sl, trail_anchor)
 
         if low <= active_t3
             just_hit_t3   := true
@@ -282,14 +325,15 @@ if long_signal and show_buy_badges
     label.new(bar_index, low, text="▲ BUY", tooltip=tt, style=label.style_label_up, color=color.new(#00C853, 0), textcolor=color.white, size=size.small)
 
 if short_signal and show_buy_badges
-    string tt_s = str.format("Defensive Short Entry\nEntry: ₹{0,number,#.##}\nInitial SL: ₹{1,number,#.##}\nTarget 1: ₹{2,number,#.##}\nTarget 2: ₹{3,number,#.##}", close, active_sl, active_t1, active_t2)
+    string tt_s = str.format("Quantum Short Entry (Sell Short)\nEntry: ₹{0,number,#.##}\nInitial SL: ₹{1,number,#.##}\nTarget 1: ₹{2,number,#.##} (-1.0x ATR)\nTarget 2: ₹{3,number,#.##} (-2.8x ATR)\nTarget 3: ₹{4,number,#.##} (-8.0x ATR)", close, active_sl, active_t1, active_t2, active_t3)
     label.new(bar_index, high, text="▼ SHORT", tooltip=tt_s, style=label.style_label_down, color=color.new(#D50000, 0), textcolor=color.white, size=size.small)
 
 if just_hit_t1 and show_t1_badges
-    label.new(bar_index, high, text="✓ T1", tooltip="Target 1 Hit (+1.0x ATR)! 25% trimmed, Stop Loss trailing in profit", style=label.style_label_down, color=color.new(#00B0FF, 0), textcolor=color.white, size=size.tiny)
+    string t1_txt = active_side == 1 ? "✓ L-T1" : "✓ S-T1"
+    label.new(bar_index, high, text=t1_txt, tooltip="Target 1 Hit! 25% trimmed, Stop Loss trailing in profit", style=label.style_label_down, color=color.new(#00B0FF, 0), textcolor=color.white, size=size.tiny)
 
 if just_hit_sl and show_exit_badges
-    string sl_lbl = t1_hit ? "✕ EXIT (PROFIT)" : "✕ SL"
+    string sl_lbl = t1_hit ? "✕ EXIT (PROFIT)" : (active_side[1] == 1 ? "✕ LONG SL" : "✕ SHORT SL")
     color sl_col  = t1_hit ? color.new(#FF9100, 0) : color.new(#D50000, 0)
     string sl_tt  = t1_hit ? "Trailing Stop Exit (Trend Exhaustion / Profit Locked)" : "Initial Stop Loss Hit"
     label.new(bar_index, high, text=sl_lbl, tooltip=sl_tt, style=label.style_label_down, color=sl_col, textcolor=color.white, size=size.tiny)
@@ -304,85 +348,91 @@ if just_hit_t3 and show_exit_badges
 plot(ema50,  "EMA 50 (Trend Baseline)",  color=color.new(#2962FF, 25), linewidth=2)
 plot(ema200, "EMA 200 (Macro Floor)",    color=color.new(#FF6D00, 35), linewidth=2)
 
-// Anchored VWAP from 60-Day Low (Amber)
-plot(enable_avwap ? avwap60 : na, "60D Low Anchored VWAP", color=color.new(#FFB300, 10), linewidth=2, style=plot.style_line)
+// Anchored VWAPs (Amber Floor for Longs, Crimson Ceiling for Shorts)
+plot(enable_avwap ? avwap60_low : na,  "60D Low AVWAP (Long Support)",     color=color.new(#FFB300, 10), linewidth=2, style=plot.style_line)
+plot(enable_avwap ? avwap60_high : na, "60D High AVWAP (Short Resistance)", color=color.new(#FF1744, 20), linewidth=2, style=plot.style_line)
 
-// 30D Volume Profile Bands (Smooth Institutional Channel)
-p_vah  = plot(show_vp_bands ? vah30 : na,  "30D VAH",  color=color.new(#00E676, 60), linewidth=1, style=plot.style_line)
-p_vwap = plot(show_vp_bands ? vwap30 : na, "30D VWAP (POC)", color=color.new(#BB86FC, 40), linewidth=1, style=plot.style_line)
-p_val  = plot(show_vp_bands ? val30 : na,  "30D VAL",  color=color.new(#FF5252, 60), linewidth=1, style=plot.style_line)
-fill(p_val, p_vah, color=color.new(#9C27B0, 95), title="30D Value Area Zone (70% Volume)")
+// Volume Profile Bands (Smooth Institutional Channel)
+p_vah  = plot(show_vp_bands ? vah30 : na,  "VAH (Value Area High)", color=color.new(#00E676, 60), linewidth=1, style=plot.style_line)
+p_vwap = plot(show_vp_bands ? vwap30 : na, "VWAP (POC)",           color=color.new(#BB86FC, 40), linewidth=1, style=plot.style_line)
+p_val  = plot(show_vp_bands ? val30 : na,  "VAL (Value Area Low)",  color=color.new(#FF5252, 60), linewidth=1, style=plot.style_line)
+fill(p_val, p_vah, color=color.new(#9C27B0, 95), title="Value Area Zone (70% Volume)")
 
-// Continuous Active Trade Level Lines (display.pane keeps top-left status bar pristine)
+// Continuous Active Trade Level Lines
 plot(show_trade_lines and active_side != 0 ? active_entry : na, "Active Entry", color=color.new(color.white, 30), linewidth=1, style=plot.style_linebr, display=display.pane)
 plot(show_trade_lines and active_side != 0 ? active_sl : na,    "Active Stop Loss", color=#FF1744, linewidth=2, style=plot.style_linebr, display=display.pane)
-plot(show_trade_lines and active_side != 0 ? active_t1 : na,    "Target 1 (+1.0x ATR)", color=#00E5FF, linewidth=1, style=plot.style_linebr, display=display.pane)
-plot(show_trade_lines and active_side != 0 ? active_t2 : na,    "Target 2 (+2.8x ATR)", color=#00E676, linewidth=1, style=plot.style_linebr, display=display.pane)
-plot(show_trade_lines and active_side != 0 ? active_t3 : na,    "Target 3 (+8.0x ATR)", color=#AA00FF, linewidth=2, style=plot.style_linebr, display=display.pane)
+plot(show_trade_lines and active_side != 0 ? active_t1 : na,    "Target 1", color=#00E5FF, linewidth=1, style=plot.style_linebr, display=display.pane)
+plot(show_trade_lines and active_side != 0 ? active_t2 : na,    "Target 2", color=#00E676, linewidth=1, style=plot.style_linebr, display=display.pane)
+plot(show_trade_lines and active_side != 0 ? active_t3 : na,    "Target 3", color=#AA00FF, linewidth=2, style=plot.style_linebr, display=display.pane)
 
 // ==============================================================================
 // 12. INSTITUTIONAL HUD METRICS DASHBOARD TABLE
 // ==============================================================================
-var table hud = table.new(position.top_right, 2, 9, bgcolor=color.new(#131722, 10), border_color=color.new(#434651, 0), border_width=1)
+var table hud = table.new(position.top_right, 2, 10, bgcolor=color.new(#131722, 10), border_color=color.new(#434651, 0), border_width=1)
 
 if barstate.islast and show_dashboard
     // Header
-    table.cell(hud, 0, 0, "QUANTUM METRIC", bgcolor=color.new(#2A2E39, 0), text_color=color.white, text_size=size.small)
-    table.cell(hud, 1, 0, "STATUS / VALUE",  bgcolor=color.new(#2A2E39, 0), text_color=color.white, text_size=size.small)
+    table.cell(hud, 0, 0, "QUANTUM MTF METRIC", bgcolor=color.new(#2A2E39, 0), text_color=color.white, text_size=size.small)
+    table.cell(hud, 1, 0, "STATUS / VALUE",      bgcolor=color.new(#2A2E39, 0), text_color=color.white, text_size=size.small)
     
+    // Timeframe Hierarchy
+    string tf_label = is_intraday_chart ? (timeframe.period + " (Sniper Trigger)") : "Daily 1D (Macro Swing)"
+    table.cell(hud, 0, 1, "Chart Execution TF", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 1, tf_label, text_color=#00E5FF, text_size=size.small)
+
     // NIFTY Regime
     color nifty_col = is_nifty_bull ? #00E676 : #FF5252
     string nifty_txt = is_nifty_bull ? "BULL TRENDING" : "BEAR FORTRESS"
-    table.cell(hud, 0, 1, "NIFTY 50 Regime", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 1, nifty_txt, text_color=nifty_col, text_size=size.small)
+    table.cell(hud, 0, 2, "NIFTY 50 Regime (D)", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 2, nifty_txt, text_color=nifty_col, text_size=size.small)
     
     // Macro Trend
-    color trend_col = is_macro_trend ? #00E676 : #FF5252
-    string trend_txt = is_macro_trend ? "ALIGNED (C >= 50 >= 200)" : "NON-ALIGNED"
-    table.cell(hud, 0, 2, "Macro Trend Alignment", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 2, trend_txt, text_color=trend_col, text_size=size.small)
+    color trend_col = is_macro_trend_long ? #00E676 : (is_macro_trend_short ? #FF5252 : color.gray)
+    string trend_txt = is_macro_trend_long ? "BULL ACCUMULATION" : (is_macro_trend_short ? "BEAR DISTRIBUTION" : "CONSOLIDATION")
+    table.cell(hud, 0, 3, "Macro Trend Alignment", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 3, trend_txt, text_color=trend_col, text_size=size.small)
     
-    // 60D Low AVWAP Support
-    color avwap_col = is_avwap_supported ? #00E676 : #FF5252
-    string avwap_txt = str.tostring(avwap60, "#.##") + (close >= avwap60 ? " (ABOVE)" : " (AT RISK)")
-    table.cell(hud, 0, 3, "60D Low Anchored VWAP", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 3, avwap_txt, text_color=avwap_col, text_size=size.small)
+    // Anchored VWAP
+    color avwap_col = is_avwap_supported_long ? #00E676 : (is_avwap_supported_short ? #FF5252 : color.gray)
+    string avwap_txt = "L: " + str.tostring(avwap60_low, "#.##") + " | H: " + str.tostring(avwap60_high, "#.##")
+    table.cell(hud, 0, 4, "60D Anchored VWAPs", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 4, avwap_txt, text_color=avwap_col, text_size=size.small)
     
-    // 30D Volume Profile VAL Retest
-    color vp_col = is_val_retest ? #00E676 : color.gray
-    string vp_txt = "VAL: " + str.tostring(val30, "#.##") + " | " + (is_val_retest ? "VAL RETEST BUY" : "NORMAL")
-    table.cell(hud, 0, 4, "30D Volume Profile", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 4, vp_txt, text_color=vp_col, text_size=size.small)
+    // Volume Profile
+    color vp_col = is_val_retest ? #00E676 : (is_vah_rejection ? #FF5252 : color.gray)
+    string vp_txt = is_val_retest ? "VAL RETEST (BUY ZONE)" : (is_vah_rejection ? "VAH REJECTION (SHORT ZONE)" : "IN VALUE AREA")
+    table.cell(hud, 0, 5, "Auction Market State", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 5, vp_txt, text_color=vp_col, text_size=size.small)
     
     // Hurst Exponent Persistence
     color hurst_col = hurst60 > 0.50 ? #00E676 : #FFB300
     string hurst_txt = "H = " + str.tostring(hurst60, "#.###") + (hurst60 > 0.50 ? " (PERSISTENT)" : " (MEAN-REV)")
-    table.cell(hud, 0, 5, "Chaos DFA / Hurst Exponent", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 5, hurst_txt, text_color=hurst_col, text_size=size.small)
+    table.cell(hud, 0, 6, "Chaos DFA / Hurst", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 6, hurst_txt, text_color=hurst_col, text_size=size.small)
     
     // Log Dollar Volume Z-Score
     color liq_col = is_liquid ? #00E676 : #FF5252
     string liq_txt = "z = " + str.tostring(z_ldv, "#.##") + (is_liquid ? " (SURGE)" : " (LOW VOL)")
-    table.cell(hud, 0, 6, "Log Dollar-Vol Gate", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 6, liq_txt, text_color=liq_col, text_size=size.small)
+    table.cell(hud, 0, 7, "Liquidity Z-Gate", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 7, liq_txt, text_color=liq_col, text_size=size.small)
     
     // Momentum Composite Score
     color mom_col = mom_score > 0 ? #00E676 : #FF5252
     string mom_txt = str.tostring(mom_score, "#.#") + "% (6M: " + str.tostring(mom6m, "#.#") + "%)"
-    table.cell(hud, 0, 7, "Multi-Horizon Momentum", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 7, mom_txt, text_color=mom_col, text_size=size.small)
+    table.cell(hud, 0, 8, "Macro Momentum", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 8, mom_txt, text_color=mom_col, text_size=size.small)
     
     // Active Signal Status
-    string sig_status = active_side == 1 ? (t1_hit ? "LONG (T1 HIT - TRAILING)" : "LONG (OPEN - RISK ON)") : (active_side == -1 ? (t1_hit ? "SHORT (T1 HIT - TRAILING)" : "SHORT (OPEN)") : "FLAT / SCANNING")
+    string sig_status = active_side == 1 ? (t1_hit ? "LONG (T1 HIT - TRAILING)" : "LONG (OPEN - RISK ON)") : (active_side == -1 ? (t1_hit ? "SHORT (T1 HIT - TRAILING)" : "SHORT (OPEN - RISK ON)") : "FLAT / SCANNING")
     color sig_col = active_side == 1 ? #00E676 : (active_side == -1 ? #FF1744 : color.gray)
-    table.cell(hud, 0, 8, "Active Execution State", text_color=color.silver, text_size=size.small)
-    table.cell(hud, 1, 8, sig_status, text_color=sig_col, text_size=size.small)
+    table.cell(hud, 0, 9, "Active Execution State", text_color=color.silver, text_size=size.small)
+    table.cell(hud, 1, 9, sig_status, text_color=sig_col, text_size=size.small)
 
 // ==============================================================================
 // 13. PINE SCRIPT ALERTS
 // ==============================================================================
-alertcondition(long_signal,  title="Quantum Long Signal", message="[AGY QUANTUM SWING] LONG Signal on {{ticker}} at {{close}}!")
-alertcondition(short_signal, title="Defensive Short Signal", message="[AGY QUANTUM SWING] DEFENSIVE SHORT on {{ticker}} at {{close}}!")
-alertcondition(just_hit_t1,  title="Target 1 Reached (Trailing)", message="[AGY QUANTUM SWING] {{ticker}} touched Target 1 (+1.0x ATR)! Harvest 25% and trail Stop Loss!")
-alertcondition(active_side == 1 and ta.crossover(high, active_t2), title="Target 2 Reached", message="[AGY QUANTUM SWING] {{ticker}} touched Target 2 (+2.8x ATR)! Harvest 33% and trail runner!")
-alertcondition(just_hit_sl,  title="Stop Loss / Trailing Exit Triggered", message="[AGY QUANTUM SWING] Trade closed on {{ticker}} at {{close}}.")
+alertcondition(long_signal,  title="Quantum Long Signal", message="[AGY QUANTUM] BUY Signal on {{ticker}} at {{close}}! SL: {{plot_1}}, T1: {{plot_2}}")
+alertcondition(short_signal, title="Quantum Short Signal", message="[AGY QUANTUM] SELL SHORT Signal on {{ticker}} at {{close}}! SL: {{plot_1}}, T1: {{plot_2}}")
+alertcondition(just_hit_t1,  title="Target 1 Reached (Trailing)", message="[AGY QUANTUM] {{ticker}} touched Target 1! Harvest 25% and trail Stop Loss!")
+alertcondition(active_side != 0 and ta.crossover(high, active_t2), title="Target 2 Reached", message="[AGY QUANTUM] {{ticker}} touched Target 2! Harvest 33% and trail runner!")
+alertcondition(just_hit_sl,  title="Stop Loss / Trailing Exit Triggered", message="[AGY QUANTUM] Position closed on {{ticker}} at {{close}}.")
